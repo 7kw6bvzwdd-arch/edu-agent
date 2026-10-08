@@ -63,6 +63,12 @@ class Lesson(Scene):
 	if err != nil || info.Size() < 1000 {
 		t.Fatal("missing playable artifact", err)
 	}
+	// Exercise the sibling quality checker against host-private files too.
+	d := Deck{Slides: []Slide{{Scene: &AnimationScene{Duration: 21}}}}
+	frames, err := s.prepareAnimationFrames(ctx, newID(), path, d, false, 21)
+	if err != nil || len(frames) != 3 {
+		t.Fatalf("private artifact keyframe inspection: frames=%d err=%v", len(frames), err)
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

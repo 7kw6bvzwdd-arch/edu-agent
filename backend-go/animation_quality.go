@@ -69,7 +69,7 @@ func (s *Server) prepareAnimationFrames(ctx context.Context, id, path string, d 
 		defer stop()
 		exec.CommandContext(c, "docker", "rm", "-f", name).Run()
 	}()
-	cmd := exec.CommandContext(checkCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", "0:0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "768m", "--cpus", "1", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m", "--mount", "type=bind,src="+root+",dst=/input,readonly", "--mount", "type=bind,src="+video+",dst=/media/Lesson.mp4,readonly", s.cfg.AnimationImage, "python", "/input/check.py")
+	cmd := exec.CommandContext(checkCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", mediaSandboxUser(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "768m", "--cpus", "1", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m", "--mount", "type=bind,src="+root+",dst=/input,readonly", "--mount", "type=bind,src="+video+",dst=/media/Lesson.mp4,readonly", s.cfg.AnimationImage, "python", "/input/check.py")
 	var output, logs bytes.Buffer
 	cmd.Stdout = &boundedWriter{w: &output, left: 48 << 20}
 	cmd.Stderr = &boundedWriter{w: &logs, left: 4096}
