@@ -29,6 +29,12 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install -r render-service-py/requirements.txt
+      # app.py renders Chinese formulas through matplotlib, which emits
+      # "Glyph ... missing" and draws tofu unless the face named by FONT
+      # actually exists. The runner image ships no CJK font.
+      # Must precede the first `import matplotlib` so its font cache sees it.
+      - name: Install CJK fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - run: python -m pytest -q render-service-py
       - run: docker build -f render-service-py/Dockerfile.manim -t edu-manim:local render-service-py
       - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &

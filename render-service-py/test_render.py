@@ -57,7 +57,12 @@ def test_render_error_identifies_page_without_echoing_input(bad,code,field):
     assert '私有标题' not in r.text and 'unsupportedSecretCommand' not in r.text
 
 
-def test_live_double_escaped_formula_with_chinese_subscripts(caplog):
+@pytest.mark.parametrize('missing_declared_font', [False, True])
+def test_live_double_escaped_formula_with_chinese_subscripts(caplog, monkeypatch, missing_declared_font):
+    if missing_declared_font:
+        # PPTX font declarations need not exist on the raster rendering host.
+        monkeypatch.setattr('app.FONT', 'Definitely Absent CJK Font')
+        monkeypatch.setattr('app._MATHTEXT_FONT', None)
     from PIL import Image
     images = []
     with warnings.catch_warnings(record=True) as caught:

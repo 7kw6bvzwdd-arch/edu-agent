@@ -1,6 +1,7 @@
 """Pure parsing and PPTX rendering. Generated Python is never executed here."""
 import io
 import base64
+import logging
 import math
 import unicodedata
 import os
@@ -49,6 +50,34 @@ THEMES={
     'coral':('FFF5EE','593A34','B84F3F','FFFCF7','FAE0D2','886257'),
 }
 FONT='Noto Sans CJK SC' if os.name!='nt' else 'Microsoft YaHei'
+_MATHTEXT_FONT=None
+
+
+def mathtext_font():
+    """Face used for local raster formula rendering, resolved once.
+
+    FONT above is a declaration written into the .pptx for the *viewer's*
+    machine and need not exist on this host. matplotlib draws any glyph the
+    chosen face lacks as tofu and only warns, so resolve against what is
+    actually installed instead of trusting the platform assumption.
+    """
+    global _MATHTEXT_FONT
+    if _MATHTEXT_FONT is None:
+        from matplotlib import font_manager
+        installed={f.name for f in font_manager.fontManager.ttflist}
+        for name in ('Noto Sans CJK SC','Source Han Sans SC','Microsoft YaHei',
+                     'SimHei','WenQuanYi Zen Hei','Noto Sans CJK JP'):
+            if name in installed:
+                _MATHTEXT_FONT=name
+                break
+        else:
+            _MATHTEXT_FONT='DejaVu Sans'
+            logging.getLogger('render').warning(
+                'no CJK font installed; Chinese formula glyphs render as boxes. '
+                'On Debian/Ubuntu install fonts-noto-cjk.')
+    return _MATHTEXT_FONT
+
+
 LAYOUTS = Literal['cover','concept','steps','comparison','example','exercise','summary']
 LAYOUT_LABELS = {'cover':'课程导入','concept':'核心概念','steps':'探究步骤',
                  'comparison':'对照分析','example':'例题解析','exercise':'课堂练习','summary':'学习小结'}
@@ -592,8 +621,9 @@ def formula(slide,text,theme):
     aliases={'implies':'Rightarrow','impliedby':'Leftarrow','iff':'Leftrightarrow'}
     text=re.sub(r'\\([A-Za-z]+)',lambda m:'\\'+aliases.get(m[1],m[1]),text)
     pic=io.BytesIO()
-    with rc_context({'font.family':FONT,'mathtext.fontset':'custom',
-                     'mathtext.rm':FONT,'mathtext.it':FONT,'mathtext.bf':FONT}):
+    face=mathtext_font()
+    with rc_context({'font.family':face,'mathtext.fontset':'custom',
+                     'mathtext.rm':face,'mathtext.it':face,'mathtext.bf':face}):
         fig.text(.02,.3,'$'+text.strip('$')+'$',fontsize=24,color='#'+ink)
         fig.savefig(pic,format='png',transparent=True,bbox_inches='tight',dpi=160,pad_inches=.03)
     pic.seek(0)
