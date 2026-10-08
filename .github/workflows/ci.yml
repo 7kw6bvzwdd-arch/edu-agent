@@ -1,0 +1,46 @@
+name: local-contracts
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: edu
+          POSTGRES_PASSWORD: edu-local-only
+          POSTGRES_DB: edu_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd "pg_isready -U edu -d edu_test"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: backend-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend-vue/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r render-service-py/requirements.txt
+      - run: python -m pytest -q render-service-py
+      - run: docker build -f render-service-py/Dockerfile.manim -t edu-manim:local render-service-py
+      - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &
+      - run: |
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
+          cd backend-go
+          TEST_VIDEO_SANDBOX=1 go test -v -run '^Test(Manim|DashScope)' ./...
+          go test -v ./...
+          go vet ./...
+        env:
+          TEST_DATABASE_URL: postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable
+          TEST_RUNTIME_DATABASE_URL: postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable
+          TEST_RENDER_URL: http://127.0.0.1:8000
+      - run: npm ci && npm run build
+        working-directory: frontend-vue

@@ -1,0 +1,121 @@
+<script setup>
+import {ref,computed,onUnmounted} from 'vue'
+import EmphasisText from './EmphasisText.vue'
+const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean})
+const imageError=ref(''),uploading=ref(false)
+let uploadVersion=0
+onUnmounted(()=>uploadVersion++)
+async function uploadPicture(event){
+ const file=event.target.files?.[0];event.target.value='';if(!file)return
+ const version=++uploadVersion,target=props.slide;imageError.value='';uploading.value=true
+ let bitmap
+ try{
+  if(!['image/png','image/jpeg'].includes(file.type)||file.size>8*1024*1024)throw Error('请选择8MB以内的PNG或JPEG图片。')
+  bitmap=await createImageBitmap(file)
+  if(Math.min(bitmap.width,bitmap.height)<32||bitmap.width*bitmap.height>24000000)throw Error('图片尺寸须至少32像素，且不超过2400万像素。')
+  const scale=Math.min(1,1200/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas')
+  canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale)
+  if(Math.min(canvas.width,canvas.height)<32)throw Error('图片过窄，请调整裁剪比例后上传。')
+  const context=canvas.getContext('2d');context.drawImage(bitmap,0,0,canvas.width,canvas.height)
+  let data=canvas.toDataURL('image/png')
+  if(data.length>170000){
+   context.fillStyle='#ffffff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height)
+   for(const quality of [.86,.75,.64,.53,.42]){data=canvas.toDataURL('image/jpeg',quality);if(data.length<=170000)break}
+  }
+  if(data.length>170000)throw Error('图片压缩后仍过大，请裁去无关区域再上传。')
+  if(version!==uploadVersion||target!==props.slide||!props.editable)return
+  if(target.chart||target.diagram||(target.table&&target.figure))throw Error('此页图形过多，请先移除图表、示意图，或表格/流程图中的一个。')
+  target.picture={data_url:data,caption:target.picture?.caption||'',source:target.picture?.source||''}
+ }catch(e){if(version===uploadVersion)imageError.value=e.message||'图片无法读取，请重新选择。'}
+ finally{bitmap?.close();if(version===uploadVersion)uploading.value=false}
+}
+function routePoints(items){return items.map((_,i)=>`${(i+.5)*100/items.length},${i%2?5:21}`).join(' ')}
+function removePicture(){uploadVersion++;uploading.value=false;props.slide.picture=null}
+function addTable(slide){slide.chart=null;slide.diagram='';slide.table={title:'',headers:['条件','观察结果'],rows:[['',''],['','']]}}
+function addFigure(slide){slide.chart=null;slide.diagram='';slide.figure={kind:'flow',title:'',items:[{label:'',detail:''},{label:'',detail:''}]}}
+const intervalValid=computed(()=>{
+ const f=props.slide.figure,v=f?.values
+ return f?.unit?.trim()&&Array.isArray(v)&&v.length===f.items.length&&v.every((n,i)=>typeof n==='number'&&Number.isFinite(n)&&(!i||n>v[i-1]))&&Number.isFinite(v.at(-1)-v[0])
+})
+function intervalPoint(i){const v=props.slide.figure.values;return 2+96*(v[i]-v[0])/(v.at(-1)-v[0])}
+function intervalValue(n){return Number(n.toPrecision(8))+'\u00a0'+props.slide.figure.unit}
+function changeFigureKind(){
+ const f=props.slide.figure
+ if(f.kind==='interval'){f.unit||='min';if(f.values?.length!==f.items.length)f.values=f.items.map((_,i)=>i*10)}
+ else{delete f.unit;delete f.values}
+}
+function changeNodes(add){
+ const f=props.slide.figure
+ if(add){f.items.push({label:'',detail:''});if(f.kind==='interval')f.values.push((Number(f.values.at(-1))||0)+10)}
+ else{f.items.pop();if(f.kind==='interval')f.values.pop()}
+}
+</script>
+
+<template>
+ <div v-if="preview" class="evidence-preview">
+  <div :class="['evidence-pair',{'has-both':slide.table&&slide.figure||slide.picture&&(slide.table||slide.figure)}]">
+   <div v-if="slide.table" class="evidence-table"><h3 v-if="slide.table.title">{{slide.table.title}}</h3><table><thead><tr><th v-for="(h,i) in slide.table.headers" :key="i" scope="col"><EmphasisText :text="h" :terms="slide.emphasis||[]"/></th></tr></thead><tbody><tr v-for="(row,i) in slide.table.rows" :key="i"><td v-for="(value,j) in row" :key="j"><EmphasisText :text="value" :terms="slide.emphasis||[]"/></td></tr></tbody></table></div>
+   <div v-if="slide.figure" class="evidence-figure">
+    <h3 v-if="slide.figure.title">{{slide.figure.title}}</h3>
+    <template v-if="slide.figure.kind==='interval'">
+     <div v-if="intervalValid" class="interval-preview">
+      <ol class="interval-labels" :style="{'--nodes':slide.figure.items.length}"><li v-for="(item,i) in slide.figure.items" :key="i"><b><EmphasisText :text="item.label" :terms="slide.emphasis||[]"/></b><span>{{item.detail}}</span></li></ol>
+      <svg viewBox="0 0 100 20" role="img" aria-label="按数值比例绘制的区间，下面标注各段长度">
+       <line v-for="(_,i) in slide.figure.items" :key="'label'+i" :x1="(i+.5)*100/slide.figure.items.length" y1="0" :x2="intervalPoint(i)" y2="8" stroke="currentColor" stroke-width=".18"/>
+       <g v-for="(_,i) in slide.figure.values.slice(1)" :key="i">
+        <rect class="interval-segment" :x="intervalPoint(i)" y="8" :width="intervalPoint(i+1)-intervalPoint(i)" height="2" fill="currentColor" :opacity="i%2?.5:1"/>
+        <line :x1="(intervalPoint(i)+intervalPoint(i+1))/2" y1="10" :x2="(i+.5)*100/(slide.figure.items.length-1)" y2="20" stroke="currentColor" stroke-width=".18"/>
+       </g>
+       <line v-for="(_,i) in slide.figure.items" :key="'tick'+i" :x1="intervalPoint(i)" y1="7" :x2="intervalPoint(i)" y2="11" stroke="currentColor" stroke-width=".3"/>
+      </svg>
+      <div class="interval-values" :style="{'--nodes':slide.figure.items.length-1}"><b v-for="(v,i) in slide.figure.values.slice(1)" :key="i">{{intervalValue(v-slide.figure.values[i])}}</b></div>
+      <small>总跨度 {{intervalValue(slide.figure.values.at(-1)-slide.figure.values[0])}} · 线段按数值比例绘制</small>
+     </div>
+     <p v-else class="image-error" role="alert">请填写单位与各节点数值，数值须严格递增。</p>
+    </template>
+    <template v-else>
+     <small v-if="slide.figure.kind==='timeline'">顺序示意 · 不按时间比例</small>
+     <template v-if="slide.figure.kind==='route'"><small>路线示意 · 不表示实际距离或方向</small><svg class="route-path" viewBox="0 0 100 26" role="img" aria-label="位置连接示意"><polyline :points="routePoints(slide.figure.items)" fill="none" stroke="currentColor" stroke-width="1.2"/><circle v-for="(_,i) in slide.figure.items" :key="i" :cx="(i+.5)*100/slide.figure.items.length" :cy="i%2?5:21" r="1.8" fill="currentColor"/></svg></template>
+     <ol :class="slide.figure.kind" :style="{'--nodes':slide.figure.items.length}"><li v-for="(item,i) in slide.figure.items" :key="i"><b><EmphasisText :text="item.label" :terms="slide.emphasis||[]"/></b><span><EmphasisText :text="item.detail" :terms="slide.emphasis||[]"/></span></li></ol>
+    </template>
+   </div>
+   <figure v-if="slide.picture && /^data:image\/(png|jpeg);base64,/.test(slide.picture.data_url)" class="evidence-picture"><img :src="slide.picture.data_url" :alt="slide.picture.caption"><figcaption>{{slide.picture.caption}}</figcaption></figure>
+  </div>
+  <p v-if="slide.focus" class="evidence-focus"><EmphasisText :text="slide.focus" :terms="slide.emphasis||[]"/></p>
+ </div>
+ <details v-else class="courseware-evidence-editor">
+  <summary>配图、课堂图解、表格与重点标色</summary>
+  <label>核心问题或结论<input v-model="slide.focus" :readonly="!editable" maxlength="60" placeholder="练习页写提示，不提前透露答案"></label>
+  <label>重点词（每行一个，最多6个，每词20字）<textarea :value="(slide.emphasis||[]).join('\n')" @input="slide.emphasis=$event.target.value.split('\n').map(x=>x.trim()).filter(Boolean)" :readonly="!editable" rows="2" placeholder="填写正文或表格中已有的关键词、数值"></textarea></label>
+  <div class="evidence-actions" v-if="editable"><button type="button" v-if="!slide.table" :disabled="!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.figure" @click="addTable(slide)">＋ 教学表格</button><button type="button" v-if="!slide.figure" :disabled="!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.table" @click="addFigure(slide)">＋ 流程/时间线/路线</button></div>
+  <section class="evidence-edit-section">
+   <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg" :disabled="uploading||!!slide.chart||!!slide.diagram||!!slide.table&&!!slide.figure" @change="uploadPicture"></label>
+   <p v-if="imageError" role="alert" class="image-error">{{imageError}}</p>
+   <template v-if="slide.picture"><img class="image-thumbnail" v-if="/^data:image\/(png|jpeg);base64,/.test(slide.picture.data_url)" :src="slide.picture.data_url" :alt="slide.picture.caption||'上传的配图'"><label>图片说明（必填）<input v-model="slide.picture.caption" :readonly="!editable" maxlength="60" placeholder="说明图片与知识点的关系"></label><label>图片出处（必填）<input v-model="slide.picture.source" :readonly="!editable" maxlength="300" placeholder="如：本人拍摄；或作者、来源网址及许可"></label><button v-if="editable" type="button" @click="removePicture">移除图片</button></template>
+   <p class="fine">PNG/JPEG，自动缩放压缩；请使用有权使用的图片。可与表格或流程图组合，图片来源写入PPT备注。单页AI改写保留原图，不读取图像内容。</p>
+  </section>
+  <p class="fine" v-if="slide.chart||slide.diagram">此页已有图表或固定示意图；课堂表格和流程图请放到其他页。</p>
+  <section v-if="slide.table" class="evidence-edit-section">
+   <label>表格标题<input v-model="slide.table.title" :readonly="!editable" maxlength="60"></label>
+   <div class="evidence-grid" :style="{'--columns':slide.table.headers.length}"><label v-for="(_,j) in slide.table.headers" :key="j">{{'第'+(j+1)+'列表头'}}<input v-model="slide.table.headers[j]" :readonly="!editable" maxlength="24"></label></div>
+   <div class="evidence-grid" v-for="(row,i) in slide.table.rows" :key="i" :style="{'--columns':row.length}"><input v-for="(_,j) in row" :key="j" v-model="row[j]" :readonly="!editable" maxlength="60" :aria-label="'第'+(i+1)+'行第'+(j+1)+'列'"></div>
+   <div v-if="editable" class="evidence-actions"><button type="button" :disabled="slide.table.rows.length>=5" @click="slide.table.rows.push(slide.table.headers.map(()=>''))">加行</button><button type="button" :disabled="slide.table.rows.length<=1" @click="slide.table.rows.pop()">删末行</button><button type="button" :disabled="slide.table.headers.length>=4" @click="slide.table.headers.push('');slide.table.rows.forEach(r=>r.push(''))">加列</button><button type="button" :disabled="slide.table.headers.length<=2" @click="slide.table.headers.pop();slide.table.rows.forEach(r=>r.pop())">删末列</button><button type="button" @click="slide.table=null">移除表格</button></div>
+   <p class="fine">2–4列、1–5行数据；不要留空，未知值填“待测”。示例数据请在标题中注明。</p>
+  </section>
+  <section v-if="slide.figure" class="evidence-edit-section">
+   <div class="media-fields"><label>图解标题<input v-model="slide.figure.title" :readonly="!editable" maxlength="60"></label><label>图解类型<select v-model="slide.figure.kind" @change="changeFigureKind" :disabled="!editable"><option value="flow">流程推理</option><option value="timeline">时间顺序（不按比例）</option><option value="route">路线示意（不按比例）</option><option value="interval">数值区间（按比例）</option></select></label></div>
+   <label v-if="slide.figure.kind==='interval'">区间单位<input v-model="slide.figure.unit" :readonly="!editable" maxlength="12" placeholder="如 min、s、m"></label>
+   <div class="media-fields" v-for="(item,i) in slide.figure.items" :key="i"><label>{{'节点'+(i+1)}}<input v-model="item.label" :readonly="!editable" maxlength="24"></label><label>说明<input v-model="item.detail" :readonly="!editable" maxlength="60"></label><label v-if="slide.figure.kind==='interval'">{{'节点'+(i+1)+'数值'}}<input type="number" step="any" v-model.number="slide.figure.values[i]" :readonly="!editable"></label></div>
+   <p v-if="slide.figure.kind==='interval'" class="fine">使用同一起点与单位的递增数值，如 0、30、32、60 min。实际时刻写在节点标签；完整讲解放备注。</p>
+   <div v-if="editable" class="evidence-actions"><button type="button" :disabled="slide.figure.items.length>=4" @click="changeNodes(true)">加节点</button><button type="button" :disabled="slide.figure.items.length<=2" @click="changeNodes(false)">删末节点</button><button type="button" @click="slide.figure=null">移除图解</button></div>
+  </section>
+  <p class="fine" v-if="slide.table||slide.figure">图解页正文保留1–2条短问题，完整讲解放备注。图表可在导出的PPT中继续编辑。</p>
+ </details>
+</template>
+
+<style scoped>
+.interval-preview svg{display:block;width:100%;color:var(--green,#009b51)}.interval-preview .interval-labels,.interval-values{display:grid;grid-template-columns:repeat(var(--nodes),minmax(0,1fr));gap:8px;text-align:center;margin:12px 0 0;padding:0;border:0}.interval-labels li{overflow-wrap:anywhere}.interval-values{margin:0 0 18px;font-size:16px}.interval-values b{white-space:nowrap}
+.route-path{display:block;width:100%;max-height:150px;margin:10px 0;color:#009b51}.evidence-figure ol.route{display:grid;grid-template-columns:repeat(var(--nodes),minmax(0,1fr));gap:10px;border:0;padding:0;margin:4px 0}.route li{overflow-wrap:anywhere}.evidence-preview th :deep(.teaching-emphasis){color:inherit;text-decoration:underline}:global(.classroom){background:#fff;color:#182820}:global(.classroom .preview-kicker){color:#009b51}:global(.classroom .theme-mini){border-top:6px solid #009b51;border-right:8px solid #ffd539}:global(.classroom .evidence-focus){background:#fff2b3;border-color:#009b51;padding:10px 14px}:global(.classroom .evidence-preview th){background:#ffe99b}:global(.classroom .evidence-preview tbody tr:nth-child(even)){background:#fff9de}
+.evidence-picture{margin:0;display:flex;flex-direction:column;justify-content:center;gap:10px}.evidence-picture img{width:100%;height:auto;max-height:300px;object-fit:contain}.evidence-picture figcaption{font-size:13px}.image-thumbnail{max-width:100%;max-height:160px;object-fit:contain;margin-top:10px}.image-error{color:#a44d3d;font-size:13px}
+.courseware-evidence-editor{margin:14px 0;border-top:1px solid var(--line);padding-top:12px}.courseware-evidence-editor summary{font-size:12px;cursor:pointer;color:var(--green)}.courseware-evidence-editor label{margin-top:10px}.evidence-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.evidence-actions button{font-size:11px;padding:6px 10px}.evidence-grid{display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:8px;margin-top:8px}.evidence-grid input{min-width:0}.evidence-edit-section{margin-top:14px;padding-top:8px;border-top:1px solid var(--line)}.evidence-pair{display:grid;gap:22px}.evidence-pair.has-both{grid-template-columns:1.15fr 1fr}.evidence-pair>*{min-width:0}.evidence-preview h3{font-size:16px;margin:10px 0 12px}.evidence-preview table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}.evidence-preview td,.evidence-preview th{border-bottom:1px solid currentColor;padding:10px 8px;overflow-wrap:anywhere;text-align:left}.evidence-preview th{background:#88888818}.evidence-figure ol{list-style:none;margin:14px 0;padding:0 0 0 16px;border-left:2px solid currentColor;display:grid;gap:18px}.evidence-figure li{display:flex;flex-direction:column;gap:5px;padding:0;background:none;border:0;font-size:15px}.evidence-figure li span{font-size:13px;opacity:.8}.evidence-focus{border-left:4px solid currentColor;padding:8px 0 8px 14px;font-size:19px;font-weight:700;margin:22px 0 0}.evidence-preview small{font-size:11px;opacity:.75}@media(max-width:650px){.evidence-pair.has-both{grid-template-columns:1fr}.evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.evidence-preview td,.evidence-preview th{padding:8px 4px}.evidence-focus{font-size:16px}}
+</style>

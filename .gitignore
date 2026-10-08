@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+work/
+storage/
+.venv/
+node_modules/
+frontend-vue/dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+*.exe

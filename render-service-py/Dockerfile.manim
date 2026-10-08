@@ -1,0 +1,6 @@
+FROM manimcommunity/manim:v0.19.0
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg && rm -rf /var/lib/apt/lists/*
+USER 1000:1000
+WORKDIR /tmp
+ENTRYPOINT []
