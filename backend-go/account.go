@@ -62,7 +62,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, a Actor)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), "UPDATE users SET password_hash=$1 WHERE id=$2", string(fresh), a.UserID); err != nil {
+	if _, err = tx.Exec(r.Context(), "UPDATE users SET password_hash=$1,recovery_hash='' WHERE id=$2", string(fresh), a.UserID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(r.Context(), "DELETE FROM sessions WHERE user_id=$1", a.UserID); err != nil {

@@ -107,7 +107,7 @@ func (s *Server) prepareAnimationFrames(ctx context.Context, id, path string, d 
 		if len(files[name]) < 1000 {
 			return nil, fmt.Errorf("缺少关键帧")
 		}
-		if err = os.WriteFile(filepath.Join(root, name), files[name], 0600); err != nil {
+		if err = s.writeStoredFile(ctx, filepath.Join(root, name), files[name]); err != nil {
 			return nil, err
 		}
 		frames = append(frames, QualityFrame{Index: i, Second: t})
@@ -116,7 +116,7 @@ func (s *Server) prepareAnimationFrames(ctx context.Context, id, path string, d 
 		if len(files["Lesson.mp4"]) < 1000 {
 			return nil, fmt.Errorf("缺少标注后的视频")
 		}
-		if err = os.WriteFile(path, files["Lesson.mp4"], 0600); err != nil {
+		if err = s.writeStoredFile(ctx, path, files["Lesson.mp4"]); err != nil {
 			return nil, err
 		}
 	}
@@ -272,8 +272,7 @@ func (s *Server) animationFrame(w http.ResponseWriter, r *http.Request, a Actor)
 		return fail(404, "关键帧不存在")
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeFile(w, r, filepath.Join(s.cfg.Storage, "animation-quality", r.PathValue("id"), fmt.Sprintf("frame-%d.jpg", i)))
-	return nil
+	return s.serveStoredFile(w, r, filepath.Join(s.cfg.Storage, "animation-quality", r.PathValue("id"), fmt.Sprintf("frame-%d.jpg", i)))
 }
 
 type VisualAssessment struct {
@@ -306,7 +305,11 @@ func (s *Server) reviewAnimationFrames(ctx context.Context, a Actor, id string, 
 	client.Timeout = 90 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	start := time.Now()
-	raw, err := s.postBytesWithClient(ctx, &client, strings.TrimRight(s.cfg.VisionURL, "/")+"/chat/completions", map[string]any{"model": s.cfg.VisionModel, "messages": []map[string]any{{"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "max_tokens": 1800}, s.cfg.VisionKey)
+	endpoint, err := chatEndpoint(s.cfg.VisionURL)
+	if err != nil {
+		return result
+	}
+	raw, err := s.postBytesWithClient(ctx, &client, endpoint, map[string]any{"model": s.cfg.VisionModel, "messages": []map[string]any{{"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "max_tokens": 1800}, s.cfg.VisionKey)
 	var reply struct {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`

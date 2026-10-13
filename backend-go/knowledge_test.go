@@ -4,11 +4,86 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestKnowledgeLargeDocumentForwarding(t *testing.T) {
+	const size = 100 << 20
+	path := filepath.Join(t.TempDir(), "large.pdf")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.WriteAt([]byte("END"), size-3); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		n, err := io.CopyN(io.Discard, part, size-3)
+		tail, tailErr := io.ReadAll(part)
+		if err != nil || tailErr != nil || n != size-3 || string(tail) != "END" {
+			t.Errorf("document truncated: bytes=%d tail=%q error=%v", n, tail, err)
+		}
+		respond(w, 200, map[string]any{"pages": []Page{{Page: 1, Text: "large document"}}})
+	}))
+	defer renderer.Close()
+	s := &Server{cfg: Config{RenderURL: renderer.URL}, http: renderer.Client()}
+	if _, err = s.extractFile(context.Background(), path, "large.pdf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKnowledgeOversizedUpload(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "upload-*.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err = f.Truncate((100 << 20) + 1); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	m := multipart.NewWriter(writer)
+	go func() {
+		part, err := m.CreateFormFile("file", "large.pdf")
+		if err == nil {
+			_, err = io.Copy(part, f)
+		}
+		if err == nil {
+			err = m.Close()
+		}
+		writer.CloseWithError(err)
+	}()
+	defer reader.Close()
+	r := httptest.NewRequest("POST", "/api/documents", reader)
+	r.Header.Set("Content-Type", m.FormDataContentType())
+	s := &Server{cfg: Config{Storage: t.TempDir()}}
+	err = s.uploadDocument(httptest.NewRecorder(), r, Actor{TenantID: 1})
+	if err == nil || err.Error() != "文件超过100MB" {
+		t.Fatalf("expected 100MB upload rejection, got %v", err)
+	}
+}
 
 func TestKnowledgeHTTPIsolationAndRetry(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" || os.Getenv("TEST_RENDER_URL") == "" {

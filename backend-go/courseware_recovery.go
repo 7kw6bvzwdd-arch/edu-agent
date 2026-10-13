@@ -5,12 +5,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"net/http"
 	"os"
+	"strings"
 )
+
+const coursewareResumeNotice = "已恢复逐页检查点，继续只处理问题页和未完成页；未变更页面的审核保留。"
 
 // Split incompatible visual objects without discarding content or asking the
 // model to regenerate subject matter. Input still targets 8–20 teaching pages;
 // continuation pages may extend the editable artifact up to 100 pages.
 func arrangeCourseware(d Deck) Deck {
+	if d.Plan != nil {
+		return d
+	}
 	d = arrangeCoursewareTables(d)
 	d = arrangeCoursewareFigures(d)
 	slides := make([]Slide, 0, len(d.Slides))
@@ -80,8 +86,7 @@ func reusableCourseware(d Deck, sources []Source) bool {
 	return true
 }
 
-// Each interrupted attempt has at most one follow-up, preserving released
-// ledger entries. Concurrent clicks return that same child and reserve once.
+// Legacy continuation links remain readable; new continuations reuse the work.
 func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor) error {
 	tx, err := s.tx(r.Context(), a.TenantID)
 	if err != nil {
@@ -92,29 +97,55 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 	var input TaskInput
 	var draft Deck
 	var sources []Source
-	err = tx.QueryRow(r.Context(), "SELECT type,status,mode,charge_state,input,result,sources FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL FOR UPDATE", r.PathValue("id"), a.MemberID).Scan(&kind, &status, &mode, &charge, &input, &draft, &sources)
-	if err != nil {
-		return err
-	}
-	if kind != "courseware" || status != "failed" || charge != "released" {
-		return fail(409, "此入口仅用于继续已中断且释放额度的课件")
-	}
-	if mode != s.cfg.Mode {
-		return fail(409, "运行模式已切换，请重新创建课件")
-	}
-	key := "retry-" + r.PathValue("id")
-	var existing string
-	var deleted bool
-	err = tx.QueryRow(r.Context(), "SELECT id,deleted_at IS NOT NULL FROM tasks WHERE member_id=$1 AND idempotency_key=$2", a.MemberID, key).Scan(&existing, &deleted)
-	if err == nil {
+	current := r.PathValue("id")
+	key := ""
+	cycle := 0
+	for depth := 0; depth < 100; depth++ {
+		input, draft, sources = TaskInput{}, Deck{}, nil
+		var restored bool
+		var leased bool
+		err = tx.QueryRow(r.Context(), "SELECT type,status,mode,charge_state,input,result,sources,restored_at IS NOT NULL,charge_cycle,COALESCE(lease_until>now(),false) FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL FOR UPDATE", current, a.MemberID).Scan(&kind, &status, &mode, &charge, &input, &draft, &sources, &restored, &cycle, &leased)
+		if err != nil {
+			return err
+		}
+		resumable := (status == "failed" || status == "cancelled" && restored) && charge == "released"
+		if kind == "courseware" && charge == "reserved" {
+			respond(w, 202, map[string]string{"id": current})
+			return nil
+		}
+		if kind != "courseware" || (depth == 0 && !resumable) {
+			return fail(409, "此入口仅用于继续已中断且释放额度的课件")
+		}
+		if mode != s.cfg.Mode {
+			return fail(409, "运行模式已切换，请重新创建课件")
+		}
+		if leased {
+			return fail(409, "上次制作正在结束，草稿已保存，请稍后继续")
+		}
+		if err = coursewareChatIdle(r.Context(), tx, current, ""); err != nil {
+			return err
+		}
+		if depth > 0 && !resumable {
+			respond(w, 202, map[string]string{"id": current})
+			return nil
+		}
+		key = "retry-" + current
+		var existing string
+		var deleted bool
+		err = tx.QueryRow(r.Context(), "SELECT id,deleted_at IS NOT NULL FROM tasks WHERE member_id=$1 AND idempotency_key=$2", a.MemberID, key).Scan(&existing, &deleted)
+		if err == pgx.ErrNoRows {
+			break
+		}
+		if err != nil {
+			return err
+		}
 		if deleted {
 			return fail(409, "续作已删除，请新建课件")
 		}
-		respond(w, 202, map[string]string{"id": existing})
-		return nil
+		current = existing
 	}
-	if err != pgx.ErrNoRows {
-		return err
+	if key == "" || key != "retry-"+current {
+		return fail(409, "续作次数过多，请从最新作品继续")
 	}
 	var balance, reserved int64
 	var plan string
@@ -129,30 +160,44 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 	}
 	stage := "pending"
 	previewPath := ""
-	revision := 0
 	result := any(map[string]any{})
-	draft = arrangeCourseware(draft)
-	if input.PreviewFirst && validateDeckMinimum(draft, 3) == nil && coursewareSourceError(draft, sources) == nil {
-		// A released task keeps its private history. Reuse only an artifact matching
-		// the current visible pages; never serve a stale PPTX as the new preview.
-		err = tx.QueryRow(r.Context(), "SELECT pptx_path FROM artifact_revisions WHERE task_id=$1 AND result->'slides'=$2::jsonb AND result->>'theme'=$3 AND result->>'title'=$4 AND pptx_path<>'' ORDER BY revision DESC LIMIT 1", r.PathValue("id"), asJSON(draft.Slides), draft.Theme, draft.Title).Scan(&previewPath)
-		if err != nil && err != pgx.ErrNoRows {
-			return err
-		}
-		if _, err := os.Stat(previewPath); err != nil {
-			previewPath = ""
-		}
-		if previewPath != "" && (len(draft.Slides) == 3 || reusableCourseware(draft, sources)) {
-			stage = "awaiting_confirmation"
-			if len(draft.Slides) == 3 {
-				stage = "awaiting_preview"
+	if input.PreviewFirst && (len(draft.Slides) > 0 || draft.Generation != nil) {
+		// Content checkpoints do not depend on successful whole-deck rendering.
+		// Never arrange/split a saved page here: its identity and approval hash
+		// must survive every continuation.
+		phase := "preview"
+		if draft.Generation != nil && draft.Generation.Phase == "expand" {
+			phase = "expand"
+		} else if len(draft.Slides) >= 3 {
+			prefix := draft
+			prefix.Slides = prefix.Slides[:3]
+			if allSlidesApproved(r.Context(), tx, current, prefix) == nil || len(draft.Slides) > 3 {
+				phase = "expand"
 			}
-			revision = 1
-			draft.Evaluation = nil
-			draft.NeedsReview = true
-			draft.Notice += " 已恢复上次真实预览，请重新逐页审核；未自动生成剩余页。"
-			result = draft
 		}
+		if draft.Generation == nil {
+			draft.Generation = &CoursewareCheckpoint{Version: coursewarePageRepairVersion, Phase: phase}
+		}
+		if phase == "expand" {
+			stage = "expand_pending"
+		}
+		draft.Evaluation = nil
+		draft.NeedsReview = true
+		draft.Notice = strings.TrimSpace(strings.ReplaceAll(draft.Notice, coursewareResumeNotice, "")) + " " + coursewareResumeNotice
+		if len(draft.Slides) == 3 && phase == "preview" && draft.Generation.RepairPage == 0 {
+			err = tx.QueryRow(r.Context(), "SELECT pptx_path FROM artifact_revisions WHERE task_id=$1 AND result->'slides'=$2::jsonb AND result->>'theme'=$3 AND result->>'title'=$4 AND pptx_path<>'' ORDER BY revision DESC LIMIT 1", current, asJSON(draft.Slides), draft.Theme, draft.Title).Scan(&previewPath)
+			if err != nil && err != pgx.ErrNoRows {
+				return err
+			}
+			if _, statErr := os.Stat(previewPath); statErr != nil {
+				previewPath = ""
+			}
+			if previewPath != "" {
+				stage = "awaiting_preview"
+				draft.Generation = nil
+			}
+		}
+		result = draft
 	} else if !input.PreviewFirst && reusableCourseware(draft, sources) {
 		stage = "awaiting_confirmation"
 		draft.NeedsReview = true
@@ -160,15 +205,15 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 		draft.Notice += " 已恢复上次草稿，请确认内容后继续制作。"
 		result = draft
 	}
-	id := newID()
-	input.IdempotencyKey = key
+	id := current
+	cycle++
 	if _, err = tx.Exec(r.Context(), "UPDATE members SET reserved=reserved+20 WHERE id=$1", a.MemberID); err != nil {
 		return err
 	}
 	if stage == "pending" {
 		previewPath = ""
 	}
-	_, err = tx.Exec(r.Context(), "INSERT INTO tasks(id,tenant_id,member_id,type,status,stage,input,result,sources,mode,cost,idempotency_key,pptx_path,revision) VALUES($1,$2,$3,'courseware',$4,$4,$5,$6,$7,$8,20,$9,$10,$11)", id, a.TenantID, a.MemberID, stage, asJSON(input), asJSON(result), asJSON(sources), mode, key, previewPath, revision)
+	_, err = tx.Exec(r.Context(), "UPDATE tasks SET status=$1,stage=$1,result=$2,sources=$3,pptx_path=$4,revision=revision+1,charge_state='reserved',charge_cycle=$5,error='',restored_at=NULL,capacity_hold=false,lease_until=NULL,next_attempt_at=NULL,automatic_failures=0,courseware_provider_calls=0,updated_at=now() WHERE id=$6", stage, asJSON(result), asJSON(sources), previewPath, cycle, id)
 	if err != nil {
 		return err
 	}
@@ -177,7 +222,7 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 			return err
 		}
 	}
-	if _, err = tx.Exec(r.Context(), "INSERT INTO ledger(tenant_id,member_id,kind,delta,balance_after,reference) VALUES($1,$2,'reserve',0,$3,$4)", a.TenantID, a.MemberID, balance, id); err != nil {
+	if _, err = tx.Exec(r.Context(), "INSERT INTO ledger(tenant_id,member_id,kind,delta,balance_after,reference) VALUES($1,$2,'reserve',0,$3,$4)", a.TenantID, a.MemberID, balance, fmt.Sprintf("%s:%d", id, cycle)); err != nil {
 		return err
 	}
 	if err = event(r.Context(), tx, a.TenantID, id, stage, "继续制作：已重新预留20积分，上次未结算；有草稿时直接恢复供确认"); err != nil {

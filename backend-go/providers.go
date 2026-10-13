@@ -4,14 +4,33 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	urlpkg "net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+func chatEndpoint(address string) (string, error) {
+	u, err := urlpkg.Parse(strings.TrimSpace(address))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("模型服务地址无效，请填写HTTP或HTTPS地址")
+	}
+	u.Path = strings.TrimRight(u.Path, "/")
+	if strings.HasSuffix(u.Path, "/responses") {
+		return "", fmt.Errorf("当前文本模型使用Chat Completions协议，请将模型地址中的/responses改为/chat/completions，或填写API基础地址")
+	}
+	if !strings.HasSuffix(u.Path, "/chat/completions") {
+		u.Path += "/chat/completions"
+	}
+	u.RawPath = ""
+	return u.String(), nil
+}
 
 func (s *Server) postBytes(ctx context.Context, url string, body any, key string) ([]byte, error) {
 	return s.postBytesWithClient(ctx, s.http, url, body, key)
@@ -28,23 +47,31 @@ func (s *Server) postBytesWithClient(ctx context.Context, client *http.Client, u
 	}
 	res, e := client.Do(req)
 	if e != nil {
-		return nil, providerCallError{Temporary: true}
+		return nil, providerTransportError(ctx, e)
 	}
 	defer res.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(res.Body, 25<<20))
 	if e != nil {
-		return nil, e
+		return nil, providerTransportError(ctx, e)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		if url == s.cfg.RenderURL+"/render/pptx" {
 			if res.StatusCode == 422 {
 				return nil, renderValidationError(b)
 			}
-			return nil, fmt.Errorf("PPT排版服务返回HTTP %d", res.StatusCode)
+			return nil, fail(res.StatusCode, fmt.Sprintf("PPT排版服务返回HTTP %d", res.StatusCode))
 		}
 		return nil, providerCallError{Status: res.StatusCode, Temporary: res.StatusCode == 429 || res.StatusCode == 502 || res.StatusCode == 503 || res.StatusCode == 504}
 	}
 	return b, nil
+}
+
+func providerTransportError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var network net.Error
+	return providerCallError{Temporary: true, Timeout: errors.As(err, &network) && network.Timeout()}
 }
 
 func renderValidationError(body []byte) error {
@@ -83,6 +110,11 @@ func (s *Server) chat(ctx context.Context, a Actor, task, model, operation, prom
 }
 
 func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, model, operation, prompt string, outputLimit ...int) (content string, err error) {
+	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" {
+		if err = s.reserveCoursewareProviderCall(ctx, a, task); err != nil {
+			return "", err
+		}
+	}
 	start := time.Now()
 	inputTokens, outputTokens := 0, 0
 	defer func() {
@@ -107,6 +139,9 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 	}
 	// Copy the client so long-form chat has its own deadline without changing other services.
 	client := *s.http
+	if strings.HasSuffix(operation, ".review") && s.reviewHTTP != nil {
+		client = *s.reviewHTTP
+	}
 	client.Timeout = 180 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	chatCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
@@ -119,8 +154,21 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 			payload["thinking"] = map[string]string{"type": "disabled"}
 		}
 	}
-	b, e := s.postBytesWithClient(chatCtx, &client, strings.TrimRight(url, "/")+"/chat/completions", payload, key)
+	endpoint, e := chatEndpoint(url)
 	if e != nil {
+		return "", e
+	}
+	// This Ark model defaults to reasoning, which can exceed the page batch's
+	// output/time budget. Only send the provider-specific option to that model.
+	providerURL, _ := urlpkg.Parse(endpoint)
+	if providerURL.Hostname() == "ark.cn-beijing.volces.com" && model == "glm-5-3-flash-260828" && strings.HasPrefix(operation, "courseware.") {
+		payload["thinking"] = map[string]string{"type": "disabled"}
+	}
+	b, e := s.postBytesWithClient(chatCtx, &client, endpoint, payload, key)
+	if e != nil {
+		if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
+			return "", providerCallError{Temporary: true, Timeout: true}
+		}
 		return "", e
 	}
 	var reply struct {

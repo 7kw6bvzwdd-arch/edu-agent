@@ -504,7 +504,7 @@ func (s *Server) saveArkVideo(ctx context.Context, a Actor, id, raw string, seco
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return "", e
 	}
-	return path, os.WriteFile(path, content, 0600)
+	return path, s.writeStoredFile(ctx, path, content)
 }
 
 func (s *Server) inspectCloudVideo(ctx context.Context, full string, seconds int) error {

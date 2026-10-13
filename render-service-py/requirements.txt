@@ -7,3 +7,5 @@ python-multipart==0.0.32
 httpx==0.28.1
 pytest==9.1.1
 matplotlib==3.11.2
+latex2mathml==3.81.1
+mathml2omml==0.0.2

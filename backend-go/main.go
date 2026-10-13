@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -27,6 +28,10 @@ import (
 var schema embed.FS
 
 type Config struct {
+	MinIOEndpoint, MinIOAccessKey, MinIOSecretKey, MinIOBucket, MinIOPrefix string
+	RedisAddr, RedisUsername, RedisPassword, RedisPrefix                    string
+	MilvusURL, MilvusToken, MilvusDatabase, MilvusCollection                string
+
 	VisionURL, VisionKey, VisionModel                                                                                                                                                                                                 string
 	ReviewURL, ReviewKey, ReviewModel                                                                                                                                                                                                 string
 	VideoProvider                                                                                                                                                                                                                     string
@@ -36,11 +41,14 @@ type Config struct {
 	DatabaseURL, RuntimeURL, Secret, Mode, SeedPassword, Storage, RenderURL, LLMURL, LLMKey, LLMModel, EvalModel, EmbeddingModel, EmbeddingURL, EmbeddingKey, SearchKey, SearchURL, RerankURL, RerankModel, RerankKey, AnimationImage string
 }
 type Server struct {
-	db        *pgxpool.Pool
-	cfg       Config
-	mux       *http.ServeMux
-	http      *http.Client
-	mediaHTTP *http.Client
+	cloud cloudServices
+
+	db         *pgxpool.Pool
+	cfg        Config
+	mux        *http.ServeMux
+	http       *http.Client
+	reviewHTTP *http.Client
+	mediaHTTP  *http.Client
 }
 type Actor struct {
 	UserID      int64    `json:"user_id"`
@@ -91,6 +99,7 @@ func decode(r *http.Request, v any) error {
 }
 func api(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(withCoursewareArtifacts(r.Context()))
 		if e := fn(w, r); e != nil {
 			var ae APIError
 			if errors.As(e, &ae) {
@@ -99,7 +108,7 @@ func api(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 				respond(w, 404, map[string]string{"message": "记录不存在或无权访问"})
 			} else {
 				log.Printf("request %s %s: %v", r.Method, r.URL.Path, e)
-				respond(w, 500, map[string]string{"message": "操作失败，请查看服务端日志"})
+				respond(w, 500, map[string]string{"message": "暂时无法完成操作，已有内容会保留，请稍后重试"})
 			}
 		}
 	}
@@ -145,7 +154,16 @@ func NewServer(ctx context.Context, c Config) (*Server, error) {
 		p.Close()
 		return nil, e
 	}
-	s := &Server{db: p, cfg: c, mux: http.NewServeMux(), http: &http.Client{Timeout: 100 * time.Second}, mediaHTTP: publicHTTPClient(90 * time.Second)}
+	// The review gateway advertises HTTP/2 but returns invalid initial frames.
+	// Keep generation's transport; review JSON uses HTTP/1.1 with verified TLS.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetHTTP1(true)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = new(tls.Config)
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	s := &Server{db: p, cfg: c, mux: http.NewServeMux(), http: &http.Client{Timeout: 100 * time.Second}, reviewHTTP: &http.Client{Timeout: 100 * time.Second, Transport: transport}, mediaHTTP: publicHTTPClient(90 * time.Second)}
 	if e = os.MkdirAll(c.Storage, 0700); e != nil {
 		return nil, e
 	}
@@ -175,10 +193,23 @@ func NewServer(ctx context.Context, c Config) (*Server, error) {
 		p.Close()
 		s.db = runtime
 	}
+	if err := s.initCloud(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
 	s.routes()
 	return s, nil
 }
-func (s *Server) Close() { s.db.Close(); s.mediaHTTP.CloseIdleConnections() }
+func (s *Server) Close() {
+	s.db.Close()
+	s.mediaHTTP.CloseIdleConnections()
+	if s.reviewHTTP != nil {
+		s.reviewHTTP.CloseIdleConnections()
+	}
+	if s.cloud.redis != nil {
+		s.cloud.redis.Close()
+	}
+}
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -211,7 +242,10 @@ func (s *Server) actor(r *http.Request) (Actor, error) {
 	}
 	var active bool
 	e = s.db.QueryRow(r.Context(), "SELECT u.active FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.expires_at>now()", claims.Session, claims.UserID).Scan(&active)
-	if e != nil || !active {
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return a, fail(503, "登录验证服务暂不可用，请稍后重试")
+	}
+	if errors.Is(e, pgx.ErrNoRows) || !active {
 		return a, fail(401, "登录已失效")
 	}
 	tx, e := s.tx(r.Context(), claims.TenantID)
@@ -220,8 +254,11 @@ func (s *Server) actor(r *http.Request) (Actor, error) {
 	}
 	defer tx.Rollback(r.Context())
 	e = tx.QueryRow(r.Context(), "SELECT m.id,m.tenant_id,m.user_id,u.display_name,m.role,m.permissions FROM members m JOIN users u ON m.user_id=u.id WHERE m.user_id=$1 AND m.active", claims.UserID).Scan(&a.MemberID, &a.TenantID, &a.UserID, &a.Name, &a.Role, &a.Permissions)
-	if e != nil {
+	if errors.Is(e, pgx.ErrNoRows) {
 		return a, fail(403, "当前企业成员已停用")
+	}
+	if e != nil {
+		return a, fail(503, "成员验证服务暂不可用，请稍后重试")
 	}
 	return a, nil
 }
@@ -339,6 +376,15 @@ func (s *Server) seed(ctx context.Context) error {
 			return e
 		}
 	}
+	// Seed spaces use explicit IDs 1/2; advance, never rewind, the sequence so
+	// the first self-registration cannot collide with those existing spaces.
+	if _, e = tx.Exec(ctx, `DO $$ BEGIN
+   WHILE (SELECT last_value FROM tenants_id_seq) < 3 LOOP
+     PERFORM nextval('tenants_id_seq');
+   END LOOP;
+ END $$`); e != nil {
+		return e
+	}
 	for _, u := range []struct {
 		Username, Name, Role string
 		Tenant               int
@@ -364,18 +410,34 @@ func (s *Server) seed(ctx context.Context) error {
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", api(func(w http.ResponseWriter, r *http.Request) error {
-		e := s.db.Ping(r.Context())
-		if e != nil {
-			return e
+		deps := s.dependencyHealth(r.Context())
+		for _, state := range deps {
+			if state != "ok" && state != "local" && state != "disabled" {
+				respond(w, 503, map[string]any{"status": "degraded", "dependencies": deps})
+				return nil
+			}
 		}
 		duration, err := strconv.Atoi(s.cfg.VideoDuration)
 		if err != nil || duration < 2 || duration > 15 {
 			duration = 5
 		}
-		respond(w, 200, map[string]any{"status": "ok", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "animation_quality_version": "scene-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.agentConfigured("animation"), "animation_video_configured": s.videoConfigured(), "animation_video_duration": duration, "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
+		_, _, coursewareModel := s.agentModel("courseware")
+		respond(w, 200, map[string]any{"status": "ok", "courseware_generation_model": coursewareModel, "courseware_speed_version": "pipeline-v1", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "animation_quality_version": "scene-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.agentConfigured("animation"), "animation_video_configured": s.videoConfigured(), "animation_video_duration": duration, "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
 		return nil
 	}))
 	s.mux.HandleFunc("POST /api/auth/login", api(s.login))
+	s.mux.HandleFunc("POST /api/auth/register", api(s.register))
+	s.mux.HandleFunc("POST /api/auth/reset-password", api(s.resetPassword))
+	s.mux.HandleFunc("POST /api/auth/refresh", s.auth("", s.refreshSession))
+	s.mux.HandleFunc("POST /api/account/recovery-code", s.auth("", s.issueRecoveryCode))
+	s.mux.HandleFunc("POST /api/courseware/brief", s.auth("courseware.generate", s.coursewareBrief))
+	s.mux.HandleFunc("GET /api/courseware/materials", s.auth("courseware.generate", s.coursewareMaterials))
+	s.mux.HandleFunc("POST /api/courseware/formula", s.auth("courseware.generate", s.coursewareFormula))
+	s.mux.HandleFunc("POST /api/courseware/materials/preview", s.auth("courseware.generate", s.materialPreview))
+	s.mux.HandleFunc("PATCH /api/documents/{id}/curriculum", s.auth("kb.manage", s.tagCurriculum))
+	s.mux.HandleFunc("GET /api/courseware/references", s.auth("courseware.generate", s.listReferences))
+	s.mux.HandleFunc("POST /api/courseware/references", s.auth("courseware.generate", s.uploadReference))
+	s.mux.HandleFunc("DELETE /api/courseware/references/{id}", s.auth("courseware.generate", s.deleteReference))
 	s.mux.HandleFunc("GET /api/account", s.auth("", s.account))
 	s.mux.HandleFunc("PATCH /api/account", s.auth("", s.updateAccount))
 	s.mux.HandleFunc("POST /api/account/password", s.auth("", s.changePassword))
@@ -427,17 +489,17 @@ func (s *Server) routes() {
 		if !ok {
 			return fail(403, "不属于该企业")
 		}
-		c := &Claims{}
-		jwt.ParseWithClaims(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), c, func(t *jwt.Token) (any, error) { return []byte(s.cfg.Secret), nil })
-		token, e := s.token(a.UserID, in.TenantID, c.Session)
-		respond(w, 200, map[string]string{"token": token})
-		return e
+		a.TenantID = in.TenantID
+		return s.refreshSession(w, r, a)
 	}))
 	s.mux.HandleFunc("GET /api/billing", s.auth("", s.billing))
 	s.mux.HandleFunc("POST /api/billing/orders", s.auth("", s.createOrder))
 	s.mux.HandleFunc("POST /api/billing/orders/{id}/pay", s.auth("", s.payOrder))
 	s.mux.HandleFunc("GET /api/tasks", s.auth("", s.listTasks))
+	s.mux.HandleFunc("GET /api/tasks/cleanup-status", s.auth("", s.workCleanupStatus))
+	s.mux.HandleFunc("POST /api/tasks/{id}/restore", s.auth("", s.restoreWork))
 	s.mux.HandleFunc("POST /api/tasks", s.auth("", s.createTask))
+	s.mux.HandleFunc("POST /api/tasks/delete", s.auth("", s.deleteWorks))
 	s.mux.HandleFunc("GET /api/tasks/{id}", s.auth("", s.getTask))
 	s.mux.HandleFunc("PATCH /api/tasks/{id}", s.auth("", s.renameTask))
 	s.mux.HandleFunc("DELETE /api/tasks/{id}", s.auth("", s.deleteTask))
@@ -466,14 +528,16 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/admin/members", s.auth("user.manage", s.members))
 	s.mux.HandleFunc("PATCH /api/admin/members/{id}", s.auth("user.manage", s.updateMember))
 	s.mux.HandleFunc("GET /api/dashboard", s.auth("", s.dashboard))
+	s.mux.HandleFunc("GET /api/usage", s.auth("", s.usageRecords))
+	s.mux.HandleFunc("POST /api/usage/delete", s.auth("", s.deleteUsageRecords))
 	s.mux.Handle("/", http.FileServer(http.Dir(env("FRONTEND_DIST", "../frontend-vue/dist"))))
 }
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	if len(os.Args) > 1 {
+	if len(os.Args) > 1 && !(len(os.Args) == 2 && os.Args[1] == "--sync-cloud") {
 		if len(os.Args) != 3 || os.Args[1] != "--reset-seed-password" {
-			log.Fatal("Usage: edu-server [--reset-seed-password teacher|admin|low|other]")
+			log.Fatal("Usage: edu-server [--sync-cloud | --reset-seed-password teacher|admin|low|other]")
 		}
 		if err := resetSeedPassword(ctx, env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), os.Args[2], os.Getenv("SEED_PASSWORD")); err != nil {
 			log.Fatal(err)
@@ -486,6 +550,12 @@ func main() {
 		log.Fatal("Set JWT_SECRET (32+ characters); see .env.example")
 	}
 	c := Config{RuntimeURL: env("RUNTIME_DATABASE_URL", "postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu?sslmode=disable"), DatabaseURL: env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), Secret: secret, Mode: env("APP_MODE", "sample"), SeedPassword: os.Getenv("SEED_PASSWORD"), Storage: env("STORAGE_DIR", "../storage"), RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000"), LLMURL: env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL"), EvalModel: os.Getenv("LLM_EVAL_MODEL"), EmbeddingModel: os.Getenv("EMBEDDING_MODEL"), EmbeddingURL: env("EMBEDDING_BASE_URL", env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")), EmbeddingKey: env("EMBEDDING_API_KEY", os.Getenv("LLM_API_KEY")), RerankURL: os.Getenv("RERANK_URL"), RerankModel: os.Getenv("RERANK_MODEL"), RerankKey: os.Getenv("RERANK_API_KEY"), SearchKey: os.Getenv("SEARCH_API_KEY"), SearchURL: env("SEARCH_API_URL", "https://api.tavily.com/search"), AnimationImage: env("ANIMATION_IMAGE", "edu-manim:local")}
+	c.MinIOEndpoint, c.MinIOAccessKey, c.MinIOSecretKey = os.Getenv("MINIO_ENDPOINT"), os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY")
+	c.MinIOBucket, c.MinIOPrefix = env("MINIO_BUCKET", "edu-agent"), env("MINIO_PREFIX", "files/")
+	c.RedisAddr, c.RedisUsername, c.RedisPassword = os.Getenv("REDIS_ADDR"), os.Getenv("REDIS_USERNAME"), os.Getenv("REDIS_PASSWORD")
+	c.RedisPrefix = env("REDIS_PREFIX", "edu-agent:")
+	c.MilvusURL, c.MilvusToken = os.Getenv("MILVUS_URL"), os.Getenv("MILVUS_TOKEN")
+	c.MilvusDatabase, c.MilvusCollection = env("MILVUS_DATABASE", "edu_agent"), env("MILVUS_COLLECTION", "edu_agent_chunks")
 	c.CoursewareLLMURL, c.CoursewareLLMKey, c.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 	c.AnimationLLMURL, c.AnimationLLMKey, c.AnimationLLMModel = os.Getenv("ANIMATION_LLM_BASE_URL"), os.Getenv("ANIMATION_LLM_API_KEY"), os.Getenv("ANIMATION_LLM_MODEL")
 	c.ReviewURL, c.ReviewKey, c.ReviewModel = os.Getenv("EVAL_LLM_BASE_URL"), os.Getenv("EVAL_LLM_API_KEY"), os.Getenv("EVAL_LLM_MODEL")
@@ -497,8 +567,15 @@ func main() {
 		log.Fatal(e)
 	}
 	defer s.Close()
+	if len(os.Args) == 2 && os.Args[1] == "--sync-cloud" {
+		if err := s.syncCloud(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	go s.worker(ctx)
 	go s.documentWorker(ctx)
+	go s.deletedWorkCleaner(ctx)
 	server := &http.Server{Addr: env("LISTEN_ADDR", "127.0.0.1:8080"), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()

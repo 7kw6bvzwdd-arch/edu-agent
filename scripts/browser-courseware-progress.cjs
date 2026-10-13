@@ -1,0 +1,133 @@
+// Intercept every API request: no production account, task or model writes.
+const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
+const {spawn}=require('node:child_process');
+const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let browser,socket;
+(async()=>{
+ const output=path.join(root,'work/courseware-progress');await fs.mkdir(output,{recursive:true});
+ const deck=JSON.parse(await fs.readFile(path.join(root,'fixtures/courseware-quality-v2.json'),'utf8'));
+ deck.slides=deck.slides.slice(0,3);deck.slides.forEach((s,i)=>s.id='slide-'+i);
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+ const task={id:'fixture-progress',type:'courseware',status:'expanding',mode:'sample',revision:1,cost:20,input:{topic:'浮力',pages:12,preview_first:true,theme:'classroom'},result:deck,events:[],sources:[],preview_images_available:true,slide_reviews:[]};
+ const resume='已恢复逐页检查点，继续只处理问题页和未完成页；未变更页面的审核保留。';deck.notice='请教师核验。 '+resume.repeat(3);
+ let previews=0,polls=0,eventID=0,failBillingOnce=false;const errors=[],checks=[];
+ function event(stage){task.events.push({id:++eventID,stage,message:stage})}
+ event('batch_start_4_6');
+ browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9258','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(output,'browser-profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
+ let page;
+ for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9258/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
+ assert.ok(page,'Edge starts');socket=new WebSocket(page.webSocketDebuggerUrl);
+ await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
+ let seq=0;const pending=new Map();
+ const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>reject(Error('CDP timeout: '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
+ socket.onmessage=e=>{
+  const m=JSON.parse(e.data);
+  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+  if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
+  if(m.method!=='Fetch.requestPaused')return;
+  const {requestId,request}=m.params,p=new URL(request.url).pathname;
+  let reply,body,contentType='application/json',code=200;
+  if(request.method!=='GET'){errors.push('Unexpected write: '+p);code=400;reply={message:'No writes allowed'}}
+  else if(p==='/api/health')reply={status:'ok',mode:'sample',courseware_studio_version:'studio-v1',courseware_media_version:'media-v1',works_view_version:'views-v1'};
+  else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'测试教师',role:'teacher',permissions:['courseware.generate']};
+  else if(p==='/api/tenants')reply=[{id:1,name:'测试'}];
+  else if(p==='/api/billing'){if(failBillingOnce){failBillingOnce=false;code=503;reply={message:'测试瞬时网络错误'}}else reply={balance:100,reserved:task.status==='failed'?0:20,available:task.status==='failed'?100:80,plan:'basic',ledger:[]}}
+  else if(p==='/api/tasks')reply=[task];
+  else if(p==='/api/tasks/'+task.id){polls++;reply=task}
+  else if(p.endsWith('/conversation'))reply=[];
+  else if(p.endsWith('/events')){contentType='text/event-stream';body=Buffer.from('id: '+eventID+'\ndata: '+JSON.stringify(task.events.at(-1))+'\n\n')}
+  else if(p.endsWith('/preview')){previews++;contentType='image/png';body=png}
+  else{errors.push('Unexpected API: '+p);code=404;reply={}}
+  call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:(body||Buffer.from(JSON.stringify(reply))).toString('base64')}).catch(e=>errors.push(String(e)));
+ };
+ const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(100)}throw Error('UI timeout: '+expression+'\n'+await evaluate('document.body.innerText.slice(-2000)')+'\n'+JSON.stringify(errors))};
+ const click=label=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)}));if(!b||b.disabled)throw Error('Missing button');b.click()})()`);
+ const srcs=()=>evaluate("[...document.querySelectorAll('.studio-slide-picture img')].map(i=>i.src)");
+ await call('Runtime.enable');await call('Page.enable');await call('Fetch.enable',{patterns:[{urlPattern:'*/api/*'}]});
+ await call('Page.addScriptToEvaluateOnNewDocument',{source:"sessionStorage.setItem('edu_token','fixture-token')"});
+ await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
+ await call('Page.navigate',{url:process.env.TEST_APP_URL||'http://127.0.0.1:8080'});
+ await wait("[...document.querySelectorAll('nav button')].some(b=>b.textContent.includes('我的作品'))");
+ await click('我的作品');await wait("!!document.querySelector('.task-open')");await evaluate("document.querySelector('.task-open').click()");
+ await wait("document.querySelectorAll('.studio-slide-picture img').length===3");
+ assert.equal(await evaluate("document.querySelector('progress').value"),25);
+ const noticeCount=await evaluate(`document.querySelector('.studio-note').textContent.split(${JSON.stringify(resume)}).length-1`);
+ const initial=await srcs(),initialPolls=polls;
+ await evaluate("window.previewChanges=0;window.previewObserver=new MutationObserver(ms=>{window.previewChanges+=ms.filter(m=>m.type==='childList'||m.attributeName==='src').length});document.querySelectorAll('.studio-slide-picture').forEach(n=>window.previewObserver.observe(n,{childList:true,subtree:true,attributes:true,attributeFilter:['src']}))");
+ for(let i=0;polls<initialPolls+3&&i<80;i++)await sleep(200);
+ assert.ok(polls>=initialPolls+3,'Three polling cycles arrived');
+ await sleep(150);
+ assert.equal(previews,3,'Polling must not reload the first three preview images');
+ assert.deepEqual(await srcs(),initial);assert.equal(await evaluate('window.previewChanges'),0);
+ checks.push('Three polling cycles preserve all preview URLs and image DOM');
+ event('batch_complete_6');event('batch_start_7_9');
+ await wait("document.querySelector('progress').value===50");
+ assert.ok(await evaluate("document.querySelector('.studio-progress').textContent.includes('7至9')"));
+ event('batch_complete_9');event('batch_start_10_12');await wait("document.querySelector('progress').value===75");
+ event('batch_complete_12');await wait("document.querySelector('progress').value===100");
+ assert.ok(await evaluate("document.querySelector('.studio-progress').textContent.includes('检查和排版')"));
+ assert.equal(previews,3);assert.deepEqual(await srcs(),initial);
+ checks.push('Real batch events advance content progress 25 → 50 → 75 → 100; 100 still labels pending layout');
+ task.status='expand_pending';task.stage='auto_recovering';task.result.generation={phase:'expand',repair_page:4,issue:'本页需自动修复'};
+ event('auto_recovering');
+ await wait("document.querySelector('.studio-stage-banner').textContent.includes('正在自动恢复制作')");
+ assert.ok(await evaluate("document.querySelector('.studio-progress').textContent.includes('无需操作')"));
+ assert.equal(await evaluate("[...document.querySelectorAll('.studio-canvas button')].some(b=>b.textContent.includes('重新预留'))"),false,'Recoverable faults must not ask for manual continuation');
+ assert.equal(previews,3);assert.deepEqual(await srcs(),initial);
+ checks.push('Automatic recovery shows saved progress, keeps preview URLs, and has no manual continuation button');
+ task.stage='awaiting_preview';delete task.result.generation;
+ task.status='awaiting_preview';await wait("!!document.querySelector('[aria-label=\"编辑第1页\"]')&&!document.querySelector('[aria-label=\"编辑第1页\"]').disabled");
+ await evaluate("document.querySelector('[aria-label=\"编辑第1页\"]').click()");
+ await evaluate("(()=>{const n=document.querySelector('.studio-slide-editor input');n.value='未保存的标题';n.dispatchEvent(new Event('input',{bubbles:true}))})()");
+ task.status='expanding';event('batch_start_4_6');
+ const editPolls=polls;for(let i=0;polls<editPolls+2&&i<80;i++)await sleep(200);
+ assert.ok(polls>=editPolls+2,'Edited task was polled');
+ assert.equal(await evaluate("document.querySelector('.studio-slide-editor input').value"),'未保存的标题');
+ checks.push('Unsaved local edit survives task polling at the same revision');
+ task.result.slides[0].title='服务端新版本';task.revision++;
+ await wait("document.body.textContent.includes('后台版本已更新')");
+ assert.equal(await evaluate("document.querySelector('.studio-slide-editor input').value"),'未保存的标题');
+ await click('放弃本地修改，查看最新版本');
+ await wait("document.querySelector('.studio-slide-editor input')?.value==='服务端新版本'");
+ await wait("document.querySelectorAll('.studio-slide-picture img').length===3");
+ assert.equal(previews,4);assert.notDeepEqual(await srcs(),initial);
+ assert.deepEqual((await srcs()).slice(1),initial.slice(1),'Unchanged pages keep the same images');
+ checks.push('New server revision preserves unsaved edits, offers explicit reload, and replaces only changed slide images');
+ task.result.generation={version:'page-checkpoint-v1',phase:'expand',repair_page:4};task.revision++;
+ await wait("document.querySelector('.studio-progress').textContent.includes('制作第4页')");
+ const savedURLs=await srcs();const savedPreviews=previews;
+ task.result.slides.push({...structuredClone(task.result.slides[2]),id:'new-page-4',title:'保存的第四页'});
+ task.preview_slide_ids=task.result.slides.slice(0,3).map(sl=>sl.id);task.result.generation.repair_page=5;task.revision++;
+ await wait("document.querySelector('progress').value===33");
+ assert.deepEqual(await srcs(),savedURLs);assert.equal(previews,savedPreviews);
+ task.result.generation.repair_page=4;task.revision++;
+ await wait("document.querySelector('.studio-progress').textContent.includes('修复第4页')");
+ assert.equal(await evaluate("document.querySelector('progress').value"),25);
+ assert.deepEqual(await srcs(),savedURLs);assert.equal(previews,savedPreviews);
+ checks.push('Checkpoint revisions preserve first three images and show the exact repair page');
+ failBillingOnce=true;task.status='failed';task.charge_state='released';await wait("document.querySelector('.studio-progress').textContent.includes('暂停')");
+ await wait("document.querySelector('.quota-card').textContent.includes('预留 0')");
+ assert.equal(noticeCount,1,'Legacy duplicated retry notices show once');
+ checks.push('Retry notice appears once; terminal billing refresh recovers from a temporary failure');
+ task.status='awaiting_confirmation';task.result.slides[0].graph={title:'函数图像',x_min:-3,x_max:3,y_min:-3,y_max:3,series:[{k:1,b:0,mark_x:[]}]};task.revision++;
+ await click('我的作品');await wait("!!document.querySelector('.task-open')");await evaluate("document.querySelector('.task-open').click()");
+ await wait("!!document.querySelector('[aria-label=\"编辑第1页\"]')&&!document.querySelector('[aria-label=\"编辑第1页\"]').disabled");
+ await evaluate("document.querySelector('[aria-label=\"编辑第1页\"]').click()");
+ await wait("!!document.querySelector('.courseware-evidence-editor')");
+ await evaluate("document.querySelector('.courseware-evidence-editor').open=true");
+ await wait("[...document.querySelectorAll('.courseware-evidence-editor label')].some(n=>n.textContent==='k')");
+ assert.ok(await evaluate("[...document.querySelectorAll('.studio-slide-editor label')].find(n=>n.textContent.startsWith('固定示意图')).querySelector('select').disabled"),'Fixed diagram disabled for graph');
+ await click('添加函数');await wait("document.querySelectorAll('.courseware-evidence-editor input[type=number]').length===8");
+ await evaluate("(()=>{const n=[...document.querySelectorAll('.courseware-evidence-editor label')].find(n=>n.textContent==='k').querySelector('input');n.value='2';n.dispatchEvent(new Event('input',{bubbles:true}))})()");
+ await click('添加标记点');await wait("document.querySelectorAll('.courseware-evidence-editor input[type=number]').length===9");
+ assert.equal(await evaluate("[...document.querySelectorAll('.courseware-evidence-editor label')].find(n=>n.textContent==='k').querySelector('input').value"),'2');
+ checks.push('Numeric graph editor changes coefficients and adds lines/points; conflicting diagrams disabled');
+ await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ await evaluate("document.querySelector('.studio-canvas').scrollTop=0;document.querySelector('.studio-progress').scrollIntoView({block:'center'})");
+ await sleep(300);
+ assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'No mobile page overflow');
+ await fs.writeFile(path.join(output,'progress-mobile.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ assert.deepEqual(errors,[]);await fs.writeFile(path.join(output,'checks.json'),JSON.stringify({checks,errors},null,2));
+ console.log(JSON.stringify({checks}));await call('Browser.close');socket.close();
+})().catch(e=>{console.error(e.stack);process.exitCode=1;socket?.close();browser?.kill()});

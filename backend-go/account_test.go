@@ -39,6 +39,7 @@ func TestAccountSettingsHTTP(t *testing.T) {
 	worksCall(t, s, "POST", "/api/account/password", token, map[string]string{"current_password": "test-pass-123", "new_password": "new-test-password"}, 200)
 	for _, old := range []string{token, second} {
 		worksCall(t, s, "GET", "/api/auth/me", old, nil, 401)
+		worksCall(t, s, "POST", "/api/auth/refresh", old, nil, 401)
 	}
 	worksCall(t, s, "GET", "/api/auth/me", other, nil, 200)
 	worksCall(t, s, "POST", "/api/auth/login", "", map[string]string{"username": "teacher", "password": "test-pass-123"}, 401)

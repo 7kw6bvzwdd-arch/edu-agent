@@ -11,6 +11,57 @@ from pathlib import Path
 TABLE = {'title': '列车时刻表（教学示例）', 'headers': ['站点', '到站', '离站'],
          'rows': [['甲站', '—', '08:00'], ['乙站', '08:30', '08:32'], ['丙站', '09:00', '—']]}
 
+def test_five_experiment_records_fit_beside_caption_and_formula():
+    table={'title':'实验记录（示意数据，非实测，以课堂实测为准）',
+           'headers':['浸入情况','F拉 / N','F浮 / N'],
+           'rows':[['未浸入','2.7','0'],['浸入约1/4体积（水）','2.45','0.25'],
+                   ['浸入约1/2体积（水）','2.20','0.50'],['完全浸没（水中）','1.70','1.00'],['完全浸没（盐水）','1.50','1.20']]}
+    caption='同一铝块，固定排液体积后比较不同液体，记录并计算浮力。'
+    r=TestClient(app).post('/render/pptx',json={'title':'浮力','theme':'ocean','editable_formulas':True,
+        'slides':[{'title':'探究浮力的影响因素','table':table,'formula':'F_{浮}=G-F_{拉}','bullets':[caption]}]})
+    assert r.status_code==200,r.text
+    p=Presentation(io.BytesIO(r.content));assert_inside_slide(p)
+    actual=next(s.table for s in p.slides[0].shapes if s.has_table)
+    assert [[c.text.replace('\u00a0',' ') for c in row.cells] for row in actual.rows]==[table['headers'],*table['rows']]
+    assert any(s.has_text_frame and s.text==caption for s in p.slides[0].shapes)
+    assert '示意数据' in '\n'.join(s.text for s in p.slides[0].shapes if s.has_text_frame)
+    assert '<m:oMath' in p.slides[0]._element.xml
+
+@pytest.mark.parametrize('layout', ['comparison', 'exercise'])
+def test_short_teaching_content_has_no_full_height_color_panel(layout):
+    r = TestClient(app).post('/render/pptx', json={'title': '观察与推理', 'theme': 'ocean', 'slides': [
+        {'title': '解释变化规律', 'layout': layout, 'bullets': ['x增加1，y增加2。', '斜率表示变化率。']}]})
+    assert r.status_code == 200, r.text
+    ppt = Presentation(io.BytesIO(r.content))
+    panels = [s for s in ppt.slides[0].shapes if s.shape_type == 1 and s.width > 3*914400 and s.height > 1.8*914400 and s.top > 1*914400]
+    assert not panels, 'Short content should use readable open text, not an empty colored panel'
+
+def test_native_formula_is_editable_and_preserves_fraction_and_subscript():
+    r = TestClient(app).post('/render/pptx', json={'title': '阿基米德原理', 'editable_formulas': True, 'slides': [
+        {'title': '排开液体的体积', 'formula': r'F_{浮}=\rho_{液}gV_{排}=\frac{G}{2}', 'bullets': ['明确液体密度与排液体积。']}]})
+    assert r.status_code == 200, r.text
+    ppt = Presentation(io.BytesIO(r.content))
+    xml = ppt.slides[0]._element.xml
+    assert '<m:oMath' in xml and '<m:f>' in xml and '<m:sSub>' in xml
+    assert '浮' in xml and '排' in xml
+    assert not any(s.shape_type == 13 for s in ppt.slides[0].shapes)
+
+def test_caption_crowding_reports_bullets_instead_of_title():
+    response = TestClient(app).post('/render/pptx', json={
+        'title': '一次函数', 'theme': 'classroom', 'slides': [{
+            'title': '一次函数的图像', 'layout': 'concept', 'table': TABLE,
+            'focus': '图像是一条直线', 'formula': 'y=2x+1',
+            'bullets': ['观察函数图像并结合数据解释变化规律。'*4]*3}]})
+    assert response.status_code == 422
+    assert response.json()['detail'] == {'code': 'text_overflow', 'page': 1, 'field': 'bullets'}
+
+def test_long_section_reports_section_instead_of_bullets():
+    response = TestClient(app).post('/render/pptx', json={
+        'title': '一次函数', 'theme': 'classroom', 'slides': [{
+            'title': '图像', 'section': '探究\n证据\n归纳\n应用', 'bullets': ['观察函数图像']}]})
+    assert response.status_code == 422
+    assert response.json()['detail']['field'] == 'section'
+
 def test_continuation_pages_export_and_remain_bounded():
     from app import Deck
     data = {'title': '自动拆页课件', 'slides': [

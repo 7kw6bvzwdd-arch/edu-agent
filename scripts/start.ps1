@@ -10,8 +10,12 @@ $pythonExe=Join-Path $projectRoot '.venv/Scripts/python.exe'
 if (!(Test-Path -LiteralPath $pythonExe)) { python -m venv .venv }
 & $pythonExe -m pip install --quiet -r render-service-py/requirements.txt
 if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
-docker compose up -d --wait db
-if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL failed to start.' }
+if ($env:CLOUD_SSH_HOST) {
+ & (Join-Path $PSScriptRoot 'start-cloud.ps1')
+} else {
+ docker compose up -d --wait db
+ if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL failed to start.' }
+}
 if ($BuildAnimation) { docker build -f render-service-py/Dockerfile.manim -t edu-manim:local render-service-py; if ($LASTEXITCODE -ne 0) { throw 'Animation image build failed.' } }
 Push-Location frontend-vue
 npm ci

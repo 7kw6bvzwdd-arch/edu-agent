@@ -1,5 +1,18 @@
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path -Parent $PSScriptRoot
+# Stop the reconnect loop first so shutdown cannot recreate the tunnel.
+$watchPidFile=Join-Path $projectRoot 'work/cloud/watch-pid.json'
+if(Test-Path -LiteralPath $watchPidFile){
+ $savedWatch=Get-Content -LiteralPath $watchPidFile | ConvertFrom-Json
+ $watchScript=Join-Path $PSScriptRoot 'watch-cloud.ps1'
+ $watch=Get-CimInstance Win32_Process -Filter "ProcessId = $($savedWatch.pid)" -ErrorAction SilentlyContinue
+ if($watch -and $watch.Name -eq 'powershell.exe' -and $watch.CommandLine -and $watch.CommandLine.Contains($watchScript)){
+  $watchProcess=Get-Process -Id $savedWatch.pid -ErrorAction SilentlyContinue
+  Stop-Process -Id $savedWatch.pid -ErrorAction Stop
+  if($watchProcess){$watchProcess.WaitForExit()}
+ }
+ Remove-Item -LiteralPath $watchPidFile
+}
 $pidFile=Join-Path $projectRoot 'work/service-pids.json'
 if (Test-Path -LiteralPath $pidFile) {
  $serviceIds=Get-Content -LiteralPath $pidFile | ConvertFrom-Json
@@ -13,4 +26,13 @@ if (Test-Path -LiteralPath $pidFile) {
  }
  Remove-Item -LiteralPath $pidFile
 }
-Write-Host 'Local processes stopped. PostgreSQL data and container are retained.'
+$tunnelPidFile=Join-Path $projectRoot 'work/cloud/tunnel-pid.json'
+if (Test-Path -LiteralPath $tunnelPidFile) {
+ $saved=Get-Content -LiteralPath $tunnelPidFile | ConvertFrom-Json
+ $tunnel=Get-CimInstance Win32_Process -Filter "ProcessId = $($saved.pid)" -ErrorAction SilentlyContinue
+ if ($tunnel -and $tunnel.Name -eq 'ssh.exe' -and $tunnel.CommandLine.Contains((Join-Path $projectRoot 'work/cloud/id_ed25519'))) {
+  Stop-Process -Id $saved.pid
+ }
+ Remove-Item -LiteralPath $tunnelPidFile
+}
+Write-Host 'Education-agent processes and its tunnel stopped. All local/cloud containers and data are retained.'

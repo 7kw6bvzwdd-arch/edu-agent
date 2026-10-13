@@ -157,7 +157,7 @@ func (s *Server) runAnimation(ctx context.Context, tid int64, id, script string,
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return "", e
 	}
-	return path, os.WriteFile(path, content, 0600)
+	return path, s.writeStoredFile(ctx, path, content)
 }
 
 // Private bind-mounted media belongs to the backend process. Root with all

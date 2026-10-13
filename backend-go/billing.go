@@ -206,17 +206,23 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, a Actor) erro
 	if e != nil {
 		return e
 	}
-	trend, e := queryMaps(r.Context(), tx, "SELECT created_at::date::text AS day,count(*)::integer AS count,coalesce(sum(input_tokens+output_tokens),0)::bigint AS tokens FROM usage_logs WHERE ($1::bigint IS NULL OR member_id=$1) AND created_at>now()-interval '30 days' GROUP BY day ORDER BY day", member)
+	trend, e := queryMaps(r.Context(), tx, "SELECT substring(period FROM 3) AS day,sum(calls)::bigint AS count,sum(input_tokens+output_tokens)::bigint AS tokens FROM usage_totals WHERE ($1::bigint IS NULL OR member_id=$1) AND period LIKE 'd:%' AND period>='d:'||to_char(now()-interval '30 days','YYYY-MM-DD') GROUP BY period ORDER BY period", member)
 	if e != nil {
 		return e
 	}
-	logs, e := queryMaps(r.Context(), tx, "SELECT operation,model,input_tokens,output_tokens,latency_ms,success,created_at FROM usage_logs WHERE ($1::bigint IS NULL OR member_id=$1) ORDER BY id DESC LIMIT 100", member)
+	logs, e := queryMaps(r.Context(), tx, "SELECT id::text AS id,operation,model,input_tokens,output_tokens,latency_ms,success,created_at FROM usage_logs WHERE ($1::bigint IS NULL OR member_id=$1) ORDER BY created_at DESC,id DESC LIMIT 50", member)
 	if e != nil {
 		return e
 	}
 	var p95 float64
-	tx.QueryRow(r.Context(), "SELECT coalesce(percentile_cont(.95) WITHIN GROUP(ORDER BY latency_ms),0) FROM usage_logs WHERE ($1::bigint IS NULL OR member_id=$1)", member).Scan(&p95)
-	respond(w, 200, map[string]any{"tasks": tasks, "trend": trend, "usage": logs, "p95_ms": p95, "mode": s.cfg.Mode})
+	if e = tx.QueryRow(r.Context(), "SELECT coalesce(percentile_cont(.95) WITHIN GROUP(ORDER BY latency_ms),0) FROM usage_logs WHERE ($1::bigint IS NULL OR member_id=$1)", member).Scan(&p95); e != nil {
+		return e
+	}
+	totals, e := queryMaps(r.Context(), tx, "SELECT coalesce(sum(calls),0)::bigint AS calls,coalesce(sum(input_tokens),0)::bigint AS input_tokens,coalesce(sum(output_tokens),0)::bigint AS output_tokens,coalesce(sum(failures),0)::bigint AS failures FROM usage_totals WHERE period='all' AND ($1::bigint IS NULL OR member_id=$1)", member)
+	if e != nil {
+		return e
+	}
+	respond(w, 200, map[string]any{"tasks": tasks, "trend": trend, "usage": logs, "totals": totals[0], "p95_ms": p95, "p95_scope": "当前保留的调用明细", "mode": s.cfg.Mode})
 	return nil
 }
 func event(ctx context.Context, tx pgx.Tx, tid int64, id, stage, message string) error {
@@ -232,9 +238,16 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 	var member, cost int64
 	var charge, previous string
 	var deleted bool
-	e = tx.QueryRow(ctx, "SELECT member_id,cost,charge_state,status,deleted_at IS NOT NULL FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&member, &cost, &charge, &previous, &deleted)
+	var cycle, attempt int
+	e = tx.QueryRow(ctx, "SELECT member_id,cost,charge_state,status,deleted_at IS NOT NULL,charge_cycle,attempt FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&member, &cost, &charge, &previous, &deleted, &cycle, &attempt)
 	if e != nil {
 		return e
+	}
+	if expected, ok := generationCycle(ctx).(int); ok && expected != cycle {
+		return nil
+	}
+	if expected, ok := generationAttempt(ctx).(int); ok && expected != attempt {
+		return nil
 	}
 	if deleted || charge != "reserved" {
 		if d, ok := result.(Deck); ok && d.AnimationQuality != nil && d.AnimationQuality.Status == "accepted" {
@@ -248,6 +261,28 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 		var input TaskInput
 		if e = tx.QueryRow(ctx, "SELECT type,input FROM tasks WHERE id=$1", id).Scan(&taskType, &input); e != nil {
 			return e
+		}
+		if taskType == "courseware" {
+			var mode string
+			var planned Deck
+			if e = tx.QueryRow(ctx, "SELECT mode,result FROM tasks WHERE id=$1", id).Scan(&mode, &planned); e != nil {
+				return e
+			}
+			final, ok := result.(Deck)
+			if planned.Plan != nil && (!ok || final.Plan == nil) {
+				return fail(409, "教学规划与交付内容不一致，请恢复后继续制作")
+			}
+			if ok && final.Plan != nil {
+				if len(final.Slides) == 0 || len(final.Slides) != len(final.Plan.Pages) {
+					return fail(409, "教学规划尚未全部完成，暂不能交付")
+				}
+				for _, sl := range final.Slides {
+					check := final.PageChecks[sl.ID]
+					if check.Hash != slideContentHash(final, sl) || !pageCheckPassed(check, mode == "sample") {
+						return fail(409, "课件仍有页面未完成内容与实际画面审核，暂不能交付")
+					}
+				}
+			}
 		}
 		if taskType == "animation" {
 			d, ok := result.(Deck)
@@ -297,11 +332,15 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 	if settled {
 		errorText = ""
 	}
-	_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,error=$2,charge_state=$3,pptx_path=CASE WHEN type IN ('courseware','revision') THEN $4 ELSE pptx_path END,mp4_path=CASE WHEN type='animation' THEN $4 ELSE mp4_path END,result=CASE WHEN $5::jsonb='{}'::jsonb THEN result ELSE $5::jsonb END,revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$6", status, errorText, newCharge, path, asJSON(result), id)
+	_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,error=$2,charge_state=$3,pptx_path=CASE WHEN type IN ('courseware','revision') THEN $4 ELSE pptx_path END,mp4_path=CASE WHEN type='animation' THEN $4 ELSE mp4_path END,result=CASE WHEN $5::jsonb='{}'::jsonb THEN result ELSE $5::jsonb END,revision=revision+1,restored_at=NULL,capacity_hold=false,lease_until=CASE WHEN status IN ('researching','rendering','expanding') AND $1 IN ('failed','cancelled') THEN lease_until ELSE NULL END,updated_at=now() WHERE id=$6", status, errorText, newCharge, path, asJSON(result), id)
 	if e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, "INSERT INTO ledger(tenant_id,member_id,kind,delta,balance_after,reference) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING", tid, member, kind, delta, balance, id)
+	reference := id
+	if cycle > 0 {
+		reference = fmt.Sprintf("%s:%d", id, cycle)
+	}
+	_, e = tx.Exec(ctx, "INSERT INTO ledger(tenant_id,member_id,kind,delta,balance_after,reference) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING", tid, member, kind, delta, balance, reference)
 	if e != nil {
 		return e
 	}
@@ -312,6 +351,11 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 	}
 	if e = event(ctx, tx, tid, id, status, message); e != nil {
 		return e
+	}
+	if status == "failed" || status == "cancelled" {
+		if e = s.limitInterrupted(ctx, tx, member); e != nil {
+			return e
+		}
 	}
 	return tx.Commit(ctx)
 }

@@ -41,7 +41,11 @@ func TestCoursewareHTTPWorkflow(t *testing.T) {
 	if renderer == "" {
 		t.Skip("set TEST_RENDER_URL for real PPTX integration")
 	}
-	s, e := NewServer(context.Background(), Config{DatabaseURL: db, Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), SeedPassword: "test-pass-123", Storage: t.TempDir(), RenderURL: renderer})
+	config := Config{DatabaseURL: db, Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), SeedPassword: "test-pass-123", Storage: t.TempDir(), RenderURL: renderer}
+	if os.Getenv("TEST_CLOUD") == "1" {
+		config = cloudTestConfig(t)
+	}
+	s, e := NewServer(context.Background(), config)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -96,6 +100,11 @@ func TestCoursewareHTTPWorkflow(t *testing.T) {
 	}
 	revision = v["revision"]
 	result = v["result"].(map[string]any)
+	if s.cloud.objects != nil {
+		if err := os.Remove(storagePath(s, 1, id, ".pptx")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	code, _, file := call("GET", "/api/tasks/"+id+"/download/pptx", token, nil)
 	if code != 200 || len(file) < 1000 || string(file[:2]) != "PK" {
 		t.Fatal("not a real PPTX")

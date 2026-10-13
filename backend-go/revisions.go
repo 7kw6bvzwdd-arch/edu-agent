@@ -14,6 +14,7 @@ import (
 )
 
 func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error {
+	defer s.queueDeletedCleanup(a.TenantID, r.PathValue("id"), false)
 	var in struct {
 		Result   Deck `json:"result"`
 		Revision int  `json:"revision"`
@@ -50,6 +51,7 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 		return fail(409, "内容已更新，请刷新")
 	}
 	in.Result.Notice = old.Notice
+	preserveCoursewareChecks(&in.Result, old)
 	in.Result = arrangeCourseware(in.Result)
 	if e := validateDeck(in.Result); e != nil {
 		return e
@@ -57,6 +59,7 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 	in.Result.NeedsReview = old.NeedsReview || in.Result.NeedsReview
 	in.Result.Evaluation = nil
 	in.Result.Script = ""
+	in.Result.Generation = nil
 	path, e := s.savePPTX(r.Context(), a.TenantID, r.PathValue("id")+"-"+newID(), &in.Result)
 	if e != nil {
 		return e
@@ -93,6 +96,9 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 		return err
 	}
 	if e = archiveRevision(r.Context(), tx, a.TenantID, r.PathValue("id")); e != nil {
+		return e
+	}
+	if e = invalidateChangedChecks(r.Context(), tx, r.PathValue("id"), in.Result, old); e != nil {
 		return e
 	}
 	res, e := tx.Exec(r.Context(), "UPDATE tasks SET result=$1,pptx_path=$2,revision=revision+1,updated_at=now() WHERE id=$3 AND member_id=$4 AND revision=$5 AND deleted_at IS NULL", asJSON(in.Result), path, r.PathValue("id"), a.MemberID, in.Revision)
@@ -183,9 +189,22 @@ func (s *Server) getRevision(w http.ResponseWriter, r *http.Request, a Actor) er
 }
 func archiveRevision(ctx context.Context, tx pgx.Tx, tid int64, id string) error {
 	_, e := tx.Exec(ctx, "INSERT INTO artifact_revisions(tenant_id,task_id,revision,result,pptx_path,mp4_path) SELECT tenant_id,id,revision,result,pptx_path,mp4_path FROM tasks WHERE id=$1 AND deleted_at IS NULL ON CONFLICT DO NOTHING", id)
+	if e != nil {
+		return e
+	}
+	pruned, e := tx.Exec(ctx, `DELETE FROM artifact_revisions WHERE task_id=$1
+ AND revision<>(SELECT min(revision) FROM artifact_revisions WHERE task_id=$1)
+ AND revision NOT IN (SELECT revision FROM artifact_revisions WHERE task_id=$1 ORDER BY revision DESC LIMIT 20)
+ AND revision<>(SELECT revision FROM tasks WHERE id=$1)`, id)
+	if e == nil && pruned.RowsAffected() > 0 {
+		_, e = tx.Exec(ctx, "UPDATE tasks SET cleanup_pending=true WHERE id=$1", id)
+	}
 	return e
 }
 func (s *Server) savePPTX(ctx context.Context, tid int64, id string, d *Deck) (string, error) {
+	if strings.Contains(d.Lesson, coursewareLessonPages) {
+		d.Lesson = checkpointLesson(*d)
+	}
 	b, e := s.renderCourseware(ctx, d)
 	if e != nil {
 		return "", e
@@ -194,12 +213,17 @@ func (s *Server) savePPTX(ctx context.Context, tid int64, id string, d *Deck) (s
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return "", e
 	}
-	if err := os.WriteFile(path, b, 0600); err != nil {
+	if err := s.writeStoredFile(ctx, path, b); err != nil {
 		return "", err
 	}
 	if len(d.Slides) > 0 && d.Slides[0].ID != "" {
 		assignSlideIDs(d)
 		s.snapshotCourseware(ctx, path)
+		if _, err := os.Stat(path + ".slides"); err == nil {
+			if err = s.syncDirectory(ctx, path+".slides"); err != nil {
+				return "", err
+			}
+		}
 	}
 	return path, nil
 }
@@ -265,7 +289,7 @@ func (s *Server) rewriteTask(w http.ResponseWriter, r *http.Request, a Actor) er
 		return fail(402, "积分不足，禁止AI修改")
 	}
 	id := newID()
-	input := TaskInput{Topic: d.Title, Grade: parent.Grade, Subject: parent.Subject, Textbook: parent.Textbook, ParentID: r.PathValue("id"), ParentRevision: revision, SlideIndex: in.Slide, Instruction: in.Instruction, IdempotencyKey: in.Key}
+	input := TaskInput{Topic: d.Title, Grade: parent.Grade, Subject: parent.Subject, Textbook: parent.Textbook, Chapter: parent.Chapter, Curriculum: parent.Curriculum, Reference: parent.Reference, ReferenceMode: parent.ReferenceMode, ParentID: r.PathValue("id"), ParentRevision: revision, SlideIndex: in.Slide, Instruction: in.Instruction, IdempotencyKey: in.Key}
 	_, e = tx.Exec(r.Context(), "UPDATE members SET reserved=reserved+5 WHERE id=$1", a.MemberID)
 	if e != nil {
 		return e
@@ -328,7 +352,7 @@ func (s *Server) processRevision(ctx context.Context, a Actor, id string, in Tas
 		d.Slides[in.SlideIndex].Bullets = append(d.Slides[in.SlideIndex].Bullets[:min(5, len(d.Slides[in.SlideIndex].Bullets))], "示例改写：先独立思考，再与同学讨论解题依据。")
 	} else {
 		originalPicture := d.Slides[in.SlideIndex].Picture
-		raw, e := s.agentChat(ctx, a, id, "courseware", "slide.rewrite", "根据教师要求修改课件的一页。返回JSON {title,layout,section,bullets,notes,formula,diagram,chart,table,figure,focus,emphasis}；layout仅cover/concept/steps/comparison/example/exercise/summary，section最多80字。最多6条要点，每条最多80字。保留原有图表、表格、图解、公式及相关数据，除非教师明确要求修改。保留学科课题和视觉主题的区别；例题显示关键推理，完整讲解和练习答案留在notes。不要新增引用。以下全篇页数要求不适用于本次单页改写。图片由系统原样保留，不要输出picture，不能声称已看过图片；存在图片时不要新增chart/diagram，也不要同时添加table和figure。"+coursewareMediaContract+"\n原页："+string(asJSON(slideForTextModel(d.Slides[in.SlideIndex])))+"\n修改要求："+in.Instruction+gradeGuidance(in))
+		raw, e := s.agentChat(ctx, a, id, "courseware", "slide.rewrite", "根据教师要求修改课件的一页。返回JSON {title,layout,section,bullets,notes,formula,diagram,chart,table,figure,graph,scientific,focus,emphasis}；layout仅cover/concept/steps/comparison/example/exercise/summary，section最多80字。最多6条要点，每条最多80字。保留原有图表、表格、图解、公式及相关数据，除非教师明确要求修改。保留学科课题和视觉主题的区别；例题显示关键推理，完整讲解和练习答案留在notes。不要新增引用。以下全篇页数要求不适用于本次单页改写。图片由系统原样保留，不要输出picture，不能声称已看过图片；存在图片时不要新增chart/diagram，也不要同时添加table和figure。"+coursewareMediaContract+scientificContract+"\n"+coursewareTeachingSkill+coursewarePageContext(d, in.SlideIndex+1)+"\n修改要求："+in.Instruction+gradeGuidance(in))
 		if e != nil {
 			return e
 		}

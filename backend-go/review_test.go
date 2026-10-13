@@ -10,6 +10,25 @@ import (
 	"testing"
 )
 
+func TestPlannedCoursewareReportUsesCurrentPageChecks(t *testing.T) {
+	s := &Server{}
+	s.cfg.Mode = "live"
+	d := Deck{Title: "一次函数", Plan: &TeachingPlan{}, Slides: []Slide{{ID: "page-one", Title: "斜率", Order: 1}}, PageChecks: map[string]PageQualityCheck{}}
+	report := s.assessTeaching(context.Background(), Actor{}, "", "courseware", d, nil)
+	if report["status"] != "unavailable" {
+		t.Fatal("unchecked page reported as reviewed", report)
+	}
+	d.PageChecks["page-one"] = PageQualityCheck{Hash: slideContentHash(d, d.Slides[0]), Content: "checked", Visual: "checked"}
+	report = s.assessTeaching(context.Background(), Actor{}, "", "courseware", d, nil)
+	if report["status"] != "completed" || report["rubric_version"] != "page-review-v1" {
+		t.Fatal("existing checks were not summarized", report)
+	}
+	d.Slides[0].Title = "修改后的斜率"
+	if s.assessTeaching(context.Background(), Actor{}, "", "courseware", d, nil)["status"] != "unavailable" {
+		t.Fatal("stale checks reported as reviewed")
+	}
+}
+
 func TestIndependentReviewRoutingAndValidation(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
