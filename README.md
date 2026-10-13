@@ -126,6 +126,8 @@ MiniMax仍兼容：设置 `VIDEO_PROVIDER=minimax`、`VIDEO_BASE_URL=https://api
 
 ## 验证
 
+参考 PDF 的页面取图需要 Poppler 的 `pdftoppm` 在 PATH 中；仅安装 Python 依赖不够。Ubuntu/Debian 可执行 `sudo apt-get install -y fonts-noto-cjk poppler-utils`，Windows 需安装 Poppler 并将其可执行文件目录加入 PATH。CI 和渲染服务 Docker 镜像会安装这些依赖，`test_reference_pdf_contains_real_sampled_images` 会验证真实 PDF 取图，不会在缺少工具时跳过。
+
 ```powershell
 $env:TEST_DATABASE_URL='postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable'
 $env:TEST_RUNTIME_DATABASE_URL='postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable'
