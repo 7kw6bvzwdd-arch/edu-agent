@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-15T06:17:05Z",
+  "title": "Design System: 教育智能体 · 紫水晶",
+  "extensions": {
+    "colorMeta": {
+      "am-700": { "role": "primary", "displayName": "紫水晶", "tonalRamp": ["#1d0f3d", "#2a1458", "#4c1d95", "#6d28d9", "#8b5cf6", "#bfa8f0", "#e6defa", "#f7f5fc"] },
+      "ground": { "role": "neutral", "displayName": "浅紫页面底色" },
+      "surface": { "role": "neutral", "displayName": "白色工作面" },
+      "ok": { "role": "semantic", "displayName": "成功与真实模型模式" },
+      "warn": { "role": "semantic", "displayName": "待确认与样例模式" },
+      "err": { "role": "semantic", "displayName": "失败" },
+      "info": { "role": "semantic", "displayName": "信息" }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "首页标题", "purpose": "窄屏沿现有断点缩小。" },
+      "title": { "displayName": "工作区标题", "purpose": "对话面板与审核文档标题。" },
+      "body": { "displayName": "中文系统正文", "purpose": "工作区文字基准。" },
+      "label": { "displayName": "紧凑控件文字", "purpose": "原生按钮和表单标签。" }
+    },
+    "shadows": [
+      { "name": "shadow-1", "value": "0 1px 2px #2a145810,0 1px 1px #2a14580a", "purpose": "通用控件与面板。" },
+      { "name": "shadow-2", "value": "0 4px 14px -4px #2a145821,0 2px 4px #2a14580d", "purpose": "作品卡悬停。" },
+      { "name": "shadow-3", "value": "0 18px 40px -16px #2a145848,0 4px 10px #2a145814", "purpose": "弹窗。" },
+      { "name": "home-dialogue", "value": "0 6px 28px -16px #2a145818", "purpose": "首页主对话。" },
+      { "name": "slide-preview", "value": "0 5px 14px -7px #2a145833", "purpose": "审核页真实PPT投影。" }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(.2,.8,.2,1)", "purpose": "原有控件缓动。" },
+      { "name": "fast", "value": "150ms", "purpose": "按钮与输入状态。" },
+      { "name": "mid", "value": "220ms", "purpose": "作品卡状态。" },
+      { "name": "sidebar-layout", "value": "280ms", "purpose": "桌面侧栏与主内容同步、可反向的展开收起过渡。" },
+      { "name": "reduced-motion", "value": "0.01ms", "purpose": "prefers-reduced-motion 下的动画与过渡时长；动画仅执行一次。" }
+    ],
+    "breakpoints": [
+      { "name": "home-phone-max", "value": "560px" },
+      { "name": "compact-control-font-max", "value": "650px" },
+      { "name": "review-phone-max", "value": "760px" },
+      { "name": "shell-single-column-max", "value": "850px" },
+      { "name": "home-single-column-max", "value": "1000px" },
+      { "name": "review-inspector-below-max", "value": "1050px" },
+      { "name": "home-compact-desktop-max", "value": "1150px" },
+      { "name": "review-compact-desktop-max", "value": "1250px" },
+      { "name": "shell-home-wide-min", "value": "1600px" },
+      { "name": "review-wide-min", "value": "1700px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "主要按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "原有紫色渐变主操作；继承 amethyst.css 根变量。",
+      "html": "<button class=\"ds-primary\" type=\"button\">确认需求</button>",
+      "css": ".ds-primary{font-family:inherit;font-size:13px;font-weight:500;min-height:36px;padding:8px 14px;border:1px solid var(--am-700);border-radius:var(--r-sm);background:linear-gradient(180deg,#7c3aed,var(--am-700));color:var(--surface);box-shadow:0 1px 0 #ffffff33 inset,0 4px 12px -4px #6d28d980;transition:background var(--fast) var(--ease),transform var(--fast) var(--ease)}.ds-primary:hover{background:linear-gradient(180deg,#7136e0,#5b21b6);border-color:#5b21b6}.ds-primary:focus-visible{outline:2px solid var(--am-600);outline-offset:2px;box-shadow:0 0 0 4px #8b5cf62e}.ds-primary:active{transform:translateY(1px);box-shadow:none}.ds-primary:disabled{background:var(--am-200);border-color:var(--am-200);color:var(--am-800);transform:none;box-shadow:none;cursor:not-allowed}@media(pointer:coarse){.ds-primary{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition-duration:.01ms}}"
+    },
+    {
+      "name": "次要按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "白底细边框的普通操作。",
+      "html": "<button class=\"ds-secondary\" type=\"button\">查看作品</button>",
+      "css": ".ds-secondary{font-family:inherit;font-size:13px;font-weight:500;min-height:36px;padding:8px 14px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--ink-2);box-shadow:var(--shadow-1);transition:background var(--fast) var(--ease),transform var(--fast) var(--ease)}.ds-secondary:hover{background:var(--am-50);border-color:var(--am-300);color:var(--am-800)}.ds-secondary:focus-visible{outline:2px solid var(--am-600);outline-offset:2px;box-shadow:0 0 0 4px #8b5cf62e}.ds-secondary:active{transform:translateY(1px);box-shadow:none}.ds-secondary:disabled{color:#6b6482;background:#f1eff6;border-color:#e2dee9;box-shadow:none;transform:none;cursor:not-allowed}@media(pointer:coarse){.ds-secondary{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-secondary{transition-duration:.01ms}}"
+    },
+    {
+      "name": "课题输入",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "原生输入框，附可见标签与紫色焦点。",
+      "html": "<label class=\"ds-field\">课题<input class=\"ds-input\" type=\"text\" placeholder=\"输入本节课课题\"></label>",
+      "css": ".ds-field{display:grid;gap:7px;font-family:inherit;color:var(--ink-2);font-size:13px;font-weight:500}.ds-input{font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--ink);caret-color:var(--am-700);transition:border-color var(--fast),box-shadow var(--fast)}.ds-input::placeholder{color:#7d7591;opacity:1}.ds-input:hover{border-color:#bdb2d6}.ds-input:focus{border-color:var(--am-500);outline:2px solid transparent;box-shadow:0 0 0 3px #8b5cf62b}.ds-input:focus-visible{outline:2px solid var(--am-600);outline-offset:2px}.ds-input:disabled{background:var(--surface-2);color:var(--ink-3)}@media(prefers-reduced-motion:reduce){.ds-input{transition-duration:.01ms}}"
+    },
+    {
+      "name": "侧栏导航",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "深紫底与原有半透明当前项；示例仅展示导航状态。",
+      "html": "<nav class=\"ds-rail\" aria-label=\"主导航\"><button class=\"ds-nav ds-nav-active\" type=\"button\" aria-current=\"page\">首页</button><button class=\"ds-nav\" type=\"button\">我的作品</button></nav>",
+      "css": ".ds-rail{display:grid;gap:3px;padding:14px;background:radial-gradient(120% 50% at 0% 0%,#7c3aed55,transparent 60%),radial-gradient(90% 40% at 100% 100%,#a283f333,transparent 65%),linear-gradient(170deg,#3b1880 0%,#2a1458 46%,#1d0f3d 100%)}.ds-nav{position:relative;min-height:42px;padding:10px 12px;font-family:inherit;font-size:14px;font-weight:500;text-align:left;border:1px solid transparent;border-radius:var(--r-md);background:transparent;color:#ddd3fb}.ds-nav:hover{background:#ffffff12;color:#fff}.ds-nav-active{background:linear-gradient(100deg,#ffffff2e,#ffffff12);border-color:#ffffff33;color:#fff;font-weight:600;box-shadow:0 1px 0 #ffffff33 inset,0 8px 20px -10px #000c}.ds-nav-active:after{content:'';position:absolute;left:-14px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:#c4b5fd;box-shadow:0 0 12px #c4b5fd}.ds-nav:focus-visible{outline:2px solid #e9d5ff;outline-offset:2px;box-shadow:0 0 0 4px #c4b5fd40}.ds-nav:active{transform:translateY(1px)}@media(pointer:coarse){.ds-nav{min-height:44px}}"
+    },
+    {
+      "name": "待确认状态",
+      "kind": "chip",
+      "refersTo": "status-awaiting",
+      "description": "非交互状态标签；圆点、文字与语义色一起显示。",
+      "html": "<span class=\"ds-status\">待确认</span>",
+      "css": ".ds-status{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:12px;font-weight:600;line-height:1.4;padding:3px 9px;border-radius:999px;border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn)}.ds-status:before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}"
+    },
+    {
+      "name": "工作区面板",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "普通白色面板；内容为示例标签，不代表生成结果。",
+      "html": "<section class=\"ds-panel\"><h2 class=\"ds-panel-title\">教学资料</h2><p class=\"ds-panel-copy\">添加资料后，在此查看来源。</p></section>",
+      "css": ".ds-panel{font-family:inherit;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-1);padding:20px 22px}.ds-panel-title{font-size:17px;font-weight:650;margin:0 0 8px}.ds-panel-copy{font-size:13px;line-height:1.6;color:var(--ink-3);margin:0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "紫水晶",
+    "overview": "用户确认保留的既有身份：深紫导航、浅紫底色、白色工作面和紫色操作强调。中文系统字体与紧凑原生控件服务日常备课，正文、资料和真实课件占据主要视觉空间。\n\n提取依据为 `frontend-vue/src/amethyst.css`；`home.css`、`review.css` 在其后加载，补充当前页面布局与密度。本文记录现有系统，不新增配色或明暗主题。",
+    "keyCharacteristics": ["深紫侧栏与浅色内容工作区。", "白色面板、浅紫分区、细线和轻阴影。", "紧凑控件、清晰焦点、文字标注状态。", "工作区主题与课件模板配色独立。"],
+    "rules": [{ "name": "The Theme Boundary Rule", "body": "紫水晶只控制产品外壳；真实PPT预览、课件模板和课堂演示保留各自配色。", "section": "colors" }],
+    "dos": ["**Do** 复用现有紫水晶变量和中文系统字体。", "**Do** 让真实课件内容和当前操作具有明确视觉优先级。", "**Do** 用文字说明状态、模型模式和交付门槛。", "**Do** 保留键盘焦点、触屏尺寸与减少动态效果适配。"],
+    "donts": ["**Don't** 用产品紫色覆盖课件模板或真实PPT预览。", "**Don't** 把固定样例标为真实AI结果。", "**Don't** 以颜色独自传达任务状态。", "**Don't** 为延续现有页面另建一套配色、字体或控件体系。"]
+  }
+}
