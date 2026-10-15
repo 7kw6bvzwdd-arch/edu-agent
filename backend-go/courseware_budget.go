@@ -7,6 +7,7 @@ import (
 )
 
 type coursewareBudgetExhausted struct{}
+type coursewareManualReviewKey struct{}
 
 func (coursewareBudgetExhausted) Error() string {
 	return "制作服务持续异常，已保存当前课件并停止重复尝试；请管理员检查服务后再继续，未完成部分不会结算"
@@ -27,13 +28,15 @@ func (s *Server) reserveCoursewareProviderCall(ctx context.Context, a Actor, id 
 		return err
 	}
 	defer tx.Rollback(ctx)
+	manual := ctx.Value(coursewareManualReviewKey{}) == true && generationCycle(ctx) == nil && generationAttempt(ctx) == nil
 	changed, err := tx.Exec(ctx, `UPDATE tasks SET courseware_provider_calls=courseware_provider_calls+1
 	 WHERE id=$1 AND member_id=$2 AND type='courseware' AND mode='live'
-	 AND charge_state='reserved' AND deleted_at IS NULL AND status IN ('researching','expanding')
+	 AND deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding'))
+	 OR ($5 AND charge_state IN ('reserved','settled') AND status IN ('awaiting_preview','awaiting_confirmation','succeeded')))
 	 AND ($3::integer IS NULL OR charge_cycle=$3) AND ($4::integer IS NULL OR attempt=$4)
 	 AND courseware_provider_calls < 20+8*LEAST(100,GREATEST(3,
 	 CASE WHEN jsonb_typeof(result->'plan'->'pages')='array' THEN jsonb_array_length(result->'plan'->'pages')
-	 ELSE COALESCE(NULLIF((input->>'pages')::integer,0),15) END))`, id, a.MemberID, generationCycle(ctx), generationAttempt(ctx))
+	 ELSE COALESCE(NULLIF((input->>'pages')::integer,0),15) END))`, id, a.MemberID, generationCycle(ctx), generationAttempt(ctx), manual)
 	if err != nil {
 		return err
 	}
@@ -43,9 +46,10 @@ func (s *Server) reserveCoursewareProviderCall(ctx context.Context, a Actor, id 
 	// Only exceptional paths need a second query; routine calls neither download
 	// the full deck nor make a separate read/update round-trip over the tunnel.
 	var active bool
-	err = tx.QueryRow(ctx, `SELECT charge_state='reserved' AND deleted_at IS NULL AND status IN ('researching','expanding')
+	err = tx.QueryRow(ctx, `SELECT deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding'))
+	 OR ($5 AND charge_state IN ('reserved','settled') AND status IN ('awaiting_preview','awaiting_confirmation','succeeded')))
 	 AND ($3::integer IS NULL OR charge_cycle=$3) AND ($4::integer IS NULL OR attempt=$4)
-	 FROM tasks WHERE id=$1 AND member_id=$2 AND type='courseware' AND mode='live'`, id, a.MemberID, generationCycle(ctx), generationAttempt(ctx)).Scan(&active)
+	 FROM tasks WHERE id=$1 AND member_id=$2 AND type='courseware' AND mode='live'`, id, a.MemberID, generationCycle(ctx), generationAttempt(ctx), manual).Scan(&active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	} // Standalone reviewer/sample fixture, not live generation.

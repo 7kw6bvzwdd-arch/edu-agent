@@ -88,3 +88,32 @@ def test_actual_courseware_math_and_flow_fit_office_text_bounds(tmp_path):
     result=subprocess.run(['powershell','-ExecutionPolicy','Bypass','-File',str(Path(__file__).parents[1]/'scripts/check-courseware-text-bounds.ps1'),'-Path',str(pptx),'-Report',str(report)],capture_output=True,timeout=60)
     assert result.returncode==0,report.read_text(encoding='utf-8-sig') if report.exists() else result.stderr.decode(errors='replace')
     assert json.loads(report.read_text(encoding='utf-8-sig'))=={'slides':3,'overflows':[]}
+
+
+@pytest.mark.parametrize('case', ['vertex-sidebar', 'density-fraction'])
+def test_actual_native_equations_fit_office(tmp_path, case):
+    import json, os, subprocess
+    from pathlib import Path
+    if os.name!='nt' or os.environ.get('TEST_OFFICE_QUALITY')!='1':
+        pytest.skip('explicit installed PowerPoint opt-in required')
+    data={'title':'二次函数','theme':'ocean','editable_formulas':True,'slides':[{
+        'title':'从顶点式读出顶点与对称轴','layout':'concept',
+        'bullets':['上节配方结果：y=x²-2x-3=(x-1)²-4','由(x-1)²读对称轴x=1，由-4读最低点纵坐标'],
+        'focus':'顶点式中的1和-4在图像上分别对应什么？',
+        'formula':r'y=(x-1)^{2}-4,\quad x_{\text{顶点}}=-\frac{b}{2a}=1',
+        'graph':{'title':'最低点与对称轴','x_min':-3,'x_max':5,'y_min':-6,'y_max':6,
+                 'series':[{'kind':'quadratic','a':1,'b':-2,'c':-3,'mark_x':[1]}]}}]}
+    if case=='density-fraction':
+        data['title']='浮力'
+        data['slides']=[{'title':'分层练习：反求液体密度','layout':'exercise',
+            'bullets':['同一物块：空气中示数5 N，全浸没某液体中示数4.2 N（按题设计算）',
+                       '物块体积V=2×10⁻⁴ m³，g取10 N/kg，求该液体密度',
+                       '写出三步：求F浮→确认V排→代入F浮=ρ液gV排'],
+            'focus':'只给两次示数，能求出液体密度吗？需要哪些中间量？',
+            'formula':r'\rho_{\text{液}}=\frac{F_{\text{浮}}}{gV_{\text{排}}}'}]
+    response=TestClient(app).post('/render/pptx',json=data)
+    assert response.status_code==200,response.text
+    path=tmp_path/'vertex.pptx';report=tmp_path/'bounds.json';path.write_bytes(response.content)
+    result=subprocess.run(['powershell','-ExecutionPolicy','Bypass','-File',str(Path(__file__).parents[1]/'scripts/check-courseware-text-bounds.ps1'),'-Path',str(path),'-Report',str(report)],capture_output=True,timeout=60)
+    assert result.returncode==0,report.read_text(encoding='utf-8-sig') if report.exists() else result.stderr.decode(errors='replace')
+    assert json.loads(report.read_text(encoding='utf-8-sig'))=={'slides':1,'overflows':[]}

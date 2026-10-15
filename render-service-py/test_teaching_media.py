@@ -11,6 +11,25 @@ from pathlib import Path
 TABLE = {'title': '列车时刻表（教学示例）', 'headers': ['站点', '到站', '离站'],
          'rows': [['甲站', '—', '08:00'], ['乙站', '08:30', '08:32'], ['丙站', '09:00', '—']]}
 
+
+def test_force_label_does_not_repeat_matching_magnitude():
+    data={'title':'浮力','theme':'ocean','slides':[{'title':'漂浮小球受力','layout':'concept',
+        'bullets':['漂浮小球只受重力和浮力'], 'scientific':{'kind':'forces','title':'二力平衡',
+        'object':'漂浮小球','unit':'N','equilibrium':True,
+        'forces':[{'label':'重力G=5 N','x':0,'y':-5},{'label':'浮力F浮=5 N','x':0,'y':5}]}}]}
+    response=TestClient(app).post('/render/pptx',json=data)
+    assert response.status_code==200,response.text
+    p=Presentation(io.BytesIO(response.content))
+    text='\n'.join(s.text for s in p.slides[0].shapes if s.has_text_frame).replace('\u00a0',' ')
+    assert '重力G=5 N 5 N' not in text
+    assert '浮力F浮=5 N 5 N' not in text
+    assert '重力G=5 N' in text and '浮力F浮=5 N' in text
+    data['slides'][0]['scientific']['forces'][0]['label']='重力G=3 N'
+    response=TestClient(app).post('/render/pptx',json=data)
+    p=Presentation(io.BytesIO(response.content))
+    text='\n'.join(s.text for s in p.slides[0].shapes if s.has_text_frame).replace('\u00a0',' ')
+    assert '重力G=3 N 5 N' in text, 'inconsistent input must remain visible to reviewers'
+
 def test_five_experiment_records_fit_beside_caption_and_formula():
     table={'title':'实验记录（示意数据，非实测，以课堂实测为准）',
            'headers':['浸入情况','F拉 / N','F浮 / N'],

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,9 +41,11 @@ func TestAutomaticResumeClassification(t *testing.T) {
 		{context.DeadlineExceeded, true},
 		{pageReviewUnavailable{errors.New("审核返回不完整")}, true},
 		{pageReviewUnavailable{providerCallError{Status: 401}}, false},
+		{pageReviewUnavailable{providerCallError{Status: 402}}, false},
 		{pageReviewUnavailable{}, false},
 		{context.Canceled, false},
 		{providerCallError{Status: 401}, false},
+		{providerCallError{Status: 402}, false},
 	} {
 		if got := coursewareCanResume(c.err); got != c.want {
 			t.Errorf("%v: resume=%v want=%v", c.err, got, c.want)
@@ -174,6 +177,19 @@ func TestReviewOutageAutomaticallyRechecksSavedPageHTTP(t *testing.T) {
 				raw = `{}`
 			} else {
 				raw = `{"issues":[]}`
+				// Simulated successful review contracts; content accuracy is tested
+				// separately by the explicitly enabled real-model corpus.
+				if prompt, ok := req.Messages[len(req.Messages)-1].Content.(string); ok {
+					if strings.Contains(prompt, "你是独立解题员") {
+						raw = `{"solution":"测试模拟：已根据学生可见条件完成本页题目，保留条件、计算和结论供后续核对。"}`
+					} else if strings.Contains(prompt, "你是教学风险复核员") {
+						checks := []map[string]any{}
+						for i := 0; i < strings.Count(prompt, "\n复核项"); i++ {
+							checks = append(checks, map[string]any{"index": i + 1, "evidence": "测试模拟：已独立检查本项具体教学条件及计算说明，当前对象没有模拟错误。", "issues": []PageQualityIssue{}})
+						}
+						raw = string(asJSON(map[string]any{"checks": checks}))
+					}
+				}
 			}
 		}
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": raw}}}})
@@ -214,7 +230,7 @@ func TestReviewOutageAutomaticallyRechecksSavedPageHTTP(t *testing.T) {
 	v = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 	var done Deck
 	json.Unmarshal(asJSON(v["result"]), &done)
-	if v["status"] != "awaiting_preview" || generated != 3 || reviewed != 7 || hash != slideContentHash(done, done.Slides[0]) {
-		t.Fatal("review recovery regenerated saved page or failed teacher preview", v["status"], v["error"], generated, reviewed)
+	if v["status"] != "awaiting_preview" || generated != 3 || reviewed != 10 || hash != slideContentHash(done, done.Slides[0]) {
+		t.Fatal("review recovery regenerated saved page or failed teacher preview", v["status"], v["error"], generated, reviewed, v["events"])
 	}
 }

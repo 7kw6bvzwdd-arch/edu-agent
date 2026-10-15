@@ -40,11 +40,20 @@ func (s *Server) requireTeachingMediaRenderer(ctx context.Context, graph ...bool
 	if len(graph) > 0 && graph[0] && health["courseware_graph_version"] != "graph-v1" {
 		return fail(503, "PPT排版服务尚不支持数值坐标图，请更新排版服务；图像数据已保留")
 	}
+	if len(graph) > 1 && graph[1] && health["courseware_plot_version"] != "matplotlib-v1" {
+		return fail(503, "高清图表排版服务尚未更新，绘图参数已保留")
+	}
 	return nil
 }
 
 // Text-only model calls never receive uploaded binary data or mutate the original.
 func slideForTextModel(sl Slide) Slide {
+	sl.CanvasPositions = nil
+	sl.CanvasOrder = nil
+	sl.CanvasObjects = append([]CanvasObject(nil), sl.CanvasObjects...)
+	for i := range sl.CanvasObjects {
+		sl.CanvasObjects[i].DataURL = ""
+	}
 	if sl.Picture != nil {
 		picture := *sl.Picture
 		picture.DataURL = "[图片未发送，仅提供说明；不得评价画面准确性]"
@@ -75,12 +84,13 @@ type FunctionSeries struct {
 	MarkX []float64 `json:"mark_x,omitempty"`
 }
 type FunctionGraph struct {
-	Title  string           `json:"title"`
-	XMin   float64          `json:"x_min"`
-	XMax   float64          `json:"x_max"`
-	YMin   float64          `json:"y_min"`
-	YMax   float64          `json:"y_max"`
-	Series []FunctionSeries `json:"series"`
+	Renderer string           `json:"renderer,omitempty"`
+	Title    string           `json:"title"`
+	XMin     float64          `json:"x_min"`
+	XMax     float64          `json:"x_max"`
+	YMin     float64          `json:"y_min"`
+	YMax     float64          `json:"y_max"`
+	Series   []FunctionSeries `json:"series"`
 }
 type FigureItem struct {
 	Label  string `json:"label"`
@@ -95,6 +105,9 @@ type TeachingFigure struct {
 }
 
 func validateTeachingMedia(sl Slide) error {
+	if err := validateDataChart(sl.Chart); err != nil {
+		return err
+	}
 	if len([]rune(sl.Answer)) > 2000 {
 		return fail(400, "课堂答案最多2000字，完整推导可留在教师备注")
 	}
@@ -105,9 +118,12 @@ func validateTeachingMedia(sl Slide) error {
 		return len([]rune(s)) <= limit && (!required || strings.TrimSpace(s) != "")
 	}
 	if g := sl.Graph; g != nil {
+		if g.Renderer != "" && g.Renderer != "native" && g.Renderer != "matplotlib" {
+			return fail(400, "不支持该函数绘图方式")
+		}
 		finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) <= 1000 }
-		if !valid(g.Title, 60, true) || len(g.Series) < 1 || len(g.Series) > 4 || !finite(g.XMin) || !finite(g.XMax) || !finite(g.YMin) || !finite(g.YMax) || g.XMin >= 0 || g.XMax <= 0 || g.YMin >= 0 || g.YMax <= 0 || g.XMax-g.XMin < 1 || g.YMax-g.YMin < 1 {
-			return fail(400, "函数图像需有1–4条直线、明确标题及包含原点的有限数值坐标范围（跨度至少1，绝对值不超过1000）")
+		if !valid(g.Title, 60, true) || len(g.Series) < 1 || len(g.Series) > 4 || !finite(g.XMin) || !finite(g.XMax) || !finite(g.YMin) || !finite(g.YMax) || g.XMin > 0 || g.XMax < 0 || g.YMin > 0 || g.YMax < 0 || g.XMax-g.XMin < 1 || g.YMax-g.YMin < 1 {
+			return fail(400, "函数图像需有1–4条曲线、明确标题及包含原点的有限数值坐标范围（允许0作为边界，跨度至少1，绝对值不超过1000）")
 		}
 		if sl.Scientific != nil || sl.Chart != nil || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Diagram != "" {
 			return fail(400, "函数坐标图请独立展示，不与其他媒体混排")
@@ -242,7 +258,7 @@ func validateTeachingMedia(sl Slide) error {
 	return nil
 }
 
-const coursewareMediaContract = `
+const coursewareMediaContract = matplotlibPlotContract + `
 课堂图解字段（可省略，不要null）：
 emphasis：0–6个重点词的字符串数组，每词最多20字，必须来自本页正文/表格/核心问题，只标关键概念或数值，不把整句标色。
 picture仅供教师上传PNG/JPEG；模型不得生成图片data_url或伪造图片地址。配图不能代替实际图解或来源证据。

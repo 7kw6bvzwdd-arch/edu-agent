@@ -224,7 +224,13 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 		in.Theme = d.Theme
 	}
 	prompt := coursewarePageRepairSkill + coursewarePageContext(d, page)
+	prompt += "\n表达由本页教学任务决定：观察关系突出实际学科图，计算推导保留关键步骤，对照突出同一比较条件，独立练习突出完整题设。每个图表必须让学生读出本页所需的量、关系或证据，在notes简述具体读图路径；没有具体任务或数据就不生成装饰图、占位表或空色块。相邻页重复图像时突出本页新增的对象/问题，必要复习保留；不为凑版式而换色、换题或拆页。"
+	prompt += "\n独立练习所有上屏字段（bullets、focus、formula和图示）都不得提前给出待求答案；focus只能追问或提示方法，formula只能保留题设已给原式。要求配方、求顶点或最值时，不在formula追加配方结果或顶点式；完整推导与答案放answer和notes；answer按实际解题顺序每行一步，用换行分隔，供教师逐步揭示，不用分号自动拆解。题设已给顶点式、验证给定恒等式及例题讲解允许显示相应公式。读图题保留给定图像，独立作图题不提前画答案曲线。"
+	if in.Subject == "物理" {
+		prompt += "\n受力平衡不能代替浸入状态条件：F浮=G可能是漂浮或悬浮，不能据此推出V排=V物。只有全浸没才有V排=V物，漂浮通常V排<V物；题目及教师解释都须正确区分。"
+	}
 	prompt += "\n专业图示标题只用简短用途，尽量12字以内；函数公式与必要坐标由图例展示，长解释放notes。数学函数坐标默认无量纲，x/y每单位使用相同长度；物理函数必须明确对应物理量及单位。图内只截取坐标范围，不改变函数定义域。"
+	prompt += "\n数学图中点和曲线均根据给定函数式计算；数据性质明确写‘按题设计算，非实测’，坐标比例写‘x/y每单位等长’，不使用含混的‘真实数据/真实坐标’措辞，也不虚构测量或教材核验。"
 	if page == 1 && len(d.Slides) == 0 {
 		tx, err := s.tx(ctx, a.TenantID)
 		if err != nil {
@@ -245,6 +251,7 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 		}
 		position = row.Position
 		prompt += "\n整课已确认教学规划（用途与约定，不是页面正文）：" + string(asJSON(d.Plan)) + "\n当前仅制作该教学位置：" + string(asJSON(row)) + "\n预览页不连续时，不把上一张预览当教学前页，按教学位置衔接。"
+		prompt += "\n同一例题以plan.conventions中的符号、数值和条件为准；visual是表达草案，如果其中示例数字冲突，保留图示用途并采用conventions的数据，不另外换题设。实际不同例题必须明确区分，不能静默混用。"
 	}
 	if page <= len(d.Slides) {
 		tx, err := s.tx(ctx, a.TenantID)

@@ -35,7 +35,7 @@ func (s *Server) assessTeaching(ctx context.Context, a Actor, task, kind string,
 		checked, suggestions, blocking := 0, 0, 0
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]
-			if check.Hash != slideContentHash(d, sl) || check.Content != "checked" || check.Visual != "checked" {
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
 				return map[string]any{"status": "unavailable", "reason": "仍有页面未完成内容与实际画面审核；请恢复后继续检查。", "rubric_version": "page-review-v1"}
 			}
 			checked++
@@ -47,7 +47,13 @@ func (s *Server) assessTeaching(ctx context.Context, a Actor, task, kind string,
 				}
 			}
 		}
+		if s.cfg.CoursewareContentReviewDisabled {
+			return map[string]any{"status": "partial", "reason": contentReviewDisabledNotice, "content_review": "disabled", "visual_review": "checked", "pages_checked": checked, "blocking_issues": blocking, "suggestions": suggestions}
+		}
 		return map[string]any{"status": "completed", "rubric_version": "page-review-v1", "scope": "已生成页面的内容与实际PPT画面检查；仍需教师逐页核验", "pages_checked": checked, "blocking_issues": blocking, "suggestions": suggestions}
+	}
+	if kind == "courseware" && s.cfg.CoursewareContentReviewDisabled {
+		return map[string]any{"status": "disabled", "reason": contentReviewDisabledNotice}
 	}
 	report := map[string]any{"status": "unavailable", "reason": "未配置完整独立评审通道；请教师人工核验。"}
 	url, key, model := s.reviewModel(kind)

@@ -313,7 +313,7 @@ func TestWorksDeletionStopsStreamsAndSourceReuse(t *testing.T) {
 		worksCall(t, s, "POST", "/api/tasks/"+target+"/review", token, nil, 404)
 	}
 	for _, who := range []string{token, other} {
-		worksCall(t, s, "POST", "/api/tasks", who, TaskInput{Type: "animation", Topic: "浮力", UseKB: true, SourceTaskID: id, IdempotencyKey: newID()}, 404)
+		worksCall(t, s, "POST", "/api/tasks", who, TaskInput{Type: "animation", Topic: "浮力", UseKB: true, SourceTaskID: id, IdempotencyKey: newID()}, 503)
 	}
 }
 

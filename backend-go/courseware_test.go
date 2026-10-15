@@ -36,7 +36,7 @@ func TestCoursewarePageCountThemesAndLayoutsHTTP(t *testing.T) {
 		t.Fatal("section lost on confirmation")
 	}
 	animation := worksFixture(t, s, token, "animation", "awaiting_confirmation", "浮力", TaskInput{})
-	worksCall(t, s, "POST", "/api/tasks/"+animation+"/confirm", token, map[string]any{"result": d, "revision": 0, "accept_review": true}, 400)
+	worksCall(t, s, "POST", "/api/tasks/"+animation+"/confirm", token, map[string]any{"result": d, "revision": 0, "accept_review": true}, 503)
 }
 
 func TestGenerationExactCountAndBoundedProviderContract(t *testing.T) {

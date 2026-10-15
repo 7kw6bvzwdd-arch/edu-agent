@@ -184,6 +184,19 @@ func TestInterruptedCapacityProtectsDraftsAndBulkIsolation(t *testing.T) {
 	other := worksLogin(t, s, "other")
 	var a Actor
 	json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", token, nil, 200).Body.Bytes(), &a)
+	// The suite shares an isolated database. Earlier quota tests leave low's
+	// valid cancelled draft, which must not become a fifteenth capacity fixture.
+	setup, err := s.tx(context.Background(), a.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(context.Background(), "UPDATE tasks SET deleted_at=now() WHERE member_id=$1", a.MemberID); err != nil {
+		setup.Rollback(context.Background())
+		t.Fatal(err)
+	}
+	if err = setup.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	ids := []string{}
 	for i := 0; i < 14; i++ {
 		id := worksFixture(t, s, token, "courseware", "failed", "capacity", TaskInput{})

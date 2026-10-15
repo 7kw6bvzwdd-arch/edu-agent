@@ -3,13 +3,15 @@ import io
 import base64
 import logging
 import math
+from fractions import Fraction
 import unicodedata
 import os
 import re
 import zipfile
 from pathlib import Path
 from typing import Literal
-from fastapi import FastAPI, HTTPException, UploadFile
+from teaching_plots import add_plot
+from fastapi import FastAPI, HTTPException, UploadFile, Request, Query
 from fastapi.responses import Response, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
@@ -86,7 +88,23 @@ class Chart(BaseModel):
     labels:list[str]=Field(min_length=1,max_length=8)
     values:list[FiniteFloat]=Field(min_length=1,max_length=8)
     title:str=Field(default='实验数据',max_length=80)
-    style:Literal['bar','line']='bar'
+    style:Literal['bar','line','scatter','errorbar']='bar'
+    x_values:list[FiniteFloat]=Field(default_factory=list,max_length=8)
+    y_errors:list[FiniteFloat]=Field(default_factory=list,max_length=8)
+    x_label:str=Field(default='',max_length=40)
+    y_label:str=Field(default='',max_length=40)
+    source_label:str=Field(default='示意数据，非实测',max_length=100)
+
+    @model_validator(mode='after')
+    def check_numeric_chart(self):
+        if self.style in ('scatter','errorbar'):
+            if len(self.labels)!=len(self.values) or any(not label.strip() or len(label)>18 or '\n' in label for label in self.labels):raise ValueError('Invalid chart labels')
+            if len(self.x_values)!=len(self.values) or not self.x_label.strip() or not self.y_label.strip() or not self.source_label.strip():raise ValueError('Numeric plot needs axes and source')
+            if any(abs(v)>1000000 for v in self.x_values+self.values+self.y_errors):raise ValueError('Plot magnitude exceeds limit')
+            if self.style=='errorbar' and len(self.y_errors)!=len(self.values):raise ValueError('Missing error sizes')
+            if self.y_errors and (len(self.y_errors)!=len(self.values) or any(v<0 for v in self.y_errors) or self.style!='errorbar'):raise ValueError('Invalid error sizes')
+        elif self.x_values or self.y_errors:raise ValueError('Numeric spacing requires numeric plot')
+        return self
 
 class FunctionSeries(BaseModel):
     kind:Literal['linear','quadratic','inverse']='linear'
@@ -102,11 +120,12 @@ class FunctionSeries(BaseModel):
         return self.k*x+self.b
 
 class FunctionGraph(BaseModel):
+    renderer:Literal['native','matplotlib']='native'
     title:str=Field(min_length=1,max_length=60)
-    x_min:FiniteFloat=Field(ge=-1000,lt=0)
-    x_max:FiniteFloat=Field(gt=0,le=1000)
-    y_min:FiniteFloat=Field(ge=-1000,lt=0)
-    y_max:FiniteFloat=Field(gt=0,le=1000)
+    x_min:FiniteFloat=Field(ge=-1000,le=0)
+    x_max:FiniteFloat=Field(ge=0,le=1000)
+    y_min:FiniteFloat=Field(ge=-1000,le=0)
+    y_max:FiniteFloat=Field(ge=0,le=1000)
     series:list[FunctionSeries]=Field(min_length=1,max_length=4)
 
     @model_validator(mode='after')
@@ -220,7 +239,173 @@ class ScientificDiagram(BaseModel):
         elif not 0<self.voltage<=1000 or self.connection not in ('series','parallel') or not self.resistances or any(not .01<=r<=1000 for r in self.resistances):raise ValueError('Invalid circuit')
         return self
 
+class CanvasOffset(BaseModel):
+    dx:FiniteFloat=Field(ge=-.8,le=.8)
+    dy:FiniteFloat=Field(ge=-.8,le=.8)
+    scale:FiniteFloat=Field(default=1,ge=.8,le=1.5)
+    rotation:FiniteFloat=Field(default=0,ge=-180,le=180)
+    locked:bool=False
+
+
+class CanvasObject(BaseModel):
+    id:str=Field(pattern=r'^object-[A-Za-z0-9-]{1,64}$')
+    kind:Literal['text','image','shape']
+    x:FiniteFloat=Field(ge=0,le=1)
+    y:FiniteFloat=Field(ge=0,le=1)
+    width:FiniteFloat=Field(ge=.01,le=1)
+    height:FiniteFloat=Field(ge=.005,le=1)
+    rotation:FiniteFloat=Field(default=0,ge=-180,le=180)
+    locked:bool=False
+    text:str=Field(default='',max_length=600)
+    font_size:FiniteFloat=Field(default=24,ge=16,le=60)
+    bold:bool=False
+    align:Literal['left','center','right']='left'
+    color:str=Field(default='182820',pattern=r'^[A-Fa-f0-9]{6}$')
+    background:str=Field(default='',pattern=r'^(?:[A-Fa-f0-9]{6})?$')
+    shape:Literal['rect','ellipse','line','arrow']='rect'
+    line_width:FiniteFloat=Field(default=2,ge=.5,le=8)
+    data_url:str=Field(default='',max_length=180000)
+    caption:str=Field(default='',max_length=60)
+
+    @model_validator(mode='after')
+    def check_object(self):
+        if self.x+self.width>1.000001 or self.y+self.height>1.000001:raise ValueError('Object outside page')
+        if self.kind=='text' and not self.text.strip():raise ValueError('Empty text object')
+        if self.kind=='image':TeachingPicture(data_url=self.data_url,caption=self.caption or '教师配图',source='教师添加')
+        elif self.data_url:raise ValueError('Image payload on non-image object')
+        return self
+
+
+def object_region(slide,region,draw,*args,**kwargs):
+    start=len(slide.shapes)
+    result=draw(slide,*args,**kwargs)
+    for item in list(slide.shapes)[start:]:
+        node=item._element.xpath('.//p:cNvPr')[0]
+        node.set('descr','edu-region='+region+'|'+node.get('descr',''))
+    return result
+
+
+def region_shapes(slide):
+    groups={}
+    for item in slide.shapes:
+        nodes=item._element.xpath('.//p:cNvPr')
+        description=nodes[0].get('descr','') if nodes else ''
+        if description.startswith('edu-region='):
+            key=description.split('|',1)[0].split('=',1)[1]
+            groups.setdefault(key,[]).append(item)
+    return groups
+
+
+def canvas_style_values(items):
+    # OOXML absolute lengths only. Relative spacing, chart data, connector flips,
+    # picture crop and geometry adjustments must retain their original values.
+    drawing='http://schemas.openxmlformats.org/drawingml/2006/main'
+    word='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    for item in items:
+        roots=[item._element]
+        if item.has_chart:roots.append(item.chart._chartSpace)
+        for root in roots:
+            for node in root.iter():
+                namespace,_,tag=node.tag[1:].partition('}')
+                if namespace==drawing:
+                    attrs={'rPr':('sz',),'defRPr':('sz',),'endParaRPr':('sz',),
+                           'bodyPr':('lIns','rIns','tIns','bIns'),
+                           'tcPr':('marL','marR','marT','marB'),
+                           'pPr':('marL','marR','indent'),
+                           'ln':('w',),'spcPts':('val',),
+                           'gridCol':('w',),'tr':('h',)}.get(tag,())
+                    for attr in attrs:
+                        value=node.get(attr)
+                        if value is not None:
+                            yield node,attr,int(value),100 if attr=='sz' else None
+                elif namespace==word and tag in ('sz','szCs'):
+                    attr='{'+word+'}val'
+                    if node.get(attr) is not None:yield node,attr,int(node.get(attr)),2
+
+
+def canvas_min_scale(items,key):
+    floor=10 if key=='visual' else 16
+    return max([1 if key=='formula' and any(i.shape_type==13 for i in items) else 0]+[min(floor,value/unit)/(value/unit)
+                     for _,_,value,unit in canvas_style_values(items) if unit and value>0])
+
+
+def canvas_bounds(left,top,width,height,rotation):
+    angle=math.radians(rotation)
+    w=abs(width*math.cos(angle))+abs(height*math.sin(angle))
+    h=abs(width*math.sin(angle))+abs(height*math.cos(angle))
+    return left+(width-w)/2,top+(height-h)/2,w,h
+
+
+def apply_canvas_positions(slide,positions,width,height,data=None):
+    groups=region_shapes(slide)
+    for key,offset in positions.items():
+        if key not in groups:raise RenderError('canvas_object_missing','canvas_positions')
+        items=groups[key];scale=offset.scale
+        rotatable=key!='formula' and not(key=='visual' and data and (data.graph or data.scientific or data.chart or data.diagram))
+        if offset.rotation and not rotatable:raise RenderError('canvas_rotation_protected','canvas_positions')
+        min_scale=canvas_min_scale(items,key)
+        if scale+1e-6<min_scale:raise RenderError('canvas_text_too_small','canvas_positions')
+        x=min(i.left for i in items);y=min(i.top for i in items)
+        w=max(i.left+i.width for i in items)-x;h=max(i.top+i.height for i in items)-y
+        dx,dy=round(offset.dx*width),round(offset.dy*height)
+        cx=x+w*scale/2+dx;cy=y+h*scale/2+dy
+        angle=math.radians(offset.rotation)
+        transforms=[(item,round(x+(item.left-x)*scale)+dx,round(y+(item.top-y)*scale)+dy,
+                     round(item.width*scale),round(item.height*scale)) for item in items]
+        rotated=[]
+        for item,left,top,iw,ih in transforms:
+            rx=left+iw/2-cx;ry=top+ih/2-cy
+            left=round(cx+rx*math.cos(angle)-ry*math.sin(angle)-iw/2)
+            top=round(cy+rx*math.sin(angle)+ry*math.cos(angle)-ih/2)
+            bounds=canvas_bounds(left,top,iw,ih,item.rotation+offset.rotation)
+            if min(bounds[0],bounds[1])<-.5 or bounds[0]+bounds[2]>width+.5 or bounds[1]+bounds[3]>height+.5:
+                raise RenderError('canvas_outside_slide','canvas_positions')
+            rotated.append((item,left,top,iw,ih))
+        if scale!=1:
+            for node,attr,value,_ in canvas_style_values(items):node.set(attr,str(round(value*scale)))
+        for item,left,top,iw,ih in rotated:
+            item.left=left;item.top=top;item.width=iw;item.height=ih;item.rotation=(item.rotation+offset.rotation)%360
+        node=items[0]._element.xpath('.//p:cNvPr')[0]
+        node.set('descr',node.get('descr','')+f'|edu-base-min={min_scale}|edu-scale={scale}|edu-box={x+dx},{y+dy},{round(w*scale)},{round(h*scale)}|edu-rotation={offset.rotation}')
+
+
+def draw_canvas_object(slide,obj,width,height):
+    x,y,w,h=obj.x*width,obj.y*height,obj.width*width,obj.height*height
+    bounds=canvas_bounds(x,y,w,h,obj.rotation)
+    if min(bounds[0],bounds[1])<-.5 or bounds[0]+bounds[2]>width+.5 or bounds[1]+bounds[3]>height+.5:
+        raise RenderError('canvas_outside_slide','canvas_objects')
+    if obj.kind=='text':
+        # Explicit type size is preserved; text must fit instead of silently shrinking.
+        item=box(slide,x/914400,y/914400,w/914400,h/914400,obj.text,round(obj.font_size),obj.color,obj.bold)
+        for p in item.text_frame.paragraphs:p.alignment={'left':PP_ALIGN.LEFT,'center':PP_ALIGN.CENTER,'right':PP_ALIGN.RIGHT}[obj.align]
+        if obj.background:item.fill.solid();item.fill.fore_color.rgb=rgb(obj.background)
+    elif obj.kind=='image':
+        item=slide.shapes.add_picture(io.BytesIO(base64.b64decode(obj.data_url.split(',',1)[1],validate=True)),round(x),round(y),width=round(w),height=round(h))
+    elif obj.shape=='line':
+        item=slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT,round(x),round(y+h/2),round(x+w),round(y+h/2))
+        # Connector geometry remains horizontal; metadata retains the hit box.
+        item.line.color.rgb=rgb(obj.color);item.line.width=Pt(obj.line_width)
+    else:
+        item=shape(slide,x/914400,y/914400,w/914400,h/914400,obj.background or 'FFFFFF',{'rect':MSO_SHAPE.RECTANGLE,'ellipse':MSO_SHAPE.OVAL,'arrow':MSO_SHAPE.RIGHT_ARROW}[obj.shape],obj.color)
+        if not obj.background:item.fill.background()
+        item.line.width=Pt(obj.line_width)
+    item.rotation=obj.rotation%360
+    node=item._element.xpath('.//p:cNvPr')[0]
+    node.set('descr',f'edu-region={obj.id}|edu-rotatable=1|edu-box={round(x)},{round(y)},{round(w)},{round(h)}|edu-rotation={obj.rotation}|'+obj.caption.replace('|','／'))
+
+
+def apply_canvas_order(slide,order):
+    groups=region_shapes(slide)
+    if any(key not in groups for key in order):raise RenderError('canvas_object_missing','canvas_order')
+    # Each native teaching region remains contiguous; ordering cannot separate axes/labels.
+    for key in [key for key in groups if key not in order]+order:
+        for item in groups[key]:slide.shapes._spTree.remove(item._element);slide.shapes._spTree.insert_element_before(item._element,'p:extLst')
+
+
 class Slide(BaseModel):
+    canvas_objects:list[CanvasObject]=Field(default_factory=list,max_length=24)
+    canvas_order:list[str]=Field(default_factory=list,max_length=29)
+    canvas_positions:dict[Literal['title','body','visual','formula','focus'],CanvasOffset]=Field(default_factory=dict,max_length=5)
     answer:str=Field(default='',max_length=2000)
     scientific:ScientificDiagram|None=None
     graph:FunctionGraph|None=None
@@ -240,6 +425,8 @@ class Slide(BaseModel):
 
     @model_validator(mode='after')
     def check_media(self):
+        ids=[obj.id for obj in self.canvas_objects]
+        if len(ids)!=len(set(ids)) or len(self.canvas_order)!=len(set(self.canvas_order)):raise ValueError('Duplicate canvas IDs')
         if self.scientific and (self.graph or self.picture or self.chart or self.table or self.figure or self.diagram):raise ValueError('Scientific diagram requires own panel')
         if self.graph and (self.picture or self.chart or self.table or self.figure or self.diagram):
             raise ValueError('Function graph requires its own panel')
@@ -258,11 +445,19 @@ class Deck(BaseModel):
 
     @model_validator(mode='after')
     def check_total_images(self):
-        if sum(len(s.picture.data_url) for s in self.slides if s.picture)>1200000:
+        if sum((len(s.picture.data_url) if s.picture else 0)+sum(len(o.data_url) for o in s.canvas_objects) for s in self.slides)>1200000:
             raise ValueError('Total image budget exceeded')
         return self
 
 def rgb(h):return RGBColor.from_string(h)
+def inline_font_content(text):
+    # Plain body text supports no TeX styling. Unwrap only font commands,
+    # preserving the actual characters, operators and grouping inside them.
+    while True:
+        plain=re.sub(r'\\+(?:mathbf|mathrm|mathit|textbf|textit|text)\{([^{}]*)\}',lambda m:m[1],text)
+        if plain==text:return text
+        text=plain
+
 def keep_number_unit(text):
     # Preserve stored content; keep the value and unit together in display text.
     return re.sub(r'(\d(?:\.\d+)?)[ \u00a0]+((?:km/h|m/s[²2]?|mm|cm|km|ms|min|kg|mL|mol|Hz|Pa|s|h|m[²³]?|g|L|N|J|W|K|V|A|°C|℃|%)(?![A-Za-z]))',lambda m:m[1]+'\u00a0'+m[2],text)
@@ -271,11 +466,11 @@ def text_lines(text, width, size):
     """Conservative word wrapping, including explicit breaks and unbroken tokens."""
     capacity = max(1, (width * 72 - 8) / size - .7)
     count = 0
-    for line in keep_number_unit(text).expandtabs(4).split('\n'):
+    for line in keep_number_unit(inline_font_content(text)).expandtabs(4).split('\n'):
         used = 0
         count += 1
         for token in re.findall(r'\d+(?:\.\d+)?\u00a0[A-Za-z/²³%℃°0-9]+|[A-Za-z0-9_]+|.', line):
-            units = sum(1.05 if unicodedata.east_asian_width(c) in 'WF' else
+            units = sum(1.05 if unicodedata.east_asian_width(c) in 'WF' or c in '“”‘’—…' else
                         .9 if c in 'MW@%&' else .62 for c in token)
             if used and used + units > capacity:
                 count += 1
@@ -291,7 +486,7 @@ def box(slide,x,y,w,h,text,size,color,bold=False,minimum=None,font=FONT):
     # ponytail: conservative font metrics, not a shaping engine. Reject at the
     # readable floor; native PowerPoint preview is the visual acceptance check.
     minimum = size if minimum is None else minimum
-    text=keep_number_unit(text.replace('\r\n','\n').replace('\r','\n').replace('\v','\n').expandtabs(4))
+    text=keep_number_unit(inline_font_content(text).replace('\r\n','\n').replace('\r','\n').replace('\v','\n').expandtabs(4))
     size = next((pt for pt in range(size, minimum - 1, -1)
                  if text_lines(text,w,pt)*pt*1.4 <= h*72-3),None)
     if size is None:
@@ -417,7 +612,7 @@ def body(slide,data,layout,theme,x,y,w,h):
             box(slide,x+.25,y+i*row,w-.25,row-.04,text,23,ink,minimum=16)
     elif layout=='concept':
         # Key idea first, supporting evidence below. Avoid a grid of identical cards.
-        lead=h*.43 if len(items)>1 else h
+        lead=max(h*.43,text_lines(items[0],w,22)*22*1.4/72+.15) if len(items)>1 else h
         box(slide,x,y,w,lead-.1,items[0],30,ink,True,minimum=22)
         rest=items[1:]
         if rest:
@@ -443,6 +638,16 @@ def body(slide,data,layout,theme,x,y,w,h):
             box(slide,x+.7,py,w-.7,row-.1,text,23,ink,minimum=16)
             py+=row
     elif layout=='comparison':
+        if w<6:
+            # Evidence occupies the other column. Keep A/B comparisons distinct
+            # instead of reclassifying their first statement as a key concept.
+            row=h/len(items)
+            for i,text in enumerate(items):
+                py=y+i*row
+                shape(slide,x,py,w,.02,accent)
+                box(slide,x,py+.06,.36,.32,'A' if i%2==0 else 'B',14,accent,True)
+                box(slide,x+.5,py+.06,w-.5,row-.1,text,24,ink,minimum=18)
+            return
         col=(w-.26)/2
         for side in range(2):
             px=x+side*(col+.26)
@@ -488,14 +693,18 @@ def body(slide,data,layout,theme,x,y,w,h):
                     box(slide,x+left,py+.43,w-left,row-.48,text,22,ink,minimum=16)
 
 
-def function_graph(slide,data,theme,x,y,w,h):
+def function_graph(slide,data,theme,x,y,w,h,show_coordinates=True):
     _,ink,accent,surface,soft,muted=THEMES[theme]
+    if data.renderer=='matplotlib':
+        box(slide,x+.2,y+.05,w-.4,.5,data.title,17,accent,True,minimum=14)
+        add_plot(slide,data,THEMES[theme],mathtext_font(),x,y+.6,w,h-.6,True,show_coordinates)
+        return
     shape(slide,x,y,w,h,surface if theme=='midnight' else 'FFFFFF',MSO_SHAPE.RECTANGLE,'DFE7F2')
     box(slide,x+.2,y+.12,w-.4,.4,data.title,17,accent,True,minimum=14)
     # The same inch/unit ratio on both axes makes slope comparisons honest.
-    legendh=.32*len(data.series)
-    left,top=x+.62,y+.68
-    availw,availh=w-1.05,h-1.1-legendh
+    legendh=.38*len(data.series)
+    left,top=x+.85,y+.72
+    availw,availh=w-1.28,h-1.22-legendh
     if min(availw,availh)<.9:raise RenderError('text_overflow')
     scale=min(availw/(data.x_max-data.x_min),availh/(data.y_max-data.y_min))
     pw,ph=(data.x_max-data.x_min)*scale,(data.y_max-data.y_min)*scale
@@ -511,20 +720,20 @@ def function_graph(slide,data,theme,x,y,w,h):
         return next(n*power for n in (1,2,5,10) if n*power>=raw)
     for axis,lo,hi in [('x',data.x_min,data.x_max),('y',data.y_min,data.y_max)]:
         step=tick_step(hi-lo)
-        while step*scale<(.44 if axis=='x' else .3):step*=2
+        while step*scale<(.88 if axis=='x' else .4):step*=2
         value=math.ceil(lo/step)*step
         while value<=hi+step*.0001:
             if axis=='x':
                 line('function-grid-x',px(value),top,px(value),top+ph,soft,.6)
-                box(slide,px(value)-.21,top+ph+.04,.42,.27,f'{value:g}',10,muted,minimum=9)
+                box(slide,px(value)-.425,top+ph+.04,.85,.34,f'{value:g}',14,muted)
             else:
                 line('function-grid-y',left,py(value),left+pw,py(value),soft,.6)
-                if abs(value)>step*.0001:box(slide,left-.66,py(value)-.135,.4,.27,f'{value:g}',10,muted,minimum=9)
+                if abs(value)>step*.0001:box(slide,left-.85,py(value)-.17,.72,.34,f'{value:g}',14,muted)
             value+=step
     line('function-axis-x',left,py(0),left+pw,py(0),muted,1.2)
     line('function-axis-y',px(0),top,px(0),top+ph,muted,1.2)
-    box(slide,left+pw+.07,py(0)-.135,.3,.3,'x',12,ink,minimum=10)
-    box(slide,px(0)+.08,top,.3,.3,'y',12,ink,minimum=10)
+    box(slide,left+pw+.07,py(0)-.17,.3,.34,'x',14,ink)
+    box(slide,px(0)+.08,top,.3,.34,'y',14,ink)
     colors=[accent,'D75454','168979','8059B0']
     for i,series in enumerate(data.series):
         color=colors[i]
@@ -546,19 +755,22 @@ def function_graph(slide,data,theme,x,y,w,h):
             result=series.value(value)
             dot=shape(slide,px(value)-.045,py(result)-.045,.09,.09,color,MSO_SHAPE.OVAL)
             dot.name=f'function-point-{i}-{j}'
-            labels.append(f'({value:g}, {result:g})')
+            def number_label(number):
+                fraction=Fraction(number).limit_denominator(12)
+                return str(fraction) if abs(float(fraction)-number)<1e-12 else f'{number:g}'
+            labels.append(f'({number_label(value)}, {number_label(result)})')
         slope='x' if series.k==1 else '-x' if series.k==-1 else f'{series.k:g}x'
         expression=f'y = {slope}' if series.k else f'y = {series.b:g}'
         if series.k and series.b:expression+=f' {"+" if series.b>0 else "-"} {abs(series.b):g}'
         if series.kind=='quadratic':expression=f'y = {series.a:g}x² {series.b:+g}x {series.c:+g}'
         elif series.kind=='inverse':expression=f'y = {series.k:g}/x'
-        text=expression+(' · '+', '.join(labels) if labels else '')
-        box(slide,x+.22,y+h-legendh-.1+i*.32,w-.44,.3,text,12,color,True,minimum=10)
+        text=expression+(' · '+', '.join(labels) if labels and show_coordinates else '')
+        box(slide,x+.22,y+h-legendh-.05+i*.38,w-.44,.35,text,14,color,True)
 
 
 def scientific_diagram(slide,data,theme,x,y,w,h):
     _,ink,accent,_,soft,muted=THEMES[theme]
-    box(slide,x+.1,y,w-.2,.5,data.title,17,accent,True,minimum=14)
+    box(slide,x+.1,y,w-.2,.5,data.title,20,accent,True,minimum=18)
     def line(name,x1,y1,x2,y2,arrow=False,color=accent):
         sh=slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT,Inches(x1),Inches(y1),Inches(x2),Inches(y2))
         sh.name='scientific-'+name;sh.line.color.rgb=rgb(color);sh.line.width=Pt(2)
@@ -580,24 +792,27 @@ def scientific_diagram(slide,data,theme,x,y,w,h):
         scale=min((w-2.8)/(xmax-xmin) if xmax>xmin else float('inf'),(h-1.8)/(ymax-ymin) if ymax>ymin else float('inf'))
         ox=x+w/2-(xmin+xmax)*scale/2;oy=y+.95+ymax*scale
         dot=shape(slide,ox-.1,oy-.1,.2,.2,accent,MSO_SHAPE.OVAL);dot.name='scientific-object'
-        box(slide,x+.2,y+.55,w-.4,.35,'研究对象：'+data.object,13,ink,minimum=11)
+        box(slide,x+.2,y+.55,w-.4,.4,'研究对象：'+data.object,16,ink,minimum=14)
         labels=[]
         colors=[accent,'B45309','167D75','713BB0']
         for i,f in enumerate(data.forces):
             ex,ey=ox+f.x*scale,oy-f.y*scale;line(f'force-{i}',ox,oy,ex,ey,True,colors[i])
-            label=f'{f.label} {math.hypot(f.x,f.y):g} N'
-            lx=max(x,min(x+w-2.3,ex+.12 if i%2==0 else ex-2.42))
+            magnitude=math.hypot(f.x,f.y)
+            labeled=re.search(r'([0-9]+(?:\.[0-9]+)?)\s*N\s*$',f.label)
+            label=f.label if labeled and math.isclose(float(labeled[1]),magnitude,rel_tol=1e-9) else f'{f.label} {magnitude:g} N'
+            labelw=2.7
+            lx=max(x,min(x+w-labelw,ex+.12 if i%2==0 else ex-labelw-.12))
             ly=max(y+.95,min(y+h-.85,ey-.2))
             ly=next((candidate for step in [0,1,-1,2,-2,3,-3]
                      if y+.95<=(candidate:=ly+step*.42)<=y+h-.85
-                     and not any(abs(lx-px)<2.3 and abs(candidate-py)<.419 for px,py in labels)),None)
+                     and not any(abs(lx-px)<labelw and abs(candidate-py)<.419 for px,py in labels)),None)
             if ly is None:raise RenderError('scientific_force_labels_dense')
             labels.append((lx,ly))
-            box(slide,lx,ly,2.3,.4,label,16,colors[i],True,minimum=14)
+            box(slide,lx,ly,labelw,.4,label,18,colors[i],True)
         sx,sy=sum(f.x for f in data.forces),sum(f.y for f in data.forces)
         box(slide,x+.1,y+h-.4,w-.2,.35,f'合力 ({sx:g}, {sy:g}) N'+(' · 平衡' if data.equilibrium else ''),12,muted,minimum=10)
     else:
-        left,right,top,bottom=x+.5,x+w-.5,y+1,y+h-1.2
+        left,right,top,bottom=x+.5,x+w-.5,y+1.15,y+h-1.35
         if data.connection=='series':line('wire-bottom',left,bottom,right,bottom)
         line('wire-left',left,top,left,bottom);line('wire-right',right,top,right,bottom)
         mid=(left+right)/2
@@ -606,10 +821,14 @@ def scientific_diagram(slide,data,theme,x,y,w,h):
             line('switch-left',left,top,left+.3,top);line('switch-open',left+.3,top,left+.6,top-.16);line('source-left',left+.7,top,mid-.13,top)
         line('source-right',mid+.13,top,right,top)
         line('source-positive',mid-.13,top-.2,mid-.13,top+.2);line('source-negative',mid+.13,top-.12,mid+.13,top+.12)
-        box(slide,x+.2,y+.55,w-.4,.32,f'理想电源 {data.voltage:g} V · '+('闭合' if data.closed else '断开（电流为0）'),12,ink,minimum=10)
+        box(slide,x+.2,y+.55,w-.4,.4,f'理想电源 {data.voltage:g} V · '+('闭合' if data.closed else '断开（电流为0）'),18,ink)
         def resistor(i,cx,cy,r):
             sh=shape(slide,cx-.32,cy-.12,.64,.24,'FFFFFF',MSO_SHAPE.RECTANGLE,accent);sh.name=f'scientific-resistor-{i}'
-            box(slide,cx-.65,cy+.15,1.3,.3,f'R{i+1}={r:g} Ω',11,ink,minimum=10)
+            # Alternate series labels above/below the same wire; component
+            # positions and connection remain exact even with three resistors.
+            labely=(cy-.6 if i%2 else cy+.12) if data.connection=='series' else cy-.44
+            labelx=cx-.9 if data.connection=='series' else left+.15
+            box(slide,labelx,labely,1.8,.4,f'R{i+1}={r:g} Ω',18,ink)
         if data.connection=='series':
             for i,r in enumerate(data.resistances):resistor(i,left+(right-left)*(i+1)/(len(data.resistances)+1),bottom,r)
             resistance=sum(data.resistances)
@@ -617,15 +836,17 @@ def scientific_diagram(slide,data,theme,x,y,w,h):
             for i,r in enumerate(data.resistances):
                 cy=top+(bottom-top)*(i+1)/len(data.resistances);line(f'branch-{i}',left,cy,right,cy);resistor(i,mid,cy,r)
                 current=data.voltage/r if data.closed else 0
-                box(slide,right-1.1,cy-.5,1.1,.3,f'I{i+1}={current:.3g} A',11,muted,minimum=10)
+                box(slide,right-2.1,cy-.44,2.1,.4,f'I{i+1}={current:.3g} A',18,muted)
             resistance=1/sum(1/r for r in data.resistances)
         current=data.voltage/resistance if data.closed else 0
-        box(slide,x+.1,y+h-.7,w-.2,.6,f'总电阻 {resistance:.3g} Ω\n总电流 {current:.3g} A · 理想电路模型',12,ink,minimum=10)
+        box(slide,x+.1,y+h-.82,w-.2,.8,f'总电阻 {resistance:.3g} Ω\n总电流 {current:.3g} A · 理想电路模型',18,ink)
 
 def visual(slide,data,theme,x,y,w,h):
     _,ink,accent,surface,soft,muted=THEMES[theme]
     if data.graph:
-        function_graph(slide,data.graph,theme,x,y,w,h)
+        task=data.title+'。'+'。'.join(data.bullets)
+        reading_coordinates=data.layout=='exercise' and re.search(r'(?:读出|求出|求|确定)[^。！？?\n]{0,12}坐标',task)
+        function_graph(slide,data.graph,theme,x,y,w,h,show_coordinates=not reading_coordinates)
         return
     if data.scientific:
         scientific_diagram(slide,data.scientific,theme,x,y,w,h)
@@ -633,6 +854,11 @@ def visual(slide,data,theme,x,y,w,h):
     shape(slide,x,y,w,h,surface,MSO_SHAPE.ROUNDED_RECTANGLE)
     if data.chart:
         c=data.chart
+        if c.style in ('scatter','errorbar'):
+            box(slide,x+.2,y+.06,w-.4,.5,c.title,17,ink,True,minimum=14)
+            add_plot(slide,c,THEMES[theme],mathtext_font(),x,y+.62,w,h-1.06)
+            box(slide,x+.2,y+h-.38,w-.4,.34,c.source_label,12,muted,minimum=10)
+            return
         if len(c.labels)!=len(c.values):raise RenderError('chart_invalid')
         if any(len(label)>18 or '\n' in label for label in c.labels):raise RenderError('chart_invalid')
         box(slide,x+.2,y+.15,w-.4,.62,c.title,17,ink,True,minimum=14)
@@ -838,7 +1064,7 @@ def emphasize(slide,terms,theme):
                         else:run.font.color.rgb=rgb(color)
 
 
-def formula(slide,text,theme,editable=False):
+def formula(slide,text,theme,editable=False,x=.7,y=6.13,width=11.9,band=True):
     # Figure + Agg canvas avoids pyplot's process-global current-figure state.
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -860,12 +1086,13 @@ def formula(slide,text,theme,editable=False):
     pic.seek(0)
     with Image.open(pic) as im:pw,ph=im.size
     # Keep the native 24pt formula scale unless a modest reduction is enough.
-    scale=min(1,.53/(ph/160),10.9/(pw/160))
+    scale=min(1,.53/(ph/160),(width-1)/(pw/160))
     if scale<.68:raise RenderError('formula_overflow')
     w=pw/160*scale;h=ph/160*scale
     band_height=.8 if editable else .65
-    shape(slide,.7,6.13,11.9,band_height,soft,MSO_SHAPE.ROUNDED_RECTANGLE)
-    shape(slide,.7,6.13,.045,band_height,accent)
+    if band:
+        shape(slide,x,y,width,band_height,soft,MSO_SHAPE.ROUNDED_RECTANGLE)
+        shape(slide,x,y,.045,band_height,accent)
     if editable:
         from latex2mathml.converter import convert
         import mathml2omml
@@ -880,21 +1107,24 @@ def formula(slide,text,theme,editable=False):
             run.insert(1,style)
         # Native Office fractions occupy more height than the raster preview;
         # retain the math font and reserve room through the footer's safe gap.
-        frame=slide.shapes.add_textbox(Inches(.98),Inches(6.16),Inches(10.9),Inches(.74)).text_frame
+        # Native Office math is wider than its raster estimate. The old 1-inch
+        # reserve clipped correct sidebar equations despite space in the band.
+        frame=slide.shapes.add_textbox(Inches(x+.28),Inches(y+.01),Inches(width-.42),Inches(.78)).text_frame
         frame.margin_left=frame.margin_top=frame.margin_bottom=0
         frame.paragraphs[0]._p.append(element)
     else:
-        pic.seek(0);slide.shapes.add_picture(pic,Inches(.98),Inches(6.19),width=Inches(w),height=Inches(h))
+        pic.seek(0);slide.shapes.add_picture(pic,Inches(x+.28),Inches(y+.06),width=Inches(w),height=Inches(h))
 
 
-def render(deck):
+def render(deck,start_index=0,total_pages=None):
+    total_pages=total_pages or len(deck.slides)
     ppt=Presentation();ppt.slide_width=Inches(13.333);ppt.slide_height=Inches(7.5)
     bg,ink,accent,_,soft,muted=THEMES[deck.theme]
-    for index,data in enumerate(deck.slides):
+    for index,data in enumerate(deck.slides,start_index):
         field='bullets'
         try:
             if any(len(t)>160 for t in data.bullets):raise RenderError('text_overflow')
-            layout=choose_layout(data,index,len(deck.slides))
+            layout=choose_layout(data,index,total_pages)
             s=ppt.slides.add_slide(ppt.slide_layouts[6]);s.background.fill.solid();s.background.fill.fore_color.rgb=rgb(bg)
             teaching_media=bool(data.table or data.figure)
             paired_picture=bool(data.picture and teaching_media)
@@ -916,20 +1146,29 @@ def render(deck):
                 if data.section:box(s,.7,.94,9.1,.43,data.section,12,muted,minimum=10)
             titlefont=('SimSun' if os.name=='nt' else 'Noto Serif CJK SC') if deck.theme=='paper' else FONT
             field='title'
-            bottom=6.0 if data.formula else 6.78
-            if data.focus:bottom-=.72
             specialist=bool(data.graph or data.scientific)
             evidence_first=specialist and layout in ('concept','comparison','summary')
+            focusx=8.2 if specialist and evidence_first else .7
+            focusw=4.4 if specialist and evidence_first else 5.45 if specialist else 11.9
+            # A long question must wrap within its text column while the
+            # evidence keeps its area. Reserve actual readable line height.
+            focush=max(.75,text_lines(data.focus,focusw-.23,18)*18*1.4/72+.07) if specialist else .55
+            bottom=6.0 if data.formula else 6.78
+            if data.focus:bottom-=focush-.03 if specialist else .72
+            # Several scientific relations separated by TeX spacing need a
+            # shared equation row. Keep the complete expressions at readable
+            # scale rather than squeezing them into the text column.
+            wide_science_formula=bool(data.scientific and r'\quad' in data.formula)
             if teaching_media:
-                box(s,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
+                object_region(s,'title',box,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
                 field='bullets'
                 caption='\n'.join(data.bullets)
                 dense_table=bool(data.table and len(data.table.rows)>=4 and data.formula and not(data.figure or data.picture))
                 if dense_table:
                     # Put prose beside complete experimental records, preserving units.
-                    box(s,.7,2.4,3.5,bottom-2.4,caption,23,ink,minimum=19)
+                    object_region(s,'body',box,.7,2.4,3.5,bottom-2.4,caption,23,ink,minimum=19)
                     field='table'
-                    teaching_table(s,data.table,deck.theme,4.5,2.4,8.1,bottom-2.4)
+                    object_region(s,'visual',teaching_table,data.table,deck.theme,4.5,2.4,8.1,bottom-2.4)
                 else:
                     captionh=text_lines(caption,11.9,19)*19*1.4/72+.08 if caption else 0
                     mediah=bottom-2.5-captionh-(.18 if caption else 0)
@@ -939,63 +1178,106 @@ def render(deck):
                     # table enough width for readable CJK cells before shrinking fonts.
                     tablew=8.25 if data.picture else 6.25 if data.figure else 11.9
                     if data.table:
-                        teaching_table(s,data.table,deck.theme,.7,2.5,tablew,mediah)
+                        object_region(s,'visual',teaching_table,data.table,deck.theme,.7,2.5,tablew,mediah)
                     if data.figure:
                         field='figure'
-                        teaching_figure(s,data.figure,deck.theme,7.35 if data.table else .7,2.5,5.25 if data.table else 6.25 if data.picture else 11.9,mediah)
+                        object_region(s,'visual',teaching_figure,data.figure,deck.theme,7.35 if data.table else .7,2.5,5.25 if data.table else 6.25 if data.picture else 11.9,mediah)
                     if paired_picture:
                         field='picture'
-                        teaching_picture(s,data.picture,deck.theme,9.35 if data.table else 7.35,2.5,3.25 if data.table else 5.25,mediah)
+                        object_region(s,'visual',teaching_picture,data.picture,deck.theme,9.35 if data.table else 7.35,2.5,3.25 if data.table else 5.25,mediah)
                     if caption:
                         field='bullets'
-                        box(s,.7,bottom-captionh,11.9,captionh,caption,21,ink,minimum=19)
+                        object_region(s,'body',box,.7,bottom-captionh,11.9,captionh,caption,21,ink,minimum=19)
             elif cover:
-                box(s,.7,1.65,7.1,1.82,data.title,40,ink,True,minimum=22,font=titlefont)
+                object_region(s,'title',box,.7,1.65,7.1 if has_visual else 11.9,1.82,data.title,40,ink,True,minimum=22,font=titlefont)
                 field='bullets'
-                body(s,data,layout,deck.theme,.8,3.75,6.65,bottom-3.85)
+                object_region(s,'body',body,data,layout,deck.theme,.8,3.75,6.65 if has_visual else 10.9,bottom-3.85)
             else:
-                box(s,.7,1.43,11.9,.89,data.title,30,ink,True,minimum=21,font=titlefont)
+                object_region(s,'title',box,.7,1.43,11.9,.89,data.title,30,ink,True,minimum=21,font=titlefont)
                 field='bullets'
                 # Evidence comes first for explanation/comparison; procedures
                 # retain a sequence and exercises retain their question panel.
-                copy_layout=('concept' if evidence_first else 'steps' if specialist and layout in ('example','cover') else layout)
-                body(s,data,copy_layout,deck.theme,8.2 if evidence_first else .7,2.55,4.4 if evidence_first else 5.45 if specialist else 6.9 if has_visual else 11.9,bottom-2.66)
+                copy_layout=('comparison' if specialist and layout=='comparison' else 'concept' if evidence_first else 'steps' if specialist and layout in ('example','cover') else layout)
+                object_region(s,'body',body,data,copy_layout,deck.theme,8.2 if evidence_first else .7,2.55,4.4 if evidence_first else 5.45 if specialist else 6.9 if has_visual else 11.9,bottom-2.66)
             if data.picture and not teaching_media:
                 field='picture'
-                teaching_picture(s,data.picture,deck.theme,7.95,1.65 if cover else 2.55,4.65,bottom-(1.76 if cover else 2.66))
+                object_region(s,'visual',teaching_picture,data.picture,deck.theme,7.95,1.65 if cover else 2.55,4.65,bottom-(1.76 if cover else 2.66))
             elif has_visual and not teaching_media:
                 field='scientific' if data.scientific else 'graph' if data.graph else 'chart' if data.chart else 'diagram'
-                visual(s,data,deck.theme,.7 if evidence_first else 6.5 if specialist else 7.95,2.55,7.15 if evidence_first else 6.1 if specialist else 4.65,bottom-2.66)
+                object_region(s,'visual',visual,data,deck.theme,.7 if evidence_first else 6.5 if specialist else 7.95,2.55,7.15 if evidence_first else 6.1 if specialist else 4.65,3.45 if wide_science_formula else 4.12 if specialist else bottom-2.66)
             if data.focus:
                 field='focus'
-                if classroom:shape(s,.7,bottom+.06,11.9,.64,'FFF2B3',MSO_SHAPE.ROUNDED_RECTANGLE)
-                elif deck.theme=='ocean':shape(s,.7,bottom+.06,11.9,.64,soft)
-                shape(s,.7,bottom+.12,.05,.5,accent)
-                box(s,.93,bottom+.12,11.67,.55,data.focus,23,ink,True,minimum=18)
+                focusy=bottom+.02 if specialist else bottom+.12
+                if classroom:object_region(s,'focus',shape,focusx,focusy-.02,focusw,focush+.07,'FFF2B3',MSO_SHAPE.ROUNDED_RECTANGLE)
+                object_region(s,'focus',shape,focusx,focusy,.05,focush,accent)
+                object_region(s,'focus',box,focusx+.23,focusy,focusw-.23,focush,data.focus,23,ink,True,minimum=18)
             if data.formula:
                 field='formula'
-                formula(s,data.formula,deck.theme,deck.editable_formulas)
+                object_region(s,'formula',formula,data.formula,deck.theme,deck.editable_formulas,x=8.2 if specialist and evidence_first and not wide_science_formula else .7,width=11.9 if wide_science_formula else 4.4 if specialist and evidence_first else 5.45 if specialist else 11.9,band=layout in ('concept','summary') and not specialist)
+            for key,items in region_shapes(s).items():
+                for item in items:
+                    node=item._element.xpath('.//p:cNvPr')[0]
+                    allowed=key!='formula' and not(key=='visual' and (data.graph or data.scientific or data.chart or data.diagram))
+                    node.set('descr',node.get('descr','')+'|edu-rotatable='+str(int(allowed)))
+            apply_canvas_positions(s,data.canvas_positions,ppt.slide_width,ppt.slide_height,data)
+            for obj in data.canvas_objects:draw_canvas_object(s,obj,ppt.slide_width,ppt.slide_height)
             emphasize(s,data.emphasis,deck.theme)
-            shape(s,.7,7.4,11.9*(index+1)/len(deck.slides),.035,accent)
+            shape(s,.7,7.4,11.9*(index+1)/total_pages,.035,accent)
             box(s,.7,7.06,9,.25,'待核验草稿 · 请教师核对' if deck.needs_review else '教学资料 · 来源详见备注',10,muted)
-            box(s,11.5,7.04,1.1,.3,f'{index+1:02} / {len(deck.slides):02}',11,accent)
+            box(s,11.5,7.04,1.1,.3,f'{index+1:02} / {total_pages:02}',11,accent)
             s.notes_slide.notes_text_frame.text=data.notes
             if data.answer:s.notes_slide.notes_text_frame.text+='\n课堂答案（演示时由教师揭示）：\n'+data.answer
             if data.picture:
                 s.notes_slide.notes_text_frame.text+='\n配图说明：'+data.picture.caption+'\n图片来源（教师填写）：'+data.picture.source+'\n图片内容与使用权限请教师核对；文字评审未检查图片。'
+            if data.canvas_order:apply_canvas_order(s,data.canvas_order)
         except ValueError as e:
             code=e.code if isinstance(e,RenderError) else ('formula_invalid' if field=='formula' else 'content_invalid')
             raise RenderError(code,field,index+1) from e
     ppt.core_properties.title=deck.title
     result=io.BytesIO();ppt.save(result);return result.getvalue()
 
+
 @app.get('/health')
-def health():return {'status':'ok','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1'}
+def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v2','courseware_plot_version':'matplotlib-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1','pdf_extraction_version':'math-layout-v2'}
+
+@app.post('/render/object-map')
+async def object_map(request:Request,page:int=1):
+    raw=bytearray()
+    async for part in request.stream():
+        raw.extend(part)
+        if len(raw)>20*1024*1024:raise HTTPException(413,'PPTX too large')
+    try:
+        # Stored render output only; impose archive expansion limits before parsing.
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            if len(archive.infolist())>5000 or sum(i.file_size for i in archive.infolist())>100*1024*1024:raise ValueError('archive capacity')
+        ppt=Presentation(io.BytesIO(raw))
+        if not 1<=page<=len(ppt.slides):raise ValueError('page')
+        objects=[]
+        for key,items in region_shapes(ppt.slides[page-1]).items():
+            x=min(i.left for i in items);y=min(i.top for i in items)
+            right=max(i.left+i.width for i in items);bottom=max(i.top+i.height for i in items)
+            fields=dict(part.split('=',1) for part in items[0]._element.xpath('.//p:cNvPr')[0].get('descr','').split('|') if '=' in part)
+            if 'edu-box' in fields:
+                x,y,w,h=[int(v) for v in fields['edu-box'].split(',')];right=x+w;bottom=y+h
+            minimum=float(fields['edu-base-min'])/float(fields['edu-scale']) if 'edu-base-min' in fields and 'edu-scale' in fields else canvas_min_scale(items,key)
+            objects.append({'id':key,'x':x/ppt.slide_width,'y':y/ppt.slide_height,'width':(right-x)/ppt.slide_width,'height':(bottom-y)/ppt.slide_height,'min_scale':minimum,'rotatable':fields.get('edu-rotatable')=='1','rotation':float(fields.get('edu-rotation',0))})
+        return {'objects':objects,'version':'canvas-v3'}
+    except Exception:raise HTTPException(422,'Invalid stored PPTX or page')
+
 
 @app.post('/render/pptx')
 def pptx(deck:Deck):
     try:return Response(render(deck),media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation')
     except RenderError as e:raise HTTPException(422,{'code':e.code,'page':e.page,'field':e.field})
+
+@app.post('/render/canvas-preview-pptx')
+def canvas_preview_pptx(deck:Deck,page:int=1):
+    if not 1<=page<=len(deck.slides):raise HTTPException(422,'Invalid page')
+    total=len(deck.slides)
+    one=deck.model_copy(update={'slides':[deck.slides[page-1]]})
+    try:return Response(render(one,page-1,total),media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    except RenderError as e:raise HTTPException(422,{'code':e.code,'page':e.page,'field':e.field})
+
 
 @app.post('/extract')
 async def extract(file:UploadFile):
@@ -1009,11 +1291,8 @@ async def extract(file:UploadFile):
         if suffix in ('.txt','.md'):
             pages=[{'page':1,'text':data.decode('utf-8-sig')}]
         elif suffix=='.pdf':
-            from pypdf import PdfReader
-            reader=PdfReader(io.BytesIO(data))
-            if reader.is_encrypted:raise ValueError('暂不支持加密PDF')
-            if len(reader.pages)>300:raise ValueError('文档超过300页')
-            pages=[{'page':i+1,'text':p.extract_text() or ''} for i,p in enumerate(reader.pages)]
+            from pdf_extract import extract_pdf
+            pages=extract_pdf(data)
         elif suffix=='.docx':
             from docx import Document
             d=Document(io.BytesIO(data));texts=[p.text for p in d.paragraphs]
@@ -1036,6 +1315,22 @@ async def reference_extract(file:UploadFile):
     if len(data)>20*1024*1024:raise HTTPException(413,'参考课件超过20MB')
     try:return inspect_reference(data,Path(file.filename or '').suffix.lower())
     except Exception:raise HTTPException(422,'参考课件无法读取画面；请使用未加密的PDF/PPTX，最多80页，并检查画面解析服务')
+
+
+@app.post('/document/page-image')
+async def document_page_image(file:UploadFile,page:int=Query(ge=1,le=300)):
+    data=await file.read(100*1024*1024+1)
+    if len(data)>100*1024*1024:raise HTTPException(413,'文件超过100MB')
+    try:
+        import pymupdf
+        if Path(file.filename or '').suffix.lower()!='.pdf':raise ValueError()
+        with pymupdf.open(stream=data,filetype='pdf') as doc:
+            if doc.is_encrypted or len(doc)>300 or page>len(doc):raise ValueError()
+            original=doc[page-1]
+            scale=1600/max(original.rect.width,original.rect.height)
+            png=original.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False).tobytes('png')
+            return {'page':page,'data_url':'data:image/png;base64,'+base64.b64encode(png).decode()}
+    except Exception:raise HTTPException(422,'原始PDF页面无法读取，请检查页码或文件')
 
 class FormulaRequest(BaseModel):
     formula:str=Field(min_length=1,max_length=250)

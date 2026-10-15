@@ -39,6 +39,18 @@ func TestRelevantPassagesPreserveDisagreementAndNumbers(t *testing.T) {
 	}
 }
 
+func TestRelevantPassagesKeepOriginalExcerptAfterTopicHeading(t *testing.T) {
+	body := "核验主题标签（不是教材原文）：一次函数\n以下为第一方英文原文摘录（不是人教教材）：\nThe graph of an increasing function has a positive slope.\n unrelated page navigation"
+	got, _ := relevantPassages("八年级人教版一次函数", body, 1800)
+	if !strings.Contains(got, "The graph of an increasing function") || strings.Contains(got, "unrelated page navigation") {
+		t.Fatal("topic label replaced actual source excerpt", got)
+	}
+	short, info := relevantPassages("一次函数", body, 40)
+	if strings.Contains(short, "核验主题标签") || !info.Truncated {
+		t.Fatal("partial evidence group survived budget", short, info)
+	}
+}
+
 func TestWebRetrievalFiltersRawContentAndKeepsProvenance(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")

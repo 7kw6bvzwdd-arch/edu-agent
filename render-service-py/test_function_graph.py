@@ -86,3 +86,22 @@ def test_graph_teaching_purposes_keep_distinct_composition_and_data():
         if layout=='exercise':
             assert not any(s.has_text_frame and s.text=='1' and s.left<914400*3 for s in shapes),'Exercise must not silently become a numbered procedure'
     assert len(set(positions))>1,'Every graph teaching purpose collapses into the same text-left/graph-right template'
+
+def test_graph_remains_large_with_formula_and_classroom_question():
+    data=payload(graph())
+    data['slides'][0]['formula']='y=2x+3'
+    response=TestClient(app).post('/render/pptx',json=data)
+    assert response.status_code==200,response.text
+    ppt=Presentation(io.BytesIO(response.content));assert_inside_slide(ppt)
+    axis=next(s for s in ppt.slides[0].shapes if s.name=='function-axis-y')
+    assert axis.height>2.5*914400,'Formula/question bands squeeze the actual coordinate graph'
+
+def test_function_intersection_labels_use_readable_fractions():
+    g=graph();g.update(x_min=-2,x_max=3,y_min=-3,y_max=6,
+        series=[{'k':2,'b':1,'mark_x':[1/3]},{'k':-1,'b':2,'mark_x':[1/3]}])
+    response=TestClient(app).post('/render/pptx',json=payload(g))
+    assert response.status_code==200,response.text
+    ppt=Presentation(io.BytesIO(response.content))
+    text='\n'.join(s.text for s in ppt.slides[0].shapes if s.has_text_frame)
+    assert '(1/3, 5/3)' in text
+    assert '0.333333' not in text

@@ -57,7 +57,7 @@ func slideReviews(ctx context.Context, tx pgx.Tx, id string, d Deck) ([]slideRev
 	}
 	return reviews, nil
 }
-func allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d Deck) error {
+func (s *Server) allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d Deck) error {
 	if d.Plan != nil {
 		var mode string
 		if err := tx.QueryRow(ctx, "SELECT mode FROM tasks WHERE id=$1", id).Scan(&mode); err != nil {
@@ -65,7 +65,7 @@ func allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d Deck) error 
 		}
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]
-			if check.Hash != slideContentHash(d, sl) || !pageCheckPassed(check, mode == "sample") {
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, mode == "sample") {
 				return fail(409, "页面检查尚未通过，请保存并完成内容与画面检查后继续")
 			}
 		}
@@ -215,9 +215,15 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		}
 	}
 	if err := coursewareSourceError(body.Result, st.Sources); err != nil {
-		return err
+		return fail(400, err.Error())
 	}
 	assignSlideIDs(&body.Result)
+	if err := validateDeckMinimum(body.Result, 3); err != nil {
+		return err
+	}
+	if _, err := s.renderCoursewareAvailable(r.Context(), body.Result); err != nil {
+		return err
+	}
 	s.checkEditedPages(r.Context(), a, r.PathValue("id"), st.Input, &body.Result)
 	path, err := s.previewArtifact(r.Context(), a, r.PathValue("id"), &body.Result)
 	if err != nil {
@@ -308,7 +314,7 @@ func (s *Server) recordSlideFeedback(w http.ResponseWriter, r *http.Request, a A
 	}
 	if review && body.Approved && st.Deck.Plan != nil {
 		check := st.Deck.PageChecks[r.PathValue("slide")]
-		if check.Hash != body.Hash || !pageCheckPassed(check, s.cfg.Mode == "sample") {
+		if check.Hash != body.Hash || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
 			return fail(409, "本页检查尚未通过，请先保存修改并完成内容与画面检查")
 		}
 	}
@@ -374,7 +380,7 @@ func (s *Server) confirmCoursewarePreview(w http.ResponseWriter, r *http.Request
 	if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 		return err
 	}
-	if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), st.Deck); err != nil {
+	if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), st.Deck); err != nil {
 		return err
 	}
 	_, err = tx.Exec(r.Context(), "UPDATE tasks SET status='expand_pending',stage='expand_pending',updated_at=now() WHERE id=$1", r.PathValue("id"))

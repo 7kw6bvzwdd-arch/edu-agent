@@ -28,9 +28,11 @@ import (
 var schema embed.FS
 
 type Config struct {
+	CoursewareContentReviewDisabled                                         bool
 	MinIOEndpoint, MinIOAccessKey, MinIOSecretKey, MinIOBucket, MinIOPrefix string
 	RedisAddr, RedisUsername, RedisPassword, RedisPrefix                    string
 	MilvusURL, MilvusToken, MilvusDatabase, MilvusCollection                string
+	TTS                                                                     ttsConfig
 
 	VisionURL, VisionKey, VisionModel                                                                                                                                                                                                 string
 	ReviewURL, ReviewKey, ReviewModel                                                                                                                                                                                                 string
@@ -422,7 +424,7 @@ func (s *Server) routes() {
 			duration = 5
 		}
 		_, _, coursewareModel := s.agentModel("courseware")
-		respond(w, 200, map[string]any{"status": "ok", "courseware_generation_model": coursewareModel, "courseware_speed_version": "pipeline-v1", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "animation_quality_version": "scene-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.agentConfigured("animation"), "animation_video_configured": s.videoConfigured(), "animation_video_duration": duration, "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
+		respond(w, 200, map[string]any{"status": "ok", "courseware_brief_version": "conversation-stream-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "pipeline-v1", "courseware_review_roles_version": "roles-v1", "courseware_teaching_review_version": "risk-checks-v1", "courseware_textbook_evidence_version": "claim-quotes-v1", "courseware_material_images_version": "page-images-v1", "document_reparse_version": "reparse-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled, "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "animation_quality_version": "scene-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": false, "animation_video_configured": false, "animation_service_status": "rebuilding", "animation_tts_configured": s.cfg.TTS.configured(), "animation_service_message": animationRebuildMessage, "animation_video_duration": duration, "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
 		return nil
 	}))
 	s.mux.HandleFunc("POST /api/auth/login", api(s.login))
@@ -432,6 +434,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/account/recovery-code", s.auth("", s.issueRecoveryCode))
 	s.mux.HandleFunc("POST /api/courseware/brief", s.auth("courseware.generate", s.coursewareBrief))
 	s.mux.HandleFunc("GET /api/courseware/materials", s.auth("courseware.generate", s.coursewareMaterials))
+	s.mux.HandleFunc("GET /api/courseware/materials/{id}/pages/{page}/image", s.auth("courseware.generate", s.materialPageImage))
 	s.mux.HandleFunc("POST /api/courseware/formula", s.auth("courseware.generate", s.coursewareFormula))
 	s.mux.HandleFunc("POST /api/courseware/materials/preview", s.auth("courseware.generate", s.materialPreview))
 	s.mux.HandleFunc("PATCH /api/documents/{id}/curriculum", s.auth("kb.manage", s.tagCurriculum))
@@ -447,6 +450,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/tasks/{id}/slides/{slide}/review", s.auth("courseware.generate", s.reviewCoursewareSlide))
 	s.mux.HandleFunc("POST /api/tasks/{id}/slides/{slide}/feedback", s.auth("courseware.generate", s.feedbackCoursewareSlide))
 	s.mux.HandleFunc("GET /api/tasks/{id}/slides/{slide}/preview", s.auth("", s.coursewareSlidePreview))
+	s.mux.HandleFunc("GET /api/tasks/{id}/slides/{slide}/objects", s.auth("", s.coursewareObjectMap))
+	s.mux.HandleFunc("POST /api/tasks/{id}/slides/{slide}/canvas-preview", s.auth("", s.coursewareCanvasPreview))
 	s.mux.HandleFunc("GET /api/tasks/{id}/preview-pptx", s.auth("", s.coursewarePreviewDownload))
 	s.mux.HandleFunc("GET /api/tasks/{id}/conversation", s.auth("", s.coursewareConversation))
 	s.mux.HandleFunc("POST /api/tasks/{id}/conversation", s.auth("courseware.generate", s.sendCoursewareMessage))
@@ -520,6 +525,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/documents", s.auth("", s.listDocuments))
 	s.mux.HandleFunc("POST /api/documents", s.auth("kb.manage", s.uploadDocument))
 	s.mux.HandleFunc("POST /api/documents/{id}/retry", s.auth("kb.manage", s.retryDocument))
+	s.mux.HandleFunc("POST /api/documents/{id}/reparse", s.auth("kb.manage", s.reparseDocument))
 	s.mux.HandleFunc("DELETE /api/documents/{id}", s.auth("kb.manage", s.deleteDocument))
 	s.mux.HandleFunc("POST /api/documents/url", s.auth("kb.manage", s.importURL))
 	s.mux.HandleFunc("POST /api/retrieval/test", s.auth("", s.retrievalTest))
@@ -535,6 +541,12 @@ func (s *Server) routes() {
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	if handled, err := runAnimCLI(ctx, os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && !(len(os.Args) == 2 && os.Args[1] == "--sync-cloud") {
 		if len(os.Args) != 3 || os.Args[1] != "--reset-seed-password" {
 			log.Fatal("Usage: edu-server [--sync-cloud | --reset-seed-password teacher|admin|low|other]")
@@ -559,7 +571,9 @@ func main() {
 	c.CoursewareLLMURL, c.CoursewareLLMKey, c.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 	c.AnimationLLMURL, c.AnimationLLMKey, c.AnimationLLMModel = os.Getenv("ANIMATION_LLM_BASE_URL"), os.Getenv("ANIMATION_LLM_API_KEY"), os.Getenv("ANIMATION_LLM_MODEL")
 	c.ReviewURL, c.ReviewKey, c.ReviewModel = os.Getenv("EVAL_LLM_BASE_URL"), os.Getenv("EVAL_LLM_API_KEY"), os.Getenv("EVAL_LLM_MODEL")
+	c.CoursewareContentReviewDisabled = env("COURSEWARE_CONTENT_REVIEW_DISABLED", "false") == "true"
 	c.VisionURL, c.VisionKey, c.VisionModel = os.Getenv("VISION_LLM_BASE_URL"), os.Getenv("VISION_LLM_API_KEY"), os.Getenv("VISION_LLM_MODEL")
+	c.TTS = ttsConfigFromEnv()
 	c.VideoProvider = env("VIDEO_PROVIDER", "ark")
 	c.VideoURL, c.VideoKey, c.VideoModel, c.VideoDuration = env("VIDEO_BASE_URL", os.Getenv("ARK_VIDEO_BASE_URL")), env("VIDEO_API_KEY", os.Getenv("ARK_VIDEO_API_KEY")), env("VIDEO_MODEL", os.Getenv("ARK_VIDEO_MODEL")), env("VIDEO_DURATION", env("ARK_VIDEO_DURATION", "5"))
 	s, e := NewServer(ctx, c)

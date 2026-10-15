@@ -74,16 +74,7 @@ func reusableCourseware(d Deck, sources []Source) bool {
 	if validateDeck(d) != nil {
 		return false
 	}
-	known := map[string]bool{}
-	for _, source := range sources {
-		known["["+source.ID+"]"] = true
-	}
-	for _, ref := range citation.FindAllString(d.Lesson+string(asJSON(d.Slides)), -1) {
-		if !known[ref] {
-			return false
-		}
-	}
-	return true
+	return coursewareSourceError(d, sources) == nil
 }
 
 // Legacy continuation links remain readable; new continuations reuse the work.
@@ -171,7 +162,7 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 		} else if len(draft.Slides) >= 3 {
 			prefix := draft
 			prefix.Slides = prefix.Slides[:3]
-			if allSlidesApproved(r.Context(), tx, current, prefix) == nil || len(draft.Slides) > 3 {
+			if s.allSlidesApproved(r.Context(), tx, current, prefix) == nil || len(draft.Slides) > 3 {
 				phase = "expand"
 			}
 		}

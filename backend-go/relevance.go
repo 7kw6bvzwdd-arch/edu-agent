@@ -41,12 +41,19 @@ func passageNoise(p string) bool {
 }
 
 func supportingPassage(p string) bool {
+	if excerptHeading(p) {
+		return true
+	}
 	for _, marker := range []string{"=", "＝", "公式", "其中", "式中", "适用", "前提", "条件", "仅当", "不适用", "不能", "不随", "完全浸没", "注意", "安全", "防止", "图注", "图示", "单位"} {
 		if strings.Contains(p, marker) {
 			return true
 		}
 	}
 	return false
+}
+
+func excerptHeading(p string) bool {
+	return len([]rune(p)) <= 80 && strings.Contains(p, "原文摘录")
 }
 
 func relevantPassages(query, body string, budget int) (string, *PassageFilter) {
@@ -120,7 +127,7 @@ func relevantPassages(query, body string, budget int) (string, *PassageFilter) {
 		for j := i - 1; j >= 0 && j >= i-2 && !noise[j] && supportingPassage(paragraphs[j]); j-- {
 			group = append(group, j)
 		}
-		for j := i + 1; j < len(paragraphs) && j <= i+3 && !noise[j] && supportingPassage(paragraphs[j]); j++ {
+		for j := i + 1; j < len(paragraphs) && j <= i+3 && !noise[j] && (supportingPassage(paragraphs[j]) || excerptHeading(paragraphs[j-1])); j++ {
 			group = append(group, j)
 		}
 		cost := 0

@@ -94,3 +94,25 @@ label,legend{color:#68667e}a{color:#7048dc}small{color:#726a83}
 .home-tool:active,.home-suggestions button:active,.home-recent-work:active{transform:translateY(1px)}
 
 .home-recent-loading{font-size:12px;color:#75617f;display:grid;gap:15px}.home-recent-loading i{height:55px;border-radius:8px;background:#f3eff8}
+/* Reserve brand/toggle space; only the navigation scrolls in a short sidebar. */
+.sidebar-heading{display:flex;flex-direction:row-reverse;align-items:center;gap:8px;flex:none}
+.sidebar-heading .brand{flex:1;min-width:0;padding:0}
+.sidebar-heading .brand-mark{flex:none}
+.sidebar-heading .sidebar-toggle{position:static;flex:none;padding:8px}
+.sidebar .tenant-select,.sidebar .nav-caption,.sidebar-bottom{flex:none}
+.sidebar nav{min-height:44px;overflow-y:auto;flex-shrink:1}
+.sidebar-collapsed .sidebar-heading{flex-direction:column;gap:12px;margin-bottom:20px}
+.sidebar-collapsed .sidebar-heading .brand{flex:none;justify-content:center}
+.sidebar-collapsed .sidebar{padding-top:12px}
+@media(min-width:851px) and (max-height:650px){.sidebar .quota-card{display:none}.sidebar-bottom{padding-top:12px}.sidebar .profile{margin-top:0}}
+@media(max-width:850px){
+ .sidebar nav{flex-wrap:wrap}
+ .sidebar-heading{grid-column:1/-1;width:100%}
+ .sidebar .tenant-select{grid-column:1/-1;width:100%;justify-self:stretch}
+ .app-shell.sidebar-collapsed{grid-template-columns:1fr}
+ .sidebar-collapsed .sidebar{display:grid;grid-template-columns:auto minmax(0,1fr);height:auto;padding:12px;gap:8px}
+ .sidebar-collapsed .sidebar-heading{grid-column:1;margin:0;align-self:start}
+ .sidebar-collapsed .sidebar-heading .brand,.sidebar-collapsed .sidebar-bottom{display:none}
+ .sidebar-collapsed .sidebar nav{grid-column:2;display:flex;flex-wrap:wrap;min-height:0}
+ .sidebar-collapsed .sidebar nav button{padding:8px 12px}
+}

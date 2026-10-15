@@ -27,6 +27,28 @@ func (s *Server) retryDocument(w http.ResponseWriter, r *http.Request, a Actor) 
 	respond(w, 202, map[string]bool{"ok": true})
 	return nil
 }
+
+// Reparse in place: retain previous pages/chunks until saveDocument commits the
+// replacement. Existing tasks keep their frozen input and source snapshots.
+func (s *Server) reparseDocument(w http.ResponseWriter, r *http.Request, a Actor) error {
+	tx, e := s.tx(r.Context(), a.TenantID)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(r.Context())
+	res, e := tx.Exec(r.Context(), "UPDATE documents SET status='pending',error='',lease_until=NULL WHERE id=$1 AND status='ready' AND upload_path<>''", r.PathValue("id"))
+	if e != nil {
+		return e
+	}
+	if res.RowsAffected() != 1 {
+		return fail(409, "只有已就绪且保留原文件的资料可以重新解析；正在解析的资料请等待")
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		return e
+	}
+	respond(w, 202, map[string]bool{"ok": true})
+	return nil
+}
 func (s *Server) documentWorker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

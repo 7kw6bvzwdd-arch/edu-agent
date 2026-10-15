@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -13,7 +16,9 @@ import (
 // prose still need the independent content reviewer.
 func exerciseVisibilityIssues(d Deck) []PageQualityIssue {
 	strip := strings.NewReplacer("两点法", "", "求解析式", "", "判断", "", "读图", "", "作图", "", "分层", "", "作业", "", "基础题", "", "巩固", "", "提升", "", "必做", "", "选做", "", "组", "", "由两点", "", "与", "", "A", "", "B", "", "C", "", "Ａ", "", "Ｂ", "", "Ｃ", "")
-	issues := []PageQualityIssue{}
+	issues := exerciseCoordinateDisclosureIssues(d)
+	issues = append(issues, exerciseVertexFormulaDisclosureIssues(d)...)
+	issues = append(issues, exerciseExplicitSolutionIssues(d)...)
 	for _, sl := range d.Slides {
 		if sl.Layout != "exercise" || len(sl.Bullets) == 0 || sl.Graph != nil || sl.Scientific != nil || sl.Table != nil || sl.Figure != nil || sl.Chart != nil || sl.Picture != nil || sl.Diagram != "" || sl.Formula != "" {
 			continue
@@ -38,6 +43,125 @@ func exerciseVisibilityIssues(d Deck) []PageQualityIssue {
 	return issues
 }
 
+// Explicit standalone solutions are unambiguous; arbitrary mathematical
+// expressions and supplied answers to be evaluated still need semantic review.
+func exerciseExplicitSolutionIssues(d Deck) []PageQualityIssue {
+	issues := []PageQualityIssue{}
+	explicit := regexp.MustCompile(`^(?:答案|解答|解)[：:]\s*\S`)
+	for _, sl := range d.Slides {
+		if sl.Layout != "exercise" {
+			continue
+		}
+		fields := append([]string{sl.Title, sl.Focus, sl.Formula}, sl.Bullets...)
+		if sl.Table != nil {
+			fields = append(fields, sl.Table.Headers...)
+			for _, row := range sl.Table.Rows {
+				fields = append(fields, row...)
+			}
+		}
+		for _, field := range fields {
+			for _, line := range strings.Split(field, "\n") {
+				if explicit.MatchString(strings.TrimSpace(line)) {
+					issues = append(issues, PageQualityIssue{Object: line, Reviewer: "content", Category: "pedagogy", Certainty: "confirmed", Severity: "error", Evidence: "独立练习的学生可见字段直接显示以答案或解答开头的解答。", Repair: "将这条解答移到answer，每行一个讲解步骤；保留题设、数值、给定读图对象及其余页面。"})
+				}
+			}
+		}
+	}
+	return issues
+}
+
+var completedSquareFormula = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]+)?\*?)?\(x[+-][0-9]+(?:\.[0-9]+)?\)\^2(?:[+-][0-9]+(?:\.[0-9]+)?)?$`)
+var completingSquareTask = regexp.MustCompile(`配方|化为顶点式|求[^。！？?]{0,12}(?:顶点|对称轴|最小值|最大值)`)
+
+// Recognize the observed completed-square solution appended to the given
+// polynomial. Do not hide all exercise formulas: given vertex forms, identity
+// verification, worked examples and other algebra stay independently reviewed.
+func exerciseVertexFormulaDisclosureIssues(d Deck) []PageQualityIssue {
+	issues := []PageQualityIssue{}
+	normalize := func(text string) string {
+		return strings.NewReplacer("²", "^2", "^{2}", "^2", "−", "-", "（", "(", "）", ")").Replace(visualFormulaContent(text))
+	}
+	for _, sl := range d.Slides {
+		problem := normalize(strings.Join(sl.Bullets, "。"))
+		parts := strings.Split(normalize(sl.Formula), "=")
+		if sl.Layout != "exercise" || !completingSquareTask.MatchString(problem) || len(parts) < 3 || parts[0] != "y" {
+			continue
+		}
+		given, derived := parts[1], parts[len(parts)-1]
+		if !strings.Contains(given, "x^2") || !strings.Contains(problem, "y="+given) || !completedSquareFormula.MatchString(derived) || strings.Contains(problem, derived) {
+			continue
+		}
+		issues = append(issues, PageQualityIssue{Object: sl.Formula, Reviewer: "content", Category: "pedagogy", Certainty: "confirmed", Severity: "error", Evidence: "正文要求学生用配方求顶点等结果，但可见公式已在题设多项式后给出配方后的顶点式答案，学生独立练习前就能读到解题结果。", Repair: "只将公式栏恢复为正文已给的原始函数式；配方过程及顶点式保留在answer或教师notes，保留题目、参数、图像和其他页面。"})
+	}
+	return issues
+}
+
+var readCoordinateTask = regexp.MustCompile(`(?:读出|求出|求|确定)[^。！？?]{0,12}坐标`)
+var focusIntersectionCoordinate = regexp.MustCompile(`交点(?:坐标)?(?:为|是)?\(([+-]?[0-9]+(?:\.[0-9]+)?(?:/[0-9]+)?),([+-]?[0-9]+(?:\.[0-9]+)?(?:/[0-9]+)?)\)`)
+
+// Catch the observed read-intersection task whose visible focus prints the
+// actual answer. Do not infer arbitrary answers, hide supplied graphs, or
+// rewrite a teacher's question. Other disclosures remain model-reviewed.
+func exerciseCoordinateDisclosureIssues(d Deck) []PageQualityIssue {
+	issues := []PageQualityIssue{}
+	normalize := func(text string) string {
+		text = strings.NewReplacer("（", "(", "）", ")", "，", ",", "−", "-").Replace(text)
+		return strings.Join(strings.Fields(text), "")
+	}
+	for _, sl := range d.Slides {
+		if sl.Layout != "exercise" || sl.Graph == nil || len(sl.Graph.Series) != 2 {
+			continue
+		}
+		problem := normalize(strings.Join(sl.Bullets, "。"))
+		if !strings.Contains(problem, "交") || !readCoordinateTask.MatchString(problem) {
+			continue
+		}
+		match := focusIntersectionCoordinate.FindStringSubmatch(normalize(sl.Focus))
+		if len(match) != 3 || strings.Contains(problem, "("+match[1]+","+match[2]+")") {
+			continue
+		}
+		first, second := sl.Graph.Series[0], sl.Graph.Series[1]
+		if (first.Kind != "" && first.Kind != "linear") || (second.Kind != "" && second.Kind != "linear") || first.K == second.K {
+			continue
+		}
+		x := (second.B - first.B) / (first.K - second.K)
+		y := first.K*x + first.B
+		xAnswer, xOK := new(big.Rat).SetString(match[1])
+		yAnswer, yOK := new(big.Rat).SetString(match[2])
+		if !xOK || !yOK {
+			continue
+		}
+		xGiven, _ := xAnswer.Float64()
+		yGiven, _ := yAnswer.Float64()
+		if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) || math.Abs(x-xGiven) > 1e-9 || math.Abs(y-yGiven) > 1e-9 {
+			continue
+		}
+		issues = append(issues, PageQualityIssue{Object: sl.Focus, Reviewer: "content", Category: "pedagogy", Certainty: "confirmed", Severity: "error", Evidence: "正文要求学生读出交点坐标，但上屏提示已直接给出两条实际直线交点的坐标答案，练习尚未完成就能读到答案。", Repair: "只将提示中的答案坐标移到answer或教师notes，保留不含答案的追问、可见题设及给定读图图像；不改函数参数，不重做其他页。"})
+	}
+	return issues
+}
+
+// Only the observed explicit count/continuous-segment contradiction is handled
+// here. Other domains and general mathematical modeling remain model-reviewed.
+func teachingDiscreteCountIssues(d Deck) []PageQualityIssue {
+	issues := []PageQualityIssue{}
+	for _, sl := range d.Slides {
+		text := strings.ReplaceAll(strings.Join(teachingSlideTextFields(sl), "。"), " ", "")
+		if !strings.Contains(text, "x是使用次数") && !strings.Contains(text, "x表示使用次数") {
+			continue
+		}
+		for _, sentence := range strings.FieldsFunc(text, func(r rune) bool { return r == '。' || r == '\n' || r == '；' }) {
+			if strings.Contains(sentence, "错误") || strings.Contains(sentence, "吗") || strings.Contains(sentence, "？") || strings.Contains(sentence, "离散") {
+				continue
+			}
+			if regexp.MustCompile(`图[象像]是[^。]{0,100}(?:一条|的)?线段`).MatchString(sentence) {
+				issues = append(issues, PageQualityIssue{Object: sentence, Reviewer: "content", Category: "knowledge", Certainty: "confirmed", Severity: "error", Evidence: "本页明确x是使用次数，只能取非负整数；把实际图象断言为连续线段会包含不可取的非整数次数。", Repair: "保留题设和解析式，明确整数取值，图象表述改为对应的离散点；如果介绍连续延拓，须明确区分实际情境和延拓模型。"})
+			}
+		}
+	}
+	return issues
+}
+
 // These checks catch thin or repetitive slide structure, not factual correctness.
 func coursewareQualityIssues(d Deck, teachingPages int) []string {
 	issues := []string{}
@@ -45,9 +169,8 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 	examples, exercises := 0, 0
 	for i, sl := range d.Slides {
 		page := i + 1
-		if (sl.Table != nil || sl.Figure != nil) && len(sl.Bullets) > 2 {
-			issues = append(issues, fmt.Sprintf("第%d页已有教学图解，正文保留1–2条短问题，其余讲解移到notes", page))
-		}
+		// The renderer enforces actual fit and readable type. A fixed bullet
+		// count would rewrite already checked pages whose short questions fit.
 		layout := sl.Layout
 		if layout != "" {
 			layouts[layout] = true

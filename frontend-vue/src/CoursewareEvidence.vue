@@ -4,6 +4,7 @@ import EmphasisText from './EmphasisText.vue'
 import ScientificDiagram from './ScientificDiagram.vue'
 import FunctionPlot from './FunctionPlot.vue'
 import TeachingChart from './TeachingChart.vue'
+import {showGraphCoordinates} from './classroom.js'
 const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean})
 const imageError=ref(''),uploading=ref(false)
 let uploadVersion=0
@@ -55,7 +56,7 @@ function changeNodes(add){
 </script>
 
 <template>
- <div v-if="preview" class="evidence-preview"><FunctionPlot v-if="slide.graph" :graph="slide.graph"/><ScientificDiagram :slide="slide" preview/><TeachingChart v-if="slide.chart||slide.diagram" :chart="slide.chart" :diagram="slide.diagram"/>
+ <div v-if="preview" class="evidence-preview"><FunctionPlot v-if="slide.graph" :graph="slide.graph" :show-coordinates="showGraphCoordinates(slide)"/><ScientificDiagram :slide="slide" preview/><TeachingChart v-if="slide.chart||slide.diagram" :chart="slide.chart" :diagram="slide.diagram"/>
   <div :class="['evidence-pair',{'has-both':slide.table&&slide.figure||slide.picture&&(slide.table||slide.figure)}]">
    <div v-if="slide.table" class="evidence-table"><h3 v-if="slide.table.title">{{slide.table.title}}</h3><table><thead><tr><th v-for="(h,i) in slide.table.headers" :key="i" scope="col"><EmphasisText :text="h" :terms="slide.emphasis||[]"/></th></tr></thead><tbody><tr v-for="(row,i) in slide.table.rows" :key="i"><td v-for="(value,j) in row" :key="j"><EmphasisText :text="value" :terms="slide.emphasis||[]"/></td></tr></tbody></table></div>
    <div v-if="slide.figure" class="evidence-figure">
@@ -89,6 +90,8 @@ function changeNodes(add){
  <details v-else class="courseware-evidence-editor">
   <summary>专业图示、配图、课堂图解与表格</summary><ScientificDiagram :slide="slide" :editable="editable"/>
   <section v-if="slide.graph" class="evidence-edit-section">
+   <label>函数绘图方式<select :value="slide.graph.renderer||'native'" @change="slide.graph.renderer=$event.target.value" :disabled="!editable" aria-label="函数绘图方式"><option value="native">PPT可编辑线条</option><option value="matplotlib">高清函数图 · 网页参数可修改</option></select></label>
+   <p v-if="slide.graph.renderer==='matplotlib'" class="fine">修改函数参数并保存后重新绘制。PPT中呈现为图片。</p>
    <label>坐标图标题<input v-model="slide.graph.title" :readonly="!editable" maxlength="60"></label>
    <div class="evidence-grid" style="--columns:2"><label v-for="(label,key) in {x_min:'x 最小值',x_max:'x 最大值',y_min:'y 最小值',y_max:'y 最大值'}" :key="key">{{label}}<input type="number" step="any" v-model.number="slide.graph[key]" :readonly="!editable"></label></div>
    <div v-for="(series,i) in slide.graph.series" :key="i" class="evidence-edit-section">

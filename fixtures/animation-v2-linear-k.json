@@ -1,0 +1,93 @@
+{
+  "version": "anim-v2",
+  "title": "一次函数中改变k",
+  "archetype": "func.params@1",
+  "representative": "k-positive",
+  "scenes": [
+    {
+      "id": "intro",
+      "intent": "固定b，只改变k",
+      "title": "y = kx + b，保持 b = 1",
+      "objects": [
+        {"id": "ax", "type": "axes", "slot": "main", "params": {"xmin": -5, "xmax": 5, "ymin": -4, "ymax": 6}},
+        {"id": "l1", "type": "line", "slot": "main", "axes": "ax", "params": {"k": 1, "b": 1}},
+        {"id": "eq1", "type": "equation", "slot": "side", "line": "l1"},
+        {"id": "t1", "type": "text", "slot": "side", "text": "b 保持为 1，只改变 k"}
+      ],
+      "narration": [
+        {"id": "n1", "display": "这是一次函数 y = x + 1 的图像。", "speech": "这是一次函数，y 等于 x 加 1 的图像。"},
+        {"id": "n2", "display": "保持 b = 1 不变，我们只改变 k。", "speech": "保持 b 等于 1 不变，我们只改变 k。"}
+      ],
+      "actions": [
+        {"id": "a1", "op": "show", "object": "l1", "at": {"sentence": "n1", "anchor": "begin", "offset_ms": 300}, "duration_ms": 900},
+        {"id": "a2", "op": "show", "object": "t1", "at": {"sentence": "n2", "anchor": "begin"}},
+        {"id": "a3", "op": "emphasize", "object": "t1", "at": {"after": "a2"}}
+      ],
+      "holds": [{"id": "h1", "type": "observe", "after": "n2", "ms": 1200}]
+    },
+    {
+      "id": "k-positive",
+      "intent": "k从1增大到3，直线变陡",
+      "title": "k > 0：k 增大",
+      "objects": [
+        {"id": "ax", "type": "axes", "slot": "main", "params": {"xmin": -5, "xmax": 5, "ymin": -4, "ymax": 6}},
+        {"id": "l1", "type": "line", "slot": "main", "axes": "ax", "params": {"k": 1, "b": 1}},
+        {"id": "p0", "type": "point", "slot": "main", "line": "l1", "text": "(0, 1)", "params": {"x": 0}},
+        {"id": "eq1", "type": "equation", "slot": "side", "line": "l1"}
+      ],
+      "narration": [
+        {"id": "n3", "display": "让 k 从 1 增大到 3。", "speech": "让 k 从 1 增大到 3。"},
+        {"id": "n4", "display": "直线绕 y 轴上的交点转动，变得更陡。", "speech": "直线绕着它与 y 轴的交点转动，变得更陡。"},
+        {"id": "n5", "display": "k > 0 时直线从左到右上升，k 越大越陡。", "speech": "k 大于 0 时，直线从左到右上升；k 越大，直线越陡。"}
+      ],
+      "actions": [
+        {"id": "a4", "op": "tween", "object": "l1", "param": "k", "to": 3, "at": {"sentence": "n3", "anchor": "begin", "offset_ms": 500}, "duration_ms": 2500},
+        {"id": "a5", "op": "emphasize", "object": "p0", "at": {"sentence": "n4", "anchor": "begin"}, "duration_ms": 1500},
+        {"id": "a6", "op": "emphasize", "object": "eq1", "at": {"sentence": "n5", "anchor": "begin"}}
+      ],
+      "holds": [{"id": "h2", "type": "observe", "after": "n4", "ms": 2000}]
+    },
+    {
+      "id": "k-negative",
+      "intent": "k从-1变到-3，|k|增大，直线下降且变陡",
+      "title": "k < 0：|k| 增大",
+      "objects": [
+        {"id": "ax", "type": "axes", "slot": "main", "params": {"xmin": -5, "xmax": 5, "ymin": -4, "ymax": 6}},
+        {"id": "l2", "type": "line", "slot": "main", "axes": "ax", "params": {"k": -1, "b": 1}},
+        {"id": "eq2", "type": "equation", "slot": "side", "line": "l2"}
+      ],
+      "narration": [
+        {"id": "n6", "display": "再看 k < 0：令 k 从 -1 变到 -3。", "speech": "再看 k 小于 0 的情况：让 k 从负 1 变到负 3。"},
+        {"id": "n7", "display": "直线从左到右下降，|k| 变大，直线也变陡。", "speech": "直线从左到右下降，k 的绝对值变大，直线也变陡。"},
+        {"id": "n8", "display": "想一想：k = -3 和 k = 1，哪条直线更陡？", "speech": "想一想：k 等于负 3 和 k 等于 1，哪条直线更陡？"}
+      ],
+      "actions": [
+        {"id": "a7", "op": "tween", "object": "l2", "param": "k", "to": -3, "at": {"sentence": "n6", "anchor": "begin", "offset_ms": 600}, "duration_ms": 2500}
+      ],
+      "holds": [
+        {"id": "h3", "type": "observe", "after": "n7", "ms": 1500},
+        {"id": "h4", "type": "await", "after": "n8", "ms": 3000}
+      ]
+    },
+    {
+      "id": "summary",
+      "intent": "符号定方向，|k|定陡缓",
+      "title": "小结",
+      "objects": [
+        {"id": "ax", "type": "axes", "slot": "main", "params": {"xmin": -5, "xmax": 5, "ymin": -4, "ymax": 6}},
+        {"id": "l1", "type": "line", "slot": "main", "axes": "ax", "params": {"k": 1, "b": 1}},
+        {"id": "l2", "type": "line", "slot": "main", "axes": "ax", "params": {"k": -3, "b": 1}},
+        {"id": "pn", "type": "panel", "slot": "side", "items": ["k 的正负：上升或下降", "|k| 越大：直线越陡", "b 不变：过同一点"]}
+      ],
+      "narration": [
+        {"id": "n9", "display": "k 的正负决定方向，|k| 决定倾斜程度。", "speech": "k 的正负决定直线方向，k 的绝对值决定倾斜程度。"},
+        {"id": "n10", "display": "所以 k = -3 的直线比 k = 1 的更陡。", "speech": "所以，k 等于负 3 的直线，比 k 等于 1 的更陡。"}
+      ],
+      "actions": [
+        {"id": "a8", "op": "show", "object": "pn", "at": {"sentence": "n9", "anchor": "begin"}},
+        {"id": "a9", "op": "emphasize", "object": "l2", "at": {"sentence": "n10", "anchor": "begin"}, "duration_ms": 1800}
+      ],
+      "holds": [{"id": "h5", "type": "read", "after": "", "ms": 2500}]
+    }
+  ]
+}

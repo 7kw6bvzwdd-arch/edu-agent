@@ -126,6 +126,9 @@ func coursewareRenderKey(d Deck) string {
 func teachingRenderEvidence(d Deck) string {
 	var out strings.Builder
 	for _, sl := range d.Slides {
+		if values := calculateTeachingCircuit(sl); values != nil {
+			out.WriteString("\n程序核对的理想电路：" + string(asJSON(values)) + "；依据仅为本页scientific的实际输入连接，不能当作其他小题已有的连线；这些是按题设计算值，不是实测，不证明真实器材安全。\n")
+		}
 		if sl.Graph == nil {
 			continue
 		}
@@ -169,7 +172,7 @@ func coursewareGraphDetail(d Deck, png []byte) []byte {
 		return nil
 	}
 	left, top := b.Min.X+b.Dx()*47/100, b.Min.Y+b.Dy()*30/100
-	right, bottom := b.Min.X+b.Dx()*96/100, b.Min.Y+b.Dy()*82/100
+	right, bottom := b.Min.X+b.Dx()*96/100, b.Min.Y+b.Dy()*90/100
 	switch d.Slides[0].Layout {
 	case "concept", "comparison", "summary":
 		left, right = b.Min.X+b.Dx()*5/100, b.Min.X+b.Dx()*60/100

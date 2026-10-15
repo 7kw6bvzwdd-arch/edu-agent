@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -78,7 +79,7 @@ theme只表示颜色和视觉风格，不是教学主题；forest不代表森林
 	if in.Detail != "" {
 		prompt += "\n内容详略：" + in.Detail + "。页数只是规划估计；仅完成指定教学用途，精简不删必要条件和推理，详细不重复拆碎或超纲。不为图表数量和版式数量凑内容。每个图表必须对应具体问题、真实关系和可观察结论。课堂投屏正文保持清楚，教师口播与练习答案在notes。"
 	}
-	return prompt + scientificContract + teachingMaterialsForSources(in, sources)
+	return prompt + scientificContract + teachingMaterialsForSources(in, sources) + teachingEvidenceContract
 }
 func animationPrompt(in TaskInput, sources []Source, videoDuration string) string {
 	duration := "20–45秒"
@@ -123,26 +124,16 @@ func (s *Server) runCoursewareAgent(ctx context.Context, a Actor, id, stage stri
 	// The artifact and settlement are committed before the optional review begins.
 	reviewCtx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
-	s.reviewCourseware(reviewCtx, a, id)
+	// Review failure never revokes a settled artifact, but it must be visible.
+	if e = s.reviewCourseware(reviewCtx, a, id); e != nil {
+		log.Printf("optional courseware review %s: %v", id, e)
+	}
 	return nil
 }
 
-// Animation owns storyboards, code/repair or the cloud-video rendering tool.
+// Compatibility seam for the replacement engine; legacy generation is retired.
 func (s *Server) runAnimationAgent(ctx context.Context, a Actor, id, stage string, in TaskInput, d Deck) error {
-	in.Type = "animation"
-	if in.AnimationEngine == "ark" && s.cfg.Mode != "live" {
-		return fail(503, "云视频仅支持live模式；sample模式不会调用真实视频服务")
-	}
-	if in.AnimationEngine == "ark" && !s.videoConfigured() {
-		return fail(503, videoConfigMessage)
-	}
-	if stage == "researching" {
-		return s.researchAgent(ctx, a, id, in)
-	}
-	if in.AnimationEngine == "ark" {
-		return s.renderArkVideo(ctx, a, id, d)
-	}
-	return s.renderAnimation(ctx, a, id, d)
+	return animationUnavailable()
 }
 
 // Retrieval and confirmation persistence share tenant/member and reservation guards.

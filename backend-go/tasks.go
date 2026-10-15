@@ -15,57 +15,62 @@ import (
 )
 
 type TaskInput struct {
-	Chapter         string            `json:"chapter,omitempty"`
-	MaterialID      string            `json:"material_id,omitempty"`
-	MaterialStart   int               `json:"material_start,omitempty"`
-	MaterialEnd     int               `json:"material_end,omitempty"`
-	Curriculum      []Page            `json:"curriculum,omitempty"`
-	ReferenceID     string            `json:"reference_id,omitempty"`
-	Reference       *ReferenceProfile `json:"reference,omitempty"`
-	Detail          string            `json:"detail,omitempty"`
-	LessonMinutes   int               `json:"lesson_minutes,omitempty"`
-	StudentLevel    string            `json:"student_level,omitempty"`
-	ReferenceMode   string            `json:"reference_mode,omitempty"`
-	Requirements    string            `json:"requirements,omitempty"`
-	PreviewFirst    bool              `json:"preview_first,omitempty"`
-	AnimationEngine string            `json:"animation_engine,omitempty"`
-	SourceTaskID    string            `json:"source_task_id,omitempty"`
-	ParentID        string            `json:"parent_id,omitempty"`
-	ParentRevision  int               `json:"parent_revision,omitempty"`
-	SlideIndex      int               `json:"slide_index,omitempty"`
-	Instruction     string            `json:"instruction,omitempty"`
-	Type            string            `json:"type"`
-	Topic           string            `json:"topic"`
-	Subject         string            `json:"subject"`
-	Grade           string            `json:"grade"`
-	Textbook        string            `json:"textbook"`
-	Objectives      string            `json:"objectives"`
-	Pages           int               `json:"pages"`
-	Theme           string            `json:"theme"`
-	UseKB           bool              `json:"use_kb"`
-	UseWeb          bool              `json:"use_web"`
-	IdempotencyKey  string            `json:"idempotency_key"`
+	MaterialSnapshot *TextbookSnapshot `json:"material_snapshot,omitempty"`
+	Chapter          string            `json:"chapter,omitempty"`
+	MaterialID       string            `json:"material_id,omitempty"`
+	MaterialStart    int               `json:"material_start,omitempty"`
+	MaterialEnd      int               `json:"material_end,omitempty"`
+	Curriculum       []Page            `json:"curriculum,omitempty"`
+	ReferenceID      string            `json:"reference_id,omitempty"`
+	Reference        *ReferenceProfile `json:"reference,omitempty"`
+	Detail           string            `json:"detail,omitempty"`
+	LessonMinutes    int               `json:"lesson_minutes,omitempty"`
+	StudentLevel     string            `json:"student_level,omitempty"`
+	ReferenceMode    string            `json:"reference_mode,omitempty"`
+	Requirements     string            `json:"requirements,omitempty"`
+	PreviewFirst     bool              `json:"preview_first,omitempty"`
+	AnimationEngine  string            `json:"animation_engine,omitempty"`
+	SourceTaskID     string            `json:"source_task_id,omitempty"`
+	ParentID         string            `json:"parent_id,omitempty"`
+	ParentRevision   int               `json:"parent_revision,omitempty"`
+	SlideIndex       int               `json:"slide_index,omitempty"`
+	Instruction      string            `json:"instruction,omitempty"`
+	Type             string            `json:"type"`
+	Topic            string            `json:"topic"`
+	Subject          string            `json:"subject"`
+	Grade            string            `json:"grade"`
+	Textbook         string            `json:"textbook"`
+	Objectives       string            `json:"objectives"`
+	Pages            int               `json:"pages"`
+	Theme            string            `json:"theme"`
+	UseKB            bool              `json:"use_kb"`
+	UseWeb           bool              `json:"use_web"`
+	IdempotencyKey   string            `json:"idempotency_key"`
 }
 type Slide struct {
-	Answer     string             `json:"answer,omitempty"`
-	Scientific *ScientificDiagram `json:"scientific,omitempty"`
-	Order      int                `json:"order,omitempty"`
-	Graph      *FunctionGraph     `json:"graph,omitempty"`
-	ID         string             `json:"id,omitempty"`
-	Picture    *TeachingPicture   `json:"picture,omitempty"`
-	Emphasis   []string           `json:"emphasis,omitempty"`
-	Focus      string             `json:"focus,omitempty"`
-	Table      *TeachingTable     `json:"table,omitempty"`
-	Figure     *TeachingFigure    `json:"figure,omitempty"`
-	Scene      *AnimationScene    `json:"scene,omitempty"`
-	Layout     string             `json:"layout,omitempty"`
-	Section    string             `json:"section,omitempty"`
-	Title      string             `json:"title"`
-	Bullets    []string           `json:"bullets"`
-	Notes      string             `json:"notes"`
-	Formula    string             `json:"formula,omitempty"`
-	Diagram    string             `json:"diagram,omitempty"`
-	Chart      any                `json:"chart,omitempty"`
+	CanvasObjects   []CanvasObject          `json:"canvas_objects,omitempty"`
+	CanvasOrder     []string                `json:"canvas_order,omitempty"`
+	CanvasPositions map[string]CanvasOffset `json:"canvas_positions,omitempty"`
+	Evidence        []TeachingClaimEvidence `json:"evidence,omitempty"`
+	Answer          string                  `json:"answer,omitempty"`
+	Scientific      *ScientificDiagram      `json:"scientific,omitempty"`
+	Order           int                     `json:"order,omitempty"`
+	Graph           *FunctionGraph          `json:"graph,omitempty"`
+	ID              string                  `json:"id,omitempty"`
+	Picture         *TeachingPicture        `json:"picture,omitempty"`
+	Emphasis        []string                `json:"emphasis,omitempty"`
+	Focus           string                  `json:"focus,omitempty"`
+	Table           *TeachingTable          `json:"table,omitempty"`
+	Figure          *TeachingFigure         `json:"figure,omitempty"`
+	Scene           *AnimationScene         `json:"scene,omitempty"`
+	Layout          string                  `json:"layout,omitempty"`
+	Section         string                  `json:"section,omitempty"`
+	Title           string                  `json:"title"`
+	Bullets         []string                `json:"bullets"`
+	Notes           string                  `json:"notes"`
+	Formula         string                  `json:"formula,omitempty"`
+	Diagram         string                  `json:"diagram,omitempty"`
+	Chart           any                     `json:"chart,omitempty"`
 }
 type Deck struct {
 	EditableFormulas bool                        `json:"editable_formulas,omitempty"`
@@ -83,20 +88,23 @@ type Deck struct {
 	Script           string                      `json:"script,omitempty"`
 }
 type Source struct {
-	Origin        string         `json:"origin,omitempty"`
-	EvidenceGroup string         `json:"evidence_group,omitempty"`
-	Reliability   string         `json:"reliability,omitempty"`
-	Filter        *PassageFilter `json:"filter,omitempty"`
-	Hash          string         `json:"hash"`
-	RetrievedAt   string         `json:"retrieved_at"`
-	ID            string         `json:"id"`
-	DocumentID    string         `json:"document_id"`
-	Title         string         `json:"title"`
-	Content       string         `json:"content"`
-	Location      string         `json:"location"`
-	URL           string         `json:"url,omitempty"`
-	Kind          string         `json:"kind"`
-	Score         float64        `json:"score"`
+	Textbook      *TextbookSnapshot `json:"textbook,omitempty"`
+	FilePage      int               `json:"file_page,omitempty"`
+	EvidenceKind  string            `json:"evidence_kind,omitempty"`
+	Origin        string            `json:"origin,omitempty"`
+	EvidenceGroup string            `json:"evidence_group,omitempty"`
+	Reliability   string            `json:"reliability,omitempty"`
+	Filter        *PassageFilter    `json:"filter,omitempty"`
+	Hash          string            `json:"hash"`
+	RetrievedAt   string            `json:"retrieved_at"`
+	ID            string            `json:"id"`
+	DocumentID    string            `json:"document_id"`
+	Title         string            `json:"title"`
+	Content       string            `json:"content"`
+	Location      string            `json:"location"`
+	URL           string            `json:"url,omitempty"`
+	Kind          string            `json:"kind"`
+	Score         float64           `json:"score"`
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) error {
@@ -119,6 +127,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	}
 	if !allowed(a, perm) {
 		return fail(403, "没有生成权限")
+	}
+	if in.Type == "animation" {
+		return animationUnavailable()
 	}
 	if in.Topic == "" || len([]rune(in.Topic)) > 100 || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 128 {
 		return fail(400, "请填写课题并提供有效幂等键")
@@ -462,6 +473,12 @@ func validateDeckMinimum(d Deck, minimum int) error {
 	}
 	imageSize := 0
 	for _, sl := range d.Slides {
+		if err := validateCanvasPositions(sl); err != nil {
+			return err
+		}
+		for _, obj := range sl.CanvasObjects {
+			imageSize += len(obj.DataURL)
+		}
 		if sl.Picture != nil {
 			imageSize += len(sl.Picture.DataURL)
 		}
@@ -520,6 +537,9 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if !allowed(a, permission) {
 		return fail(403, "没有当前制作权限")
 	}
+	if kind == "animation" {
+		return animationUnavailable()
+	}
 	if kind == "courseware" {
 		in.Result.Notice = old.Notice
 		preserveCoursewareChecks(&in.Result, old)
@@ -528,11 +548,16 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if e := validateDeck(in.Result); e != nil {
 		return e
 	}
+	if kind == "courseware" {
+		if err := coursewareSourceError(in.Result, sources); err != nil {
+			return fail(400, err.Error())
+		}
+	}
 	if kind == "courseware" && original.PreviewFirst {
 		if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 			return err
 		}
-		if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
+		if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
 			return err
 		}
 	}
@@ -566,7 +591,7 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 		return err
 	}
 	if kind == "courseware" && original.PreviewFirst {
-		if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
+		if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
 			return err
 		}
 	}
@@ -724,10 +749,16 @@ func (s *Server) workOne(ctx context.Context) error {
 	tenants := []int64{}
 	for rows.Next() {
 		var id int64
-		rows.Scan(&id)
+		if e = rows.Scan(&id); e != nil {
+			rows.Close()
+			return e
+		}
 		tenants = append(tenants, id)
 	}
 	rows.Close()
+	if e = rows.Err(); e != nil {
+		return e
+	}
 	for _, tid := range tenants {
 		tx, e := s.tx(ctx, tid)
 		if e != nil {
@@ -743,8 +774,9 @@ func (s *Server) workOne(ctx context.Context) error {
 			recoveryCtx := context.WithValue(ctx, generationCycleKey{}, int(v["charge_cycle"].(int32)))
 			recoveryCtx = context.WithValue(recoveryCtx, generationAttemptKey{}, int(v["attempt"].(int32)))
 			var input TaskInput
-			json.Unmarshal(asJSON(v["input"]), &input)
-			if v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
+			// Unreadable input cannot be resumed safely; it falls through to release.
+			inputErr := json.Unmarshal(asJSON(v["input"]), &input)
+			if inputErr == nil && v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
 				resumed, recoveryErr := s.resumeCoursewareAutomatically(recoveryCtx, Actor{TenantID: tid, MemberID: v["member_id"].(int64)}, v["id"].(string), v["status"].(string), input, context.DeadlineExceeded)
 				if recoveryErr != nil {
 					return recoveryErr
@@ -852,6 +884,30 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 }
 
 func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
+	for _, sl := range d.Slides {
+		if len(sl.CanvasPositions) > 0 || len(sl.CanvasObjects) > 0 || len(sl.CanvasOrder) > 0 {
+			// A hung health probe must not consume the render deadline.
+			healthCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			req, err := http.NewRequestWithContext(healthCtx, "GET", s.cfg.RenderURL+"/health", nil)
+			if err != nil {
+				cancel()
+				return nil, err
+			}
+			res, err := s.http.Do(req)
+			if err != nil {
+				cancel()
+				return nil, fail(503, "对象排版服务暂不可用，当前修改保留")
+			}
+			var health map[string]any
+			err = json.NewDecoder(res.Body).Decode(&health)
+			res.Body.Close()
+			cancel()
+			if res.StatusCode != http.StatusOK || err != nil || health["courseware_canvas_version"] != "canvas-v3" {
+				return nil, fail(503, "对象排版服务尚未更新，当前修改保留")
+			}
+			break
+		}
+	}
 	needsScience := false
 	for _, sl := range d.Slides {
 		needsScience = needsScience || sl.Scientific != nil
@@ -879,17 +935,19 @@ func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 			return nil, fail(503, "专业图示排版服务尚未更新，数据已保留")
 		}
 	}
-	needsMedia, needsGraph := d.Theme == "classroom", false
+	needsMedia, needsGraph, needsPlot := d.Theme == "classroom", false, false
 	for _, sl := range d.Slides {
 		needsGraph = needsGraph || sl.Graph != nil
+		needsPlot = needsPlot || usesMatplotlib(sl)
 		needsMedia = needsMedia || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Focus != "" || len(sl.Emphasis) > 0
 	}
-	if needsMedia || needsGraph {
-		if err := s.requireTeachingMediaRenderer(ctx, needsGraph); err != nil {
+	if needsMedia || needsGraph || needsPlot {
+		if err := s.requireTeachingMediaRenderer(ctx, needsGraph, needsPlot); err != nil {
 			return nil, err
 		}
 	}
-	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", d, "")
+	export := coursewareEvidenceForExport(d)
+	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", &export, "")
 }
 
 func (s *Server) checkWorkPermission(ctx context.Context, a Actor, kind string) error {

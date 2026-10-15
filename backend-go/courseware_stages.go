@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,9 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 	phase, end := "expand", max(in.Pages, len(d.Slides))
 	if len(d.Slides) < 3 || d.Generation != nil && d.Generation.Phase == "preview" {
 		phase, end = "preview", 3
+	}
+	if s.cfg.Mode == "live" && s.cfg.CoursewareContentReviewDisabled && !strings.Contains(d.Notice, contentReviewDisabledNotice) {
+		d.Notice += " " + contentReviewDisabledNotice
 	}
 	if d.Generation == nil {
 		d.Generation = &CoursewareCheckpoint{}
@@ -88,7 +92,7 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 					break
 				}
 				check := d.PageChecks[sl.ID]
-				if check.Hash == slideContentHash(d, sl) && pageCheckPassed(check, s.cfg.Mode == "sample") {
+				if check.Hash == slideContentHash(d, sl) && s.pageCheckPassed(check, s.cfg.Mode == "sample") {
 					continue
 				}
 				one := d
@@ -279,6 +283,9 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 	}
 	d.Lesson = checkpointLesson(d)
 	d.Notice = "教学与视觉规范已应用；请逐页核对事实、例题答案和引用。已完成页按检查点保留，自动修复仅替换问题页。"
+	if s.cfg.Mode == "live" && s.cfg.CoursewareContentReviewDisabled {
+		d.Notice += " " + contentReviewDisabledNotice
+	}
 	if phase == "preview" {
 		d.Notice += " 当前仅制作三页质量预览，逐页确认后再生成剩余页面；未结算。"
 	}

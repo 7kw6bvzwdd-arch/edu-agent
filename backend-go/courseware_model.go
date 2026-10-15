@@ -194,6 +194,10 @@ func coursewareSourceError(d Deck, sources []Source) error {
 			return fmt.Errorf("模型返回了不存在的来源编号")
 		}
 	}
+	if err := teachingClaimEvidenceError(d, sources); err != nil {
+		return err
+	}
+	bindTeachingEvidenceOrigins(d, sources)
 	return nil
 }
 

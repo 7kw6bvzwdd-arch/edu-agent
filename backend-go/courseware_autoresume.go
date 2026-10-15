@@ -79,6 +79,12 @@ func (s *Server) resumeCoursewareAutomatically(ctx context.Context, a Actor, id,
 	if e != nil {
 		return false, e
 	}
+	// Supplier-call budgets do not cover an unavailable database/renderer.
+	// Stop persistent recovery rounds too; the caller releases once and keeps
+	// the checkpoint. An explicit later resume starts a new charge cycle.
+	if failures >= 8 {
+		return false, nil
+	}
 	queue := map[string]string{"researching": "pending", "expanding": "expand_pending", "rendering": "confirmed"}[stage]
 	page := 0
 	if d.Generation != nil {

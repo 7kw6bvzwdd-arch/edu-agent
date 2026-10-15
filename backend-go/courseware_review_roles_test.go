@@ -88,6 +88,30 @@ func TestVisualFormulaTypographyKeepsMathematicalContent(t *testing.T) {
 	}
 }
 
+func TestVisualReviewQuadraticUnitCoefficient(t *testing.T) {
+	d := Deck{Slides: []Slide{{Formula: "y=x^2-2x-3"}}}
+	// Actual live visual review called the renderer's explicit 1 coefficient
+	// a mathematical mismatch (quadratic/model-019, 20261014-174446-e0f4).
+	for _, tc := range []struct {
+		observed string
+		blocked  bool
+	}{
+		{"y = 1x^2 - 2x - 3", false},
+		{"y = 1x² - 2x - 3", false},
+		{"y = 11x^2 - 2x - 3", true},
+		{"y = 0.1x^2 - 2x - 3", true},
+		{"y = -1x^2 - 2x - 3", true},
+		{"y = 1x^3 - 2x - 3", true},
+		{"y = 1x^2 + 2x - 3", true},
+	} {
+		issue := PageQualityIssue{Category: "render_mismatch", Severity: "error", InputPath: "/slides/0/formula", ObservedValue: asJSON(tc.observed)}
+		issues, err := reconcileVisualDisplayIssues([]PageQualityIssue{issue}, d)
+		if err != nil || (blockingPageIssues(issues) != "") != tc.blocked {
+			t.Fatalf("observed %q: err=%v issues=%+v", tc.observed, err, issues)
+		}
+	}
+}
+
 func TestVisualReviewExcludesHiddenContentWithoutChangingDeck(t *testing.T) {
 	d := Deck{Title: "函数", Lesson: "隐藏教案", Evaluation: "旧评审", Plan: &TeachingPlan{}, Slides: []Slide{{Title: "函数图", Notes: "隐藏讲解", Answer: "隐藏答案", Formula: "y=2x+1", Graph: &FunctionGraph{Series: []FunctionSeries{{K: 2, B: 1}}}}}}
 	before := string(asJSON(d))
