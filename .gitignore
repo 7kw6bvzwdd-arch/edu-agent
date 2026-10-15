@@ -11,3 +11,7 @@ __pycache__/
 .pytest_cache/
 *.log
 *.exe
+
+# Local agent installations and transient design-tool choices.
+.claude/
+.impeccable/questions/

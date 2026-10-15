@@ -3,6 +3,11 @@ CREATE TABLE IF NOT EXISTS users (
  id bigserial PRIMARY KEY, username text NOT NULL UNIQUE, password_hash text NOT NULL,
  display_name text NOT NULL, active boolean NOT NULL DEFAULT true
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_hash text NOT NULL DEFAULT '';
+-- Shared, bounded authentication throttling; no raw identifiers or credentials.
+CREATE TABLE IF NOT EXISTS auth_attempts (
+ key text PRIMARY KEY, attempts integer NOT NULL, expires_at timestamptz NOT NULL
+);
 CREATE TABLE IF NOT EXISTS tenants (id bigserial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE IF NOT EXISTS members (
  id bigserial PRIMARY KEY,tenant_id bigint NOT NULL REFERENCES tenants,user_id bigint NOT NULL REFERENCES users,
@@ -20,6 +25,12 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS upload_path text NOT NULL DEFAULT '';
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS lease_until timestamptz;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS curriculum jsonb NOT NULL DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS courseware_references (
+ id text PRIMARY KEY, tenant_id bigint NOT NULL, member_id bigint NOT NULL,
+ name text NOT NULL, profile jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id)
+);
 CREATE TABLE IF NOT EXISTS chunks (
  id text PRIMARY KEY,tenant_id bigint NOT NULL,document_id text NOT NULL,seq integer NOT NULL,
  content text NOT NULL,location text NOT NULL,embedding vector(1536),
@@ -43,6 +54,13 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS display_title text NOT NULL DEFAULT '
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS provider_job_id text NOT NULL DEFAULT '';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS provider_model text NOT NULL DEFAULT '';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS restored_at timestamptz;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cleanup_pending boolean NOT NULL DEFAULT false;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS charge_cycle integer NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS capacity_hold boolean NOT NULL DEFAULT false;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS automatic_failures integer NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS courseware_provider_calls integer NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS task_events (
  id bigserial PRIMARY KEY,tenant_id bigint NOT NULL,task_id text NOT NULL,stage text NOT NULL,
  message text NOT NULL,detail jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),
@@ -70,6 +88,41 @@ CREATE TABLE IF NOT EXISTS audit_logs (
  target text NOT NULL,detail jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),
  FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id)
 );
+CREATE INDEX IF NOT EXISTS usage_member_time ON usage_logs(tenant_id,member_id,created_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS usage_totals (
+ tenant_id bigint NOT NULL,member_id bigint NOT NULL,period text NOT NULL,
+ calls bigint NOT NULL DEFAULT 0,input_tokens bigint NOT NULL DEFAULT 0,output_tokens bigint NOT NULL DEFAULT 0,
+ failures bigint NOT NULL DEFAULT 0,latency_ms bigint NOT NULL DEFAULT 0,
+ PRIMARY KEY(tenant_id,member_id,period),FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id)
+);
+-- Backfill once before installing the insert trigger. Detail deletion never changes totals.
+INSERT INTO usage_totals(tenant_id,member_id,period,calls,input_tokens,output_tokens,failures,latency_ms)
+ SELECT tenant_id,member_id,'all',count(*),sum(input_tokens),sum(output_tokens),count(*) FILTER(WHERE NOT success),sum(latency_ms)
+ FROM usage_logs GROUP BY tenant_id,member_id ON CONFLICT DO NOTHING;
+INSERT INTO usage_totals(tenant_id,member_id,period,calls,input_tokens,output_tokens,failures,latency_ms)
+ SELECT tenant_id,member_id,'d:'||to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),count(*),sum(input_tokens),sum(output_tokens),count(*) FILTER(WHERE NOT success),sum(latency_ms)
+ FROM usage_logs WHERE created_at>=now()-interval '89 days' GROUP BY tenant_id,member_id,3 ON CONFLICT DO NOTHING;
+INSERT INTO usage_totals(tenant_id,member_id,period,calls,input_tokens,output_tokens,failures,latency_ms)
+ SELECT tenant_id,member_id,'m:'||to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM'),count(*),sum(input_tokens),sum(output_tokens),count(*) FILTER(WHERE NOT success),sum(latency_ms)
+ FROM usage_logs WHERE created_at>=date_trunc('month',now())-interval '23 months' GROUP BY tenant_id,member_id,3 ON CONFLICT DO NOTHING;
+CREATE OR REPLACE FUNCTION record_usage_totals() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE p text;
+BEGIN
+ FOREACH p IN ARRAY ARRAY['all','d:'||to_char(NEW.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),'m:'||to_char(NEW.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM')] LOOP
+  INSERT INTO usage_totals(tenant_id,member_id,period,calls,input_tokens,output_tokens,failures,latency_ms)
+  VALUES(NEW.tenant_id,NEW.member_id,p,1,NEW.input_tokens,NEW.output_tokens,CASE WHEN NEW.success THEN 0 ELSE 1 END,NEW.latency_ms)
+  ON CONFLICT(tenant_id,member_id,period) DO UPDATE SET calls=usage_totals.calls+1,input_tokens=usage_totals.input_tokens+NEW.input_tokens,
+  output_tokens=usage_totals.output_tokens+NEW.output_tokens,failures=usage_totals.failures+CASE WHEN NEW.success THEN 0 ELSE 1 END,latency_ms=usage_totals.latency_ms+NEW.latency_ms;
+ END LOOP;
+ DELETE FROM usage_totals WHERE tenant_id=NEW.tenant_id AND member_id=NEW.member_id AND
+ ((period LIKE 'd:%' AND period<'d:'||to_char((now() AT TIME ZONE 'Asia/Shanghai')::date-89,'YYYY-MM-DD')) OR
+ (period LIKE 'm:%' AND period<'m:'||to_char(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai')-interval '23 months','YYYY-MM')));
+ DELETE FROM usage_logs WHERE tenant_id=NEW.tenant_id AND member_id=NEW.member_id AND
+ (created_at<now()-interval '90 days' OR id IN (SELECT id FROM usage_logs WHERE tenant_id=NEW.tenant_id AND member_id=NEW.member_id ORDER BY created_at DESC,id DESC OFFSET 5000));
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS usage_totals_insert ON usage_logs;
+CREATE TRIGGER usage_totals_insert AFTER INSERT ON usage_logs FOR EACH ROW EXECUTE FUNCTION record_usage_totals();
 CREATE TABLE IF NOT EXISTS eval_runs (
  id text PRIMARY KEY,tenant_id bigint NOT NULL,member_id bigint NOT NULL,config jsonb NOT NULL,
  metrics jsonb NOT NULL DEFAULT '{}',results jsonb NOT NULL DEFAULT '[]',status text NOT NULL DEFAULT 'pending',
@@ -102,7 +155,7 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
  embedding vector(1536) NOT NULL,PRIMARY KEY(tenant_id,provider,model,content_hash)
 );
 DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
+ FOREACH t IN ARRAY ARRAY['courseware_references','members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','usage_totals','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t);
    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t);
    IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename=t AND policyname='tenant_isolation') THEN

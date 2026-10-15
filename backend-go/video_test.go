@@ -55,7 +55,7 @@ func TestCloudVideoRejectsCorruptFrames(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--user", "0:0", "--mount", "type=bind,src="+dir+",dst=/media", "edu-manim:local", "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/media/lesson.mp4")
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--user", mediaSandboxUser(), "--mount", "type=bind,src="+dir+",dst=/media", "edu-manim:local", "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/media/lesson.mp4")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("local fixture: %v %s", err, b)
 	}
@@ -250,11 +250,17 @@ func cloudVideoHTTPDelivery(t *testing.T, protocol string) {
 	}
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
+	// Fund the isolated fixture through the simulated billing API; do not depend
+	// on seed balance or another test having purchased a package first.
+	order := worksObject(t, worksCall(t, s, "POST", "/api/billing/orders", token, map[string]string{"sku": "topup"}, 201))
+	worksCall(t, s, "POST", "/api/billing/orders/"+order["id"].(string)+"/pay", token, nil, 200)
 	other := worksLogin(t, s, "other")
 	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--mount", "type=bind,src="+dir+",dst=/media", "edu-manim:local", "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "5", "-c:a", "aac", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/media/lesson.mp4")
+	// Match the test process: it owns the private directory and must also be
+	// able to modify the generated fixture for corrupted-frame checks.
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--user", mediaSandboxUser(), "--mount", "type=bind,src="+dir+",dst=/media", "edu-manim:local", "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "5", "-c:a", "aac", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/media/lesson.mp4")
 	if protocol == "ark" {
 		cmd.Args = append(cmd.Args[:len(cmd.Args)-1], "-an", "/media/lesson.mp4")
 	}

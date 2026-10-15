@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -18,12 +20,16 @@ func TestCoursewareThreeSlideGateHTTP(t *testing.T) {
 	var input map[string]any
 	json.Unmarshal(asJSON(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom", UseKB: true, IdempotencyKey: newID()}), &input)
 	input["preview_first"] = true
+	input["requirements"] = "45分钟，实验探究优先，基础弱，练习由浅入深"
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, input, 202))["id"].(string)
 	route := "/api/tasks/" + id
 	if err := s.workOne(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	task := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+	if task["input"].(map[string]any)["requirements"] != input["requirements"] {
+		t.Fatal("confirmed requirements lost before preview")
+	}
 	if task["status"] != "awaiting_preview" {
 		t.Fatal("full generation occurred before preview approval", task["status"], task["error"])
 	}
@@ -41,11 +47,11 @@ func TestCoursewareThreeSlideGateHTTP(t *testing.T) {
 		t.Fatal("Office preview required but backend snapshot unavailable")
 	}
 	if task["preview_images_available"] == true {
-		png := worksCall(t, s, "GET", route+"/slides/"+metaFirst["id"].(string)+"/preview?revision=1", token, nil, 200).Body.Bytes()
+		png := worksCall(t, s, "GET", route+"/slides/"+metaFirst["id"].(string)+"/preview?revision="+fmt.Sprint(task["revision"]), token, nil, 200).Body.Bytes()
 		if len(png) < 1000 || string(png[1:4]) != "PNG" {
 			t.Fatal("actual preview missing")
 		}
-		worksCall(t, s, "GET", route+"/slides/"+metaFirst["id"].(string)+"/preview?revision=1", other, nil, 404)
+		worksCall(t, s, "GET", route+"/slides/"+metaFirst["id"].(string)+"/preview?revision="+fmt.Sprint(task["revision"]), other, nil, 404)
 	}
 	worksCall(t, s, "POST", route+"/expand", other, map[string]any{"revision": task["revision"]}, 404)
 	worksCall(t, s, "POST", route+"/expand", token, map[string]any{"revision": task["revision"]}, 409)
@@ -156,7 +162,15 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 			return
 		}
 		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
-		d.Slides = d.Slides[:3]
+		m := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`).FindString(prompt)
+		var start, end int
+		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
+		if start < 1 || end > 3 || start != end {
+			t.Error("invalid preview range")
+			w.WriteHeader(400)
+			return
+		}
+		d.Slides = d.Slides[start-1 : end]
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
 	}))
 	defer provider.Close()
@@ -180,7 +194,7 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 	worksCall(t, s, "POST", route+"/conversation", other, request, 404)
 	response := worksObject(t, worksCall(t, s, "POST", route+"/conversation", token, request, 200))
 	worksCall(t, s, "POST", route+"/conversation", token, request, 202)
-	if calls != 2 || revisionCall != 1 {
+	if calls != 4 || revisionCall != 1 {
 		t.Fatal("chat idempotency called model twice", calls)
 	}
 	updated := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
@@ -234,7 +248,15 @@ func TestCoursewarePreviewModelDoesNotGenerateFullDeck(t *testing.T) {
 			t.Error("initial prompt requested whole deck")
 		}
 		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
-		d.Slides = d.Slides[:3]
+		m := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`).FindString(prompt)
+		var start, end int
+		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
+		if start < 1 || end > 3 || start != end {
+			t.Error("invalid preview range")
+			w.WriteHeader(400)
+			return
+		}
+		d.Slides = d.Slides[start-1 : end]
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
 	}))
 	defer provider.Close()
@@ -245,7 +267,7 @@ func TestCoursewarePreviewModelDoesNotGenerateFullDeck(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, token, nil, 200))
-	if task["status"] != "awaiting_preview" || calls != 1 {
+	if task["status"] != "awaiting_preview" || calls != 3 {
 		t.Fatal("three page model preview was rejected", task["error"], calls)
 	}
 	var actor Actor
@@ -255,7 +277,7 @@ func TestCoursewarePreviewModelDoesNotGenerateFullDeck(t *testing.T) {
 	}
 	retry := worksObject(t, worksCall(t, s, "POST", "/api/tasks/"+id+"/retry", token, nil, 202))["id"].(string)
 	recovered := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+retry, token, nil, 200))
-	if recovered["status"] != "awaiting_preview" || !reflect.DeepEqual(task["result"].(map[string]any)["slides"], recovered["result"].(map[string]any)["slides"]) || calls != 1 {
+	if recovered["status"] != "awaiting_preview" || !reflect.DeepEqual(task["result"].(map[string]any)["slides"], recovered["result"].(map[string]any)["slides"]) || calls != 3 {
 		t.Fatal("retry failed to preserve actual three-page preview without a new model call")
 	}
 	pptx := worksCall(t, s, "GET", "/api/tasks/"+retry+"/preview-pptx", token, nil, 200).Body.Bytes()

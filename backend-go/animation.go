@@ -157,12 +157,21 @@ func (s *Server) runAnimation(ctx context.Context, tid int64, id, script string,
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return "", e
 	}
-	return path, os.WriteFile(path, content, 0600)
+	return path, s.writeStoredFile(ctx, path, content)
+}
+
+// Private bind-mounted media belongs to the backend process. Root with all
+// capabilities dropped cannot bypass a different Linux user's 0600/0700 modes.
+func mediaSandboxUser() string {
+	if os.Geteuid() >= 0 {
+		return fmt.Sprintf("%d:%d", os.Geteuid(), os.Getegid())
+	}
+	return "1000:1000" // Windows Docker Desktop maps bind-mount permissions.
 }
 
 func (s *Server) inspectAnimation(ctx context.Context, output string) error {
 	// Verify media in a separate trusted container: generated scripts cannot forge this check.
-	// UID 0 can read host-owned 0600 output on Linux; mount is read-only, with no capabilities.
+	// Match the host owner; keep the mount read-only and drop all capabilities.
 	// No model-generated Python is mounted or executed in this container.
 	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -173,7 +182,7 @@ func (s *Server) inspectAnimation(ctx context.Context, output string) error {
 		exec.CommandContext(cleanup, "docker", "rm", "-f", name).Run()
 	}()
 	command := "ffmpeg -v error -xerror -err_detect explode -threads 1 -i /output/Lesson.mp4 -map 0:v:0 -f null - && ffprobe -v error -show_entries stream=codec_name,codec_type,width,height:format=duration -of json /output/Lesson.mp4"
-	probe := exec.CommandContext(probeCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", "0:0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "384m", "--cpus", "1", "--pids-limit", "32", "--mount", "type=bind,src="+output+",dst=/output,readonly", s.cfg.AnimationImage, "sh", "-c", command)
+	probe := exec.CommandContext(probeCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", mediaSandboxUser(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "384m", "--cpus", "1", "--pids-limit", "32", "--mount", "type=bind,src="+output+",dst=/output,readonly", s.cfg.AnimationImage, "sh", "-c", command)
 	b, e := probe.Output()
 	if e != nil {
 		if ctx.Err() != nil {
@@ -181,7 +190,20 @@ func (s *Server) inspectAnimation(ctx context.Context, output string) error {
 		}
 		var exit *exec.ExitError
 		if errors.As(e, &exit) && exit.ExitCode() == 1 {
-			return &animationFailure{"media", "MP4帧无法完整解码"}
+			// Keep bounded diagnostics; a nonzero exit may be a permissions error,
+			// not damaged frames. Size is context, not proof of media integrity.
+			detail := strings.TrimSpace(string(exit.Stderr))
+			if detail == "" {
+				detail = "MP4帧无法完整解码"
+			}
+			if len(detail) > 500 {
+				detail = detail[len(detail)-500:]
+				detail = strings.ToValidUTF8(detail, "")
+			}
+			if info, statErr := os.Stat(filepath.Join(output, "Lesson.mp4")); statErr == nil {
+				detail = fmt.Sprintf("%s [artifact %d bytes]", detail, info.Size())
+			}
+			return &animationFailure{"media", detail}
 		}
 		return &animationFailure{"environment", "媒体检查容器未正常完成"}
 	}

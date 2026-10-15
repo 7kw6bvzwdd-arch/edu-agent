@@ -89,59 +89,31 @@ func TestAgentProviderRoutingAndUsage(t *testing.T) {
 	}
 }
 
-func TestAgentHealthAndArkPreflight(t *testing.T) {
+func TestAgentHealthDuringAnimationRebuild(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
 	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = "http://127.0.0.1:1", "test", "course-model"
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = "http://127.0.0.1:1", "test", "animation-model"
-	health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-	if health["courseware_media_version"] != "media-v1" {
-		t.Fatal("missing courseware capability")
-	}
-	if health["courseware_configured"] != true || health["animation_configured"] != true || health["animation_video_configured"] != false {
-		t.Fatal("agent health does not reflect independent configuration", health)
-	}
-	if health["animation_video_duration"] != float64(5) {
-		t.Fatal("video duration must default to integer seconds", health)
-	}
+	s.cfg.VideoURL, s.cfg.VideoKey, s.cfg.VideoModel = "http://127.0.0.1:1", "test", "video-model"
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
-	in := TaskInput{Type: "animation", AnimationEngine: "ark", Topic: "一次函数", Pages: 8, UseKB: true, IdempotencyKey: newID()}
-	w := worksCall(t, s, "POST", "/api/tasks", token, in, 503)
-	if !strings.Contains(w.Body.String(), "ARK_VIDEO") {
-		t.Fatal("missing actionable cloud configuration error")
-	}
-	s.cfg.VideoURL = "https://ark.cn-beijing.volces.com/api/v3"
-	s.cfg.VideoKey, s.cfg.VideoModel = "test", "configured-video-model"
-	for _, duration := range []string{"1", "16", "0", "-1", "2.5", "invalid"} {
-		s.cfg.VideoDuration = duration
-		w := worksCall(t, s, "POST", "/api/tasks", token, in, 503)
-		if !strings.Contains(w.Body.String(), "ARK_VIDEO_DURATION") {
-			t.Fatal("invalid duration did not fail during configuration preflight", duration)
-		}
-		health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-		if health["animation_video_configured"] != false {
-			t.Fatal("health advertised an invalid video duration", duration)
-		}
-		if after := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String(); after != before {
-			t.Fatal("invalid duration reserved credits or changed ledger", duration)
-		}
-	}
-	for _, duration := range []string{"2", "5", "15"} {
+	for _, duration := range []string{"1", "5", "16", "invalid"} {
 		s.cfg.VideoDuration = duration
 		health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-		if health["animation_video_configured"] != true {
-			t.Fatal("valid boundary duration was rejected", duration)
+		if health["courseware_configured"] != true || health["animation_configured"] != false || health["animation_video_configured"] != false || health["animation_service_status"] != "rebuilding" {
+			t.Fatal("disabled animation advertised as available", health)
+		}
+		for _, engine := range []string{"ark", "manim"} {
+			in := TaskInput{Type: "animation", AnimationEngine: engine, Topic: "一次函数", Pages: 8, UseKB: true, IdempotencyKey: newID()}
+			w := worksCall(t, s, "POST", "/api/tasks", token, in, 503)
+			if !strings.Contains(w.Body.String(), "教学动画功能重构中") {
+				t.Fatal("rebuild rejection missing", w.Body.String())
+			}
 		}
 	}
-	s.cfg.VideoDuration = "5"
-	s.cfg.Mode = "sample"
-	worksCall(t, s, "POST", "/api/tasks", token, in, 503)
-	if after := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String(); after != before {
-		t.Fatal("unconfigured video reserved credits")
+	if worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String() != before {
+		t.Fatal("disabled animation changed billing")
 	}
-	in.AnimationEngine = "invalid"
-	worksCall(t, s, "POST", "/api/tasks", token, in, 400)
 }
 
 func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
@@ -181,7 +153,7 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = course.URL, "test", "course-model"
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = animation.URL, "test", "animation-model"
 	s.cfg.VideoURL, s.cfg.VideoKey, s.cfg.VideoModel, s.cfg.VideoDuration = "http://127.0.0.1:1", "test", "never-called", "5"
-	for _, kind := range []string{"courseware", "animation"} {
+	for _, kind := range []string{"courseware"} {
 		in := TaskInput{Type: kind, Grade: "八年级", Topic: "一次函数", Theme: "forest", Pages: 8, UseKB: true, IdempotencyKey: newID()}
 		if kind == "animation" {
 			in.AnimationEngine = "ark"

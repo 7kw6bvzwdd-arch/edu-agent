@@ -1,0 +1,146 @@
+/* Presentation review: thumbnails, one large slide, contextual inspector. */
+.app-shell.review-page{--review-body-height:calc(100dvh - 120px)}
+.app-shell.review-page:has(.content>.alert){--review-body-height:calc(100dvh - 156px)}
+.app-shell.review-page .topbar{height:44px;padding-inline:20px}
+.app-shell.review-page .content:has(.studio-mode){padding:8px 18px 0;max-width:none}
+.app-shell.review-page .content>.page-footer{display:none}
+.app-shell.review-page .content>.alert{margin:0 0 8px;font-size:12px;padding:6px 12px;line-height:1.6}
+.app-shell .courseware-studio{height:auto;min-height:0;border-radius:12px;box-shadow:none;overflow:visible}
+.app-shell .studio-header{padding:8px 16px;background:var(--surface);border-radius:12px 12px 0 0;gap:12px;min-height:56px}
+.app-shell .studio-document-title{display:flex;gap:11px;align-items:center;min-width:0}
+.app-shell .studio-document-title>div{min-width:0}
+.app-shell .studio-document-icon{display:grid;place-items:center;background:var(--surface-3);color:var(--am-700);width:36px;height:40px;border-radius:8px;flex:none}
+.app-shell .studio-document-icon svg{width:22px;height:22px}
+.app-shell .studio-header h2{font-size:17px;font-weight:600;line-height:1.3;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:460px}
+.app-shell .studio-header p{font-size:11px;line-height:1.5;margin:3px 0 0;color:var(--ink-3)}
+.app-shell .studio-header-actions{align-items:center;flex-wrap:nowrap;max-width:none;flex:none}
+.app-shell .studio-header-actions button{display:flex;align-items:center;gap:6px;font-size:12px;min-height:36px;box-shadow:none}
+.app-shell .studio-header-actions button svg{width:15px;height:15px}
+.app-shell .studio-more-actions{position:relative}
+.app-shell .studio-more-actions>summary{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;list-style:none;min-height:36px}
+.app-shell .studio-more-actions>summary::-webkit-details-marker{display:none}
+.app-shell .studio-more-actions>summary svg{width:15px;height:15px}
+.app-shell .studio-more-actions>div{position:absolute;right:0;top:calc(100% + 6px);z-index:3;display:grid;gap:3px;width:170px;background:var(--surface);padding:7px;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 24px -8px #2a145833}
+.app-shell .studio-more-actions button{border:0;justify-content:flex-start;width:100%}
+.app-shell .studio-body{grid-template-columns:126px minmax(0,1fr) 266px;grid-template-rows:minmax(0,1fr);overflow:visible;flex:none;min-height:var(--review-body-height);border-radius:0 0 12px 12px}
+.app-shell .studio-body:not(:has(.studio-page-rail)){grid-template-columns:minmax(0,1fr) 266px}
+.app-shell .studio-page-rail{grid-column:1;grid-row:1;background:var(--surface-2);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0;position:sticky;top:52px;height:var(--review-body-height);align-self:start;overflow:hidden}
+.app-shell .studio-pages-heading{display:flex;justify-content:space-between;align-items:center;padding:16px 13px 12px;font-size:12px;flex:none}
+.app-shell .studio-pages-heading b{font-weight:500}
+.app-shell .studio-pages-heading>span{color:var(--ink-3);font-size:10px}
+.app-shell .studio-page-thumbnails{padding:0 10px 18px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;display:grid;grid-auto-rows:max-content;gap:14px;align-content:start;min-height:0}
+.app-shell .studio-page-thumbnail{display:block;width:100%;padding:0;background:transparent;border:0;box-shadow:none;border-radius:6px;text-align:left;min-height:0}
+.app-shell .studio-page-thumbnail:hover:not(:disabled){background:transparent;border:0;box-shadow:none}
+.app-shell .studio-thumbnail-art{position:relative;display:block;aspect-ratio:16/9;background:var(--surface);border:2px solid transparent;border-radius:6px;overflow:hidden;box-shadow:0 1px 4px #2a14581a}
+.app-shell .studio-page-thumbnail.active .studio-thumbnail-art{border-color:var(--am-600)}
+.app-shell .studio-page-thumbnail:hover .studio-thumbnail-art{border-color:var(--am-300)}
+.app-shell .studio-thumbnail-art>img{width:100%;height:100%;object-fit:contain;display:block}
+.app-shell .studio-thumbnail-fallback{display:flex;align-items:center;justify-content:center;gap:5px;padding:8px;height:100%;background:var(--surface-3);color:var(--ink-3);font-size:9px}
+.app-shell .studio-thumbnail-fallback svg{width:16px;height:16px;flex:none}
+.app-shell .studio-thumbnail-fallback strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:9px}
+.app-shell .studio-thumbnail-approved{position:absolute;right:3px;bottom:3px;display:grid;place-items:center;width:17px;height:17px;background:var(--am-700);color:#fff;border-radius:50%}
+.app-shell .studio-thumbnail-approved svg{width:12px;height:12px}
+.app-shell .studio-thumbnail-label{display:flex;align-items:center;justify-content:space-between;padding:5px 3px 0;font-size:10px;color:var(--ink-3)}
+.app-shell .studio-thumbnail-label b{font-size:11px;font-weight:500}
+.app-shell .studio-page-thumbnail.active .studio-thumbnail-label{color:var(--am-700)}
+.app-shell .studio-conversation{grid-column:3;grid-row:1;padding:0;background:var(--surface);border-right:0;border-left:1px solid var(--line);min-width:0;overflow:hidden;position:sticky;top:52px;height:var(--review-body-height);align-self:start}
+.app-shell .studio-body:not(:has(.studio-page-rail)) .studio-conversation{grid-column:2}
+.app-shell .inspector-tabs{display:flex;gap:0;border-bottom:1px solid var(--line);flex:none;padding:0 16px}
+.app-shell .inspector-tabs button{flex:1;border:0;border-radius:0;background:transparent;box-shadow:none;min-height:48px;font-size:12px;color:var(--ink-3);padding:9px 5px;border-bottom:2px solid transparent}
+.app-shell .inspector-tabs button.active{color:var(--am-700);border-bottom-color:var(--am-700);font-weight:600}
+.app-shell .studio-review-panel{padding:20px 17px;overflow-y:auto;overscroll-behavior:contain;min-height:0}
+.app-shell .studio-inspector-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:10px;color:var(--ink-3)}
+.app-shell .studio-inspector-heading small{font-size:10px;color:var(--ink-3)}
+.app-shell .inspector-review-state{background:var(--surface-3);color:var(--ink-3);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.app-shell .inspector-review-state.approved{background:var(--am-100);color:var(--am-700)}
+.app-shell .studio-inspector-title{font-size:15px;line-height:1.75;margin:15px 0 9px;color:var(--ink);font-weight:600;overflow-wrap:anywhere}
+.app-shell .inspector-review-help{font-size:12px;line-height:1.9;color:var(--ink-3);margin:0 0 18px}
+.app-shell .inspector-quality-note{font-size:11px;color:var(--warn);background:var(--warn-bg);padding:10px;border-radius:6px;line-height:1.8}
+.app-shell .inspector-notes{margin-top:20px;border-top:1px solid var(--line);padding-top:16px;font-size:12px}
+.app-shell .inspector-notes summary{font-size:12px;cursor:pointer}
+.app-shell .inspector-notes p{font-size:12px;line-height:1.9;white-space:pre-wrap;color:var(--ink-2)}
+.app-shell .inspector-deck-notice{margin-top:16px;font-size:11px;color:var(--ink-3);line-height:1.8}
+.app-shell .inspector-deck-notice summary{cursor:pointer;font-size:12px}
+.app-shell .studio-review-panel .claim-sources{margin:16px 0 0;border:0;border-top:1px solid var(--line);padding:16px 0 0;border-radius:0;font-size:11px}
+.app-shell .studio-review-panel .claim-sources summary{font-size:12px}
+.app-shell .inspector-edit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:24px}
+.app-shell .inspector-edit-actions button{display:flex;gap:5px;align-items:center;justify-content:center;font-size:11px;padding:8px 4px;min-height:36px;box-shadow:none}
+.app-shell .inspector-edit-actions svg{width:14px;height:14px}
+.app-shell .inspector-review-foot{font-size:10px;line-height:1.8;color:var(--ink-3);margin-top:10px}
+.app-shell .studio-chat-panel{display:flex;flex-direction:column;min-height:0;flex:1;padding:16px 14px;background:var(--surface-2)}
+.app-shell .conversation-heading{margin-bottom:15px;gap:8px;flex:none}
+.app-shell .conversation-heading b{font-size:13px}
+.app-shell .conversation-heading small{font-size:10px}
+.app-shell .studio-avatar{background:var(--am-100);color:var(--am-700);box-shadow:none;width:30px;height:30px;border-radius:8px}
+.app-shell .studio-avatar svg{width:18px;height:18px}
+.app-shell .chat-bubble{padding:12px;font-size:12px;line-height:1.8;border-radius:8px;margin-bottom:12px}
+.app-shell .chat-bubble.user{background:var(--am-100);color:var(--ink);margin-left:8px}
+.app-shell .chat-bubble small{font-size:10px}
+.app-shell .chat-composer{border-radius:10px;padding:11px;box-shadow:none;margin-top:10px}
+.app-shell .chat-composer:focus-within{border-color:var(--am-400);box-shadow:none}
+.app-shell .chat-composer textarea{font-size:12px;min-height:88px}
+.app-shell .chat-composer>small,.app-shell .chat-send-row span{font-size:10px;line-height:1.7;color:var(--ink-3)}
+.app-shell .chat-mode{gap:4px}
+.app-shell .chat-mode button{font-size:11px;padding:5px 7px}
+.app-shell .chat-mode button.active{background:var(--am-700);color:#fff}
+.app-shell .chat-send-row button{font-size:11px;padding:7px 10px}
+.app-shell .studio-canvas{grid-column:2;grid-row:1;background:var(--ground);padding:12px 22px 0;overflow:visible;scrollbar-gutter:auto;display:flex;flex-direction:column;gap:0}
+.app-shell .studio-body:not(:has(.studio-page-rail)) .studio-canvas{grid-column:1}
+.app-shell .studio-stage-banner{background:transparent;border:0;border-radius:0;padding:0 0 10px;margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 10px;font-size:11px;color:var(--ink-3)}
+.app-shell .studio-stage-banner>b{font-size:11px;font-weight:500;color:var(--ink-2)}
+.app-shell .studio-stage-banner>p{font-size:11px;color:var(--ink-3);margin:0;line-height:1.7}
+.app-shell .studio-progress{width:100%;background:var(--surface);padding:12px;border-radius:8px;border-color:var(--line)}
+.app-shell .studio-progress progress::-webkit-progress-value{background:var(--am-600)}
+.app-shell .studio-deck-settings{margin:0 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:7px;flex:none}
+.app-shell .studio-deck-settings>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;font-size:11px;cursor:pointer;list-style:none}
+.app-shell .studio-deck-settings>summary svg{width:14px;height:14px}
+.app-shell .studio-deck-settings>summary span{margin-left:auto;font-size:10px;color:var(--ink-3)}
+.app-shell .studio-deck-settings .studio-toolbar{padding:10px;margin:0;border-top:1px solid var(--line);flex-wrap:wrap;gap:10px}
+.app-shell .studio-deck-settings .studio-toolbar label{font-size:11px;min-width:100px}
+.app-shell .studio-deck-settings .studio-toolbar button{font-size:11px}
+.app-shell .studio-deck-settings .studio-templates{padding:12px;border-top:1px solid var(--line);margin:0}
+.app-shell .studio-deck-settings .template-heading h3{font-size:12px}
+.app-shell .studio-canvas>.studio-note:empty{display:none}
+.app-shell .studio-canvas>.studio-note{font-size:11px;margin:0 0 10px;line-height:1.8}
+.app-shell .studio-slide{margin:0 0 12px;flex:none;scroll-margin-top:60px}
+.app-shell .studio-slide-top{gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.app-shell .slide-select{font-size:11px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:0;background:transparent;line-height:1.7}
+.app-shell .slide-select span{font-size:10px;padding:2px 6px;margin:0;background:var(--am-100);color:var(--am-800)}
+.app-shell .slide-tools{gap:0;align-items:center;margin-left:auto}
+.app-shell .slide-tools button{min-height:28px;min-width:27px;padding:4px 6px;font-size:11px;display:flex;gap:4px;align-items:center}
+.app-shell .slide-tools button svg{width:14px;height:14px}
+.app-shell .slide-tools button:disabled{color:#8f88a3;background:transparent}
+/* Fit the whole slide above its controls; expanded editors use document scrolling. */
+.app-shell .studio-slide-picture{width:min(100%,calc(max(200px,100dvh - 440px) * 16 / 9));margin-inline:auto;border:0;border-radius:3px;box-shadow:0 5px 14px -7px #2a145833;padding:0;min-height:0;aspect-ratio:16/9;background:#fff;cursor:default}
+.app-shell .studio-slide.selected .studio-slide-picture{border:0;box-shadow:0 5px 14px -7px #2a145833}
+.app-shell .studio-slide-picture img{width:100%;height:100%;aspect-ratio:16/9;object-fit:contain}
+.app-shell .actual-preview-caption{font-size:10px;text-align:center;color:var(--ink-3);line-height:1.8;margin:8px 0}
+.app-shell .studio-slide-bottom{display:flex;align-items:center;gap:8px;margin-top:10px;justify-content:space-between;flex-wrap:wrap}
+.app-shell .studio-slide-bottom>div{width:auto}
+.app-shell .studio-slide-bottom button{display:flex;align-items:center;justify-content:center;gap:5px;min-height:32px;font-size:11px;padding:6px 9px;box-shadow:none}
+.app-shell .studio-slide-bottom button svg{width:14px;height:14px}
+.app-shell .studio-slide-bottom .approve-page{background:var(--am-700);border-color:var(--am-700);color:#fff}
+.app-shell .studio-slide-bottom .approve-page.approved{background:var(--surface);border-color:var(--line-strong);color:var(--am-700)}
+.app-shell .studio-page-turn{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--ink-3)}
+.app-shell .studio-page-turn button{border:0;background:transparent;padding:5px;min-width:28px}
+.app-shell .legacy-review-note{flex-basis:100%;font-size:11px;color:var(--warn)}
+.app-shell .studio-slide-editor{background:var(--surface);border-color:var(--line);padding:16px;border-radius:10px;scroll-margin-top:60px}
+.app-shell .object-editor,.app-shell .studio-history,.app-shell .studio-canvas>.alert{scroll-margin-top:60px}
+.app-shell .studio-slide-editor label{font-size:12px}
+.app-shell .studio-canvas>.studio-lesson{order:4;margin:0 0 10px;padding:11px 13px;background:var(--surface);border-color:var(--line);border-radius:7px;font-size:12px;flex:none}
+.app-shell .studio-review-panel>.studio-lesson{margin:16px 0 0;padding:16px 0 0;border:0;border-top:1px solid var(--line);border-radius:0}
+.app-shell .studio-lesson summary{font-size:11px;cursor:pointer}
+.app-shell .studio-history{background:var(--surface);order:3;margin:12px 0;padding:16px;font-size:12px;flex:none}
+.app-shell .studio-completion{order:5;position:static;margin:0 -22px;padding:12px 18px;background:var(--surface);border-top:1px solid var(--line);box-shadow:none;gap:9px;flex:none;margin-top:auto}
+.app-shell .studio-completion>div{min-width:130px;flex:1}
+.app-shell .studio-completion b{font-size:12px;font-weight:600}
+.app-shell .studio-completion p{font-size:10px;margin:3px 0 0;line-height:1.7;color:var(--ink-3)}
+.app-shell .studio-completion button{font-size:11px;padding:7px 10px;min-height:34px;box-shadow:none}
+.app-shell .studio-completion .consent{font-size:11px;line-height:1.7;max-width:none;flex-basis:100%;order:1;display:flex;align-items:center;gap:7px}
+.app-shell .studio-completion .consent input{flex:none;margin:0}
+.app-shell .studio-completion button.primary{white-space:normal}
+.app-shell .studio-completion>button:last-child:not(.primary){font-size:10px;min-height:28px;background:transparent;border-color:transparent;color:var(--ink-3);padding:4px 0}
+@media(min-width:1700px){.app-shell .studio-body{grid-template-columns:150px minmax(0,1fr) 290px}.app-shell .studio-canvas{padding:12px 36px 0}.app-shell .studio-completion{margin-left:-36px;margin-right:-36px}}
+@media(max-width:1250px){.app-shell .studio-body{grid-template-columns:100px minmax(0,1fr) 230px}.app-shell .studio-canvas{padding:13px 14px 0}.app-shell .studio-completion{margin-left:-14px;margin-right:-14px;padding:12px}.app-shell .studio-review-panel{padding:16px 13px}.app-shell .studio-page-thumbnails{padding-left:7px;padding-right:7px}.app-shell .studio-pages-heading{padding-left:9px;padding-right:9px}.app-shell .studio-header h2{max-width:310px}.app-shell .inspector-edit-actions{grid-template-columns:1fr}.app-shell .studio-completion>div{flex-basis:100%}.app-shell .studio-slide-bottom>div:last-child{flex-wrap:wrap;justify-content:flex-end}}
+@media(max-width:1050px){.app-shell .studio-body{grid-template-columns:90px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.app-shell .studio-conversation{grid-column:2;grid-row:auto;position:static;height:auto;max-height:none;border-left:0;border-top:1px solid var(--line);overflow:visible}.app-shell .studio-body{display:grid;overflow:visible;grid-template-rows:auto auto;align-content:start}.app-shell .studio-canvas{grid-column:2;grid-row:1;overflow-y:visible;min-height:0}.app-shell .studio-page-rail{grid-column:1;grid-row:1 / span 2;position:sticky;top:52px;max-height:var(--review-body-height);align-self:start}.app-shell .studio-body:not(:has(.studio-page-rail)){grid-template-columns:1fr}.app-shell .studio-body:not(:has(.studio-page-rail)) .studio-conversation{grid-column:1}.app-shell .studio-review-panel{max-height:380px}.app-shell .studio-chat-panel{min-height:330px;max-height:480px}.app-shell .conversation-log{min-height:80px;max-height:220px}.app-shell .studio-completion{position:static;margin-top:12px}.app-shell .inspector-edit-actions{grid-template-columns:1fr 1fr}.app-shell .studio-header h2{max-width:280px}.app-shell .studio-slide-picture{width:100%}}
+@media(max-width:760px){.app-shell.review-page .content:has(.studio-mode){padding:8px 10px 0}.app-shell .courseware-studio,.app-shell.review-page:has(.content>.alert) .courseware-studio{height:auto;min-height:0}.app-shell .studio-header{padding:10px 12px;flex-direction:column;align-items:stretch;gap:8px}.app-shell .studio-header h2{max-width:100%;font-size:16px;white-space:normal}.app-shell .studio-header-actions{justify-content:flex-end;flex-wrap:wrap}.app-shell .studio-header-actions button{min-height:40px}.app-shell .studio-body{display:flex;flex-direction:column;overflow:visible}.app-shell .studio-page-rail{order:0;position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);max-height:none}.app-shell .studio-pages-heading{padding:12px 14px 8px}.app-shell .studio-page-thumbnails{display:flex;overflow-x:auto;overflow-y:hidden;padding:0 14px 12px;gap:12px}.app-shell .studio-page-thumbnail{width:100px;flex:0 0 100px}.app-shell .studio-canvas{order:1;padding:14px 12px 0;overflow:visible;max-height:none;min-height:0}.app-shell .studio-conversation{order:2;min-height:0;max-height:none;width:100%}.app-shell .studio-stage-banner{line-height:1.8}.app-shell .slide-tools{flex-wrap:wrap;margin-left:0}.app-shell .slide-tools button{min-height:36px;min-width:33px}.app-shell .studio-slide-top{flex-direction:column;align-items:flex-start}.app-shell .slide-tools{align-self:auto}.app-shell .studio-slide-bottom{gap:10px;align-items:center}.app-shell .studio-slide-bottom>div{width:auto}.app-shell .studio-slide-bottom>div:last-child{flex:1}.app-shell .studio-slide-bottom button{min-height:40px;font-size:10px;padding:7px}.app-shell .studio-completion{margin:10px -12px 0;padding:14px 12px;gap:10px}.app-shell .studio-completion button{width:auto;min-height:40px}.app-shell .studio-completion>button.primary{flex:1}.app-shell .studio-completion .consent{max-width:none}.app-shell .studio-review-panel{max-height:none;padding:18px}.app-shell .studio-chat-panel{min-height:420px;max-height:550px}.app-shell .conversation-log{max-height:240px}.app-shell .slide-fallback{aspect-ratio:16/9;min-height:0;padding:6%}.app-shell .slide-fallback h3{font-size:18px}.app-shell .slide-fallback ul{font-size:11px}.app-shell .slide-fallback small{font-size:9px}.app-shell .studio-canvas>.studio-lesson{margin-top:10px}.app-shell .inspector-tabs button{min-height:44px}.app-shell .inspector-edit-actions button{min-height:44px}.app-shell .studio-more-actions>summary{min-height:40px}}

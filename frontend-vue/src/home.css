@@ -1,0 +1,151 @@
+/* The conversation owns the main row; secondary controls stay below it. */
+.app-shell .content.home-page>.page-footer{display:none}
+.app-shell .content.home-page{
+ min-height:calc(100dvh - 44px);
+ background-image:url('./assets/home-pattern.svg'),linear-gradient(180deg,transparent 120px,var(--ground) 740px),linear-gradient(#8b5cf60a 1px,transparent 1px),linear-gradient(90deg,#8b5cf60a 1px,transparent 1px),radial-gradient(ellipse at 50% 0%,#eae3fb88,transparent 65%);
+ background-size:100% auto,100% 100%,80px 80px,80px 80px,100% 740px;
+ background-position:center top;
+ background-repeat:no-repeat,no-repeat,repeat,repeat,no-repeat;
+}
+.app-shell:has(.content.home-page) .topbar{height:44px}
+.app-shell .content.home-page>.alert{margin:8px 28px 0;padding:6px 12px;font-size:12px;line-height:1.6}
+.app-shell .conversation-home{max-width:1260px;margin:0 auto;padding:16px 32px 32px}
+.app-shell .home-welcome{text-align:center;margin:0 0 20px}
+.app-shell .home-welcome h1{font-size:30px;line-height:1.4;letter-spacing:-.7px;font-weight:650;color:var(--ink);margin:0 0 6px;text-wrap:balance}
+.app-shell .home-welcome p{font-size:14px;color:var(--ink-3);margin:0;line-height:1.8}
+.app-shell .conversation-home:has(.has-messages) .home-welcome{text-align:left;max-width:960px;margin:0 auto 12px}
+.app-shell .conversation-home:has(.has-messages) .home-welcome h1{font-size:18px;margin:0}
+.app-shell .conversation-home:has(.has-messages) .home-welcome p{display:none}
+.app-shell .home-main-grid{display:block;min-width:0;max-width:960px;margin-inline:auto}
+.app-shell .home-dialogue{background:transparent;border:0;border-radius:16px;overflow:visible;box-shadow:none}
+.app-shell .conversation-home .courseware-setup{margin:0;border:0;border-radius:0;box-shadow:none;max-width:none;overflow:visible;background:transparent}
+.app-shell .conversation-home .brief-heading{display:none}
+.app-shell .conversation-home .brief-grid{min-height:0}
+.app-shell .conversation-home .brief-conversation{background:var(--surface);border:1px solid var(--am-200);border-radius:16px;overflow:hidden;box-shadow:0 12px 32px -18px #4c1d952e;transition:border-color var(--fast),box-shadow var(--fast)}
+.app-shell .conversation-home .brief-conversation:focus-within{border-color:var(--am-400);box-shadow:0 12px 32px -18px #4c1d9540}
+.app-shell .conversation-home .brief-panel:not(.has-messages) .brief-messages{display:none}
+.app-shell .conversation-home .brief-messages{padding:20px 28px 0;min-height:0;max-height:max(220px,calc(100dvh - 420px));scrollbar-gutter:stable}
+.app-shell .conversation-home .has-messages .brief-messages{height:clamp(260px,calc(100dvh - 420px),680px)}
+.app-shell .conversation-home .brief-welcome{padding:0 0 6px;color:var(--ink-3);font-size:13px}
+.app-shell .conversation-home .brief-bubble{max-width:100%;padding:14px 18px;margin:0 0 16px;background:var(--surface-3)!important;border:0;border-radius:0 10px 10px 10px;line-height:1.9;font-size:14px}
+.app-shell .conversation-home .brief-bubble b{font-size:12px;color:var(--am-700)!important;font-weight:600}
+.app-shell .conversation-home .brief-bubble p{margin:4px 0 0}
+.app-shell .conversation-home .brief-bubble.user{background:var(--am-100)!important;margin-left:auto;width:fit-content;max-width:85%;border-radius:10px 0 10px 10px}
+.app-shell .conversation-home .brief-composer{border-top:0;padding:20px 24px 18px}
+.app-shell .conversation-home .brief-composer>label{font-size:12px;color:var(--am-700);font-weight:600}
+.app-shell .conversation-home .brief-composer textarea{margin-top:12px;min-height:128px;resize:vertical;font-size:16px;font-weight:400;line-height:1.9;padding:0;border:0;border-radius:0;background:var(--surface);box-shadow:none}
+.app-shell .conversation-home .brief-composer textarea:focus{outline:0;box-shadow:none}
+.app-shell .conversation-home .has-messages .brief-composer textarea{min-height:96px}
+.app-shell .conversation-home .brief-actions{gap:12px;margin-top:12px}
+.app-shell .conversation-home .brief-actions small{font-size:11px;line-height:1.7;color:var(--ink-3)}
+.app-shell .conversation-home .brief-actions button{min-height:40px;padding:8px 18px;font-size:13px}
+.app-shell .conversation-home .brief-action-buttons{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.app-shell .conversation-home .brief-direct{color:var(--am-700);border-color:var(--am-200)}
+.app-shell .conversation-home .brief-direct:disabled{color:var(--ink-3);border-color:var(--line);background:var(--surface-2)}
+.app-shell .conversation-home .brief-summary{background:transparent!important;padding:14px 4px 0;border:0}
+.app-shell .conversation-home .brief-summary:not(:has(details[open])){display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.app-shell .conversation-home .brief-summary details{margin:0}
+.app-shell .conversation-home .brief-summary summary{font-size:12px;margin:0;min-height:24px;cursor:pointer}
+.app-shell .conversation-home .brief-summary .brief-summary-editor{margin:0}
+.app-shell .conversation-home .brief-summary-editor summary{color:var(--ink-3);font-weight:400;font-size:11px}
+.app-shell .conversation-home .brief-summary textarea{margin:10px 0;min-height:240px;font-size:13px}
+.app-shell .conversation-home .brief-summary .fine{font-size:11px;line-height:1.8;color:var(--ink-3);margin:8px 0 0}
+.app-shell .conversation-home .brief-summary .alert{font-size:12px;line-height:1.8}
+.app-shell .conversation-home .brief-summary .brief-topic{padding:0;margin:12px 0;font-size:12px;color:var(--ink-2)}
+.app-shell .conversation-home .brief-topic input{font-size:15px;padding:11px 12px;min-height:44px;margin-top:7px;border-radius:8px}
+.app-shell .conversation-home .brief-parameters{margin:0;padding:0;border:0}
+.app-shell .conversation-home .brief-parameters summary{display:list-item;color:var(--am-700)}
+.app-shell .conversation-home .brief-parameters summary small{display:inline;margin-left:8px;color:var(--ink-3);font-size:11px}
+.app-shell .conversation-home .brief-parameters fieldset{padding-top:16px}
+.app-shell .conversation-home .brief-parameters textarea{min-height:80px}
+.app-shell .conversation-home .brief-parameters button{margin-top:0;min-height:36px}
+.app-shell .conversation-home .brief-requirement-block{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.app-shell .conversation-home .brief-requirement-block h3{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;padding:10px 14px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.app-shell .conversation-home .brief-requirement-block h3 small{font-size:11px;font-weight:400;color:var(--ink-3)}
+.app-shell .conversation-home .brief-requirement-block table{width:100%;border-collapse:collapse;table-layout:fixed;white-space:normal}
+.app-shell .conversation-home .brief-row-label{width:116px}
+.app-shell .conversation-home .brief-requirement-block :is(th,td){padding:8px 12px;text-align:left;font-size:13px;line-height:1.8;vertical-align:middle;border-bottom:1px solid var(--line);overflow-wrap:anywhere;white-space:pre-wrap}
+.app-shell .conversation-home .brief-requirement-block th{width:auto;color:var(--ink-3);font-weight:500;background:var(--surface-2)}
+.app-shell .conversation-home .brief-requirement-block tr:last-child :is(th,td){border-bottom:0}
+.app-shell .conversation-home .brief-requirement-block :is(input,select,textarea){display:block;width:100%;min-width:0;margin:0;border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--surface);font-size:13px;line-height:1.6;color:var(--ink);box-sizing:border-box}
+.app-shell .conversation-home .brief-requirement-block textarea{min-height:64px;resize:vertical}
+.app-shell .conversation-home .brief-requirement-block :is(input,select,textarea):focus{outline:2px solid var(--am-400);outline-offset:1px}
+.app-shell .conversation-home .brief-field-error{display:block;color:#a13939;font-size:12px;margin-top:4px}
+.app-shell .conversation-home .brief-block-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:14px}
+.app-shell .conversation-home .brief-block-actions small{color:var(--ink-3);font-size:11px}
+.app-shell .conversation-home .brief-block-actions button{font-size:12px}
+.app-shell .conversation-home .brief-bubble.incomplete{border:1px dashed var(--line-strong)}
+.app-shell .conversation-home .stream-cursor{color:var(--am-700)}
+.app-shell .conversation-home .brief-thinking{color:var(--ink-3)}
+.app-shell .home-preparation{margin-top:32px}
+.app-shell .home-section-title{display:flex;align-items:baseline;gap:16px;margin-bottom:14px}
+.app-shell .home-section-title h2{font-size:14px;font-weight:600;margin:0;color:var(--ink)}
+.app-shell .home-section-title>span{font-size:12px;color:var(--ink-3)}
+.app-shell .home-preparation-tools{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+.app-shell .home-preparation-tools>button{display:flex;align-items:center;gap:14px;padding:18px 20px;text-align:left;white-space:normal;border:1px solid var(--line);background:var(--surface);border-radius:12px;box-shadow:none}
+.app-shell .home-preparation-tools>.home-prepare-courseware{background:var(--surface-3);border-color:var(--am-150)}
+.app-shell .home-preparation-tools>button:hover:not(:disabled){border-color:var(--am-300);background:var(--am-100)}
+.app-shell .home-prepare-icon{display:grid;place-items:center;width:42px;height:42px;flex:none;border-radius:10px;background:var(--am-100);color:var(--am-700)}
+.app-shell .home-prepare-icon svg{width:23px;height:23px}
+.app-shell .home-preparation-tools strong{display:block;font-size:15px;font-weight:600;color:var(--ink);margin-bottom:3px}
+.app-shell .home-preparation-tools small{font-size:12px;line-height:1.7;color:var(--ink-3)}
+.app-shell .home-preparation-tools>button>svg{width:18px;height:18px;flex:none;margin-left:auto;color:var(--am-700)}
+.app-shell .conversation-home:has(.has-messages) .home-preparation{display:none}
+.app-shell .conversation-home .home-recent{margin-top:28px;padding:20px 0 0;background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none}
+.app-shell .conversation-home .home-recent-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 10px}
+.app-shell .conversation-home .home-recent-head h2{font-size:14px;color:var(--ink);margin:0}
+.app-shell .conversation-home .home-recent-all{display:flex;align-items:center;gap:4px;width:auto;min-height:32px;font-size:12px;padding:0;border:0;background:transparent;box-shadow:none;color:var(--ink-3);font-weight:400}
+.app-shell .conversation-home .home-recent-all svg{width:14px;height:14px}
+.app-shell .conversation-home .home-recent-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.app-shell .conversation-home .home-recent-work{display:flex;flex-direction:row;align-items:center;gap:10px;padding:12px 4px;border:0;background:transparent;box-shadow:none;min-height:64px;border-radius:8px;text-align:left;white-space:normal}
+.app-shell .conversation-home .home-recent-work:hover:not(:disabled){background:var(--surface-3)}
+.app-shell .home-recent-file{display:grid;place-items:center;background:var(--surface-3);color:var(--am-700);border-radius:8px;width:33px;height:37px;flex:none}
+.app-shell .home-recent-file svg{width:18px;height:18px}
+.app-shell .home-recent-copy{display:grid;gap:4px;min-width:0;flex:1}
+.app-shell .conversation-home .home-recent-work strong{font-size:13px;color:var(--ink-2);padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.app-shell .conversation-home .home-recent-work small{font-size:11px;color:var(--ink-3);line-height:1.7}
+.app-shell .conversation-home .home-recent-work>svg{display:block;position:static;width:13px;height:13px;color:var(--am-700);flex:none}
+.app-shell .conversation-home .home-recent-empty{display:flex;align-items:center;gap:12px;padding:12px 0;font-size:12px;line-height:1.8;color:var(--ink-3)}
+.app-shell .conversation-home .home-recent-empty>svg{width:24px;height:24px;color:var(--am-400);flex:none}
+.app-shell .conversation-home .home-recent-empty p{margin:0;color:var(--ink-2);font-size:12px}
+.app-shell .conversation-home .home-recent-loading{color:var(--ink-3)}
+.app-shell .conversation-home .home-recent-loading i{height:44px;background:var(--surface-3);animation:none}
+@media(max-width:1150px){.app-shell .conversation-home{padding:20px 22px 24px}.app-shell .home-welcome h1{font-size:26px}}
+@media(max-width:850px){.app-shell .content.home-page>.alert{margin-inline:16px}.app-shell .conversation-home .home-recent-list{grid-template-columns:1fr}}
+@media(max-width:560px){
+ .app-shell .conversation-home{padding:12px 14px 20px}
+ .app-shell .home-preparation{margin-top:24px}
+ .app-shell .home-section-title>span{display:none}
+ .app-shell .home-preparation-tools{grid-template-columns:1fr;gap:10px}
+ .app-shell .home-preparation-tools>button{padding:14px}
+ .app-shell .home-welcome{margin:4px 0 18px}
+ .app-shell .home-welcome h1{font-size:23px;letter-spacing:-.5px}
+ .app-shell .home-welcome p{font-size:12px}
+ .app-shell .home-dialogue{border-radius:12px}
+ .app-shell .conversation-home .brief-messages{padding:14px 14px 0;max-height:240px}
+ .app-shell .conversation-home .has-messages .brief-messages{height:clamp(140px,calc(100dvh - 600px),300px)}
+ .app-shell .conversation-home .brief-bubble{padding:12px;font-size:13px}
+ .app-shell .conversation-home .brief-composer{padding:10px 14px 16px}
+ .app-shell .conversation-home .brief-composer textarea{min-height:112px;font-size:14px}
+ .app-shell .conversation-home .has-messages .brief-composer textarea{min-height:80px}
+ .app-shell .conversation-home .brief-summary{padding:12px 2px 0}
+ .app-shell .conversation-home .brief-parameters summary small{display:block;margin:4px 0 0}
+ .app-shell .conversation-home .brief-actions button{min-height:44px;padding:8px 12px;font-size:12px}
+ .app-shell .conversation-home .brief-row-label{width:82px}
+ .app-shell .conversation-home .brief-requirement-block :is(th,td){padding:7px 8px;font-size:12px}
+ .app-shell .conversation-home .brief-requirement-block h3{flex-wrap:wrap;padding:8px 10px}
+ .app-shell .conversation-home .home-recent-empty{flex-wrap:wrap}
+}
+
+@media(max-width:850px){
+ .app-shell:has(.conversation-home) .sidebar{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding:10px 16px}
+ .app-shell:has(.conversation-home) .sidebar-heading{height:40px;margin:0;gap:10px}
+ .app-shell:has(.conversation-home) .sidebar .brand small{display:none}
+ .app-shell:has(.conversation-home) .sidebar .tenant-select{margin:0}
+ .app-shell:has(.conversation-home) .sidebar .tenant-select select{margin:0;min-height:36px;padding-block:6px}
+ .app-shell:has(.conversation-home) .sidebar nav{display:flex;flex-wrap:nowrap;overflow-x:auto;min-width:0;gap:4px;padding-bottom:2px}
+ .app-shell:has(.conversation-home) .sidebar nav button{flex:none;min-height:40px;padding:8px}
+ .app-shell:has(.conversation-home) .sidebar .nav-caption{display:none}
+ .app-shell .conversation-home .brief-actions{align-items:flex-start;flex-direction:column}
+ .app-shell .conversation-home .brief-action-buttons{width:100%;justify-content:flex-end}
+}

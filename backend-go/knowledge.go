@@ -28,13 +28,15 @@ type Page struct {
 	Text string `json:"text"`
 }
 
+const documentUploadLimit = 100 << 20
+
 func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request, a Actor) error {
 	tx, e := s.tx(r.Context(), a.TenantID)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
+	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(d.upload_path<>'') AS original_available,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
 	if e != nil {
 		return e
 	}
@@ -51,6 +53,9 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request, a Actor)
 	if e = tx.QueryRow(r.Context(), "SELECT upload_path FROM documents WHERE id=$1", r.PathValue("id")).Scan(&path); e != nil {
 		return e
 	}
+	if e = s.deleteVectors(r.Context(), a.TenantID, r.PathValue("id")); e != nil {
+		return e
+	}
 	res, e := tx.Exec(r.Context(), "DELETE FROM documents WHERE id=$1", r.PathValue("id"))
 	if e != nil {
 		return e
@@ -62,15 +67,17 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request, a Actor)
 		return e
 	}
 	if path != "" {
-		os.Remove(path)
+		if e = s.removeStoredFile(r.Context(), path); e != nil {
+			return e
+		}
 	}
 	respond(w, 200, map[string]bool{"ok": true})
 	return nil
 }
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request, a Actor) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 21<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(1<<20))
 	if e := r.ParseMultipartForm(21 << 20); e != nil {
-		return fail(400, "文件无效或超过20MB")
+		return fail(400, "文件无效或超过100MB")
 	}
 	defer r.MultipartForm.RemoveAll()
 	f, h, e := r.FormFile("file")
@@ -88,14 +95,14 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request, a Actor)
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return e
 	}
-	data, e := io.ReadAll(io.LimitReader(f, (20<<20)+1))
+	data, e := io.ReadAll(io.LimitReader(f, documentUploadLimit+1))
 	if e != nil {
 		return e
 	}
-	if len(data) > 20<<20 {
-		return fail(413, "文件超过20MB")
+	if len(data) > documentUploadLimit {
+		return fail(413, "文件超过100MB")
 	}
-	if e = os.WriteFile(path, data, 0600); e != nil {
+	if e = s.writeStoredFile(r.Context(), path, data); e != nil {
 		return e
 	}
 	tx, e := s.tx(r.Context(), a.TenantID)
@@ -105,7 +112,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request, a Actor)
 	defer tx.Rollback(r.Context())
 	_, e = tx.Exec(r.Context(), "INSERT INTO documents(id,tenant_id,member_id,name,upload_path) VALUES($1,$2,$3,$4,$5)", id, a.TenantID, a.MemberID, name, path)
 	if e != nil {
-		os.Remove(path)
+		_ = s.removeStoredFile(r.Context(), path)
 		return e
 	}
 	if e = tx.Commit(r.Context()); e != nil {
@@ -115,18 +122,18 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request, a Actor)
 	return nil
 }
 func (s *Server) extractFile(ctx context.Context, path, name string) ([]Page, error) {
-	f, e := os.Open(path)
+	content, e := s.readStoredFile(ctx, path)
 	if e != nil {
 		return nil, e
 	}
-	defer f.Close()
+	f := bytes.NewReader(content)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	part, e := mw.CreateFormFile("file", name)
 	if e != nil {
 		return nil, e
 	}
-	if _, e = io.Copy(part, io.LimitReader(f, 20<<20)); e != nil {
+	if _, e = io.Copy(part, io.LimitReader(f, documentUploadLimit)); e != nil {
 		return nil, e
 	}
 	mw.Close()
@@ -151,6 +158,10 @@ func (s *Server) extractFile(ctx context.Context, path, name string) ([]Page, er
 }
 
 func (s *Server) saveDocument(ctx context.Context, a Actor, name, sourceURL string, pages []Page, existing ...string) (string, error) {
+	// PDF glyph separators can contain NUL; preserve word boundaries before embedding or storage.
+	for i := range pages {
+		pages[i].Text = strings.ReplaceAll(pages[i].Text, "\x00", " ")
+	}
 	// Embedding happens before the transaction; failure never leaves a partially indexed document.
 	type chunk struct{ text, location, vector string }
 	chunks := []chunk{}
@@ -203,8 +214,15 @@ func (s *Server) saveDocument(ctx context.Context, a Actor, name, sourceURL stri
 		}
 	}
 
+	if e = s.deleteVectors(ctx, a.TenantID, id); e != nil {
+		return "", e
+	}
 	for i, c := range chunks {
-		_, e = tx.Exec(ctx, "INSERT INTO chunks(id,tenant_id,document_id,seq,content,location,embedding) VALUES($1,$2,$3,$4,$5,$6,nullif($7,'')::vector)", newID(), a.TenantID, id, i, c.text, c.location, c.vector)
+		cid := newID()
+		if e = s.upsertVector(ctx, a.TenantID, id, cid, c.vector); e != nil {
+			return "", e
+		}
+		_, e = tx.Exec(ctx, "INSERT INTO chunks(id,tenant_id,document_id,seq,content,location,embedding) VALUES($1,$2,$3,$4,$5,$6,nullif($7,'')::vector)", cid, a.TenantID, id, i, c.text, c.location, c.vector)
 		if e != nil {
 			return "", e
 		}
@@ -222,6 +240,12 @@ func (s *Server) embed(ctx context.Context, a Actor, input string) (string, erro
 	if key == "" {
 		key = s.cfg.LLMKey
 	}
+	redisKey := s.cfg.RedisPrefix + "embedding:" + strconv.FormatInt(a.TenantID, 10) + ":" + provider + ":" + s.cfg.EmbeddingModel + ":" + cacheKey
+	if s.cloud.redis != nil {
+		if cached, err := s.cloud.redis.Get(ctx, redisKey).Result(); err == nil {
+			return cached, nil
+		}
+	}
 	tx, e := s.tx(ctx, a.TenantID)
 	if e != nil {
 		return "", e
@@ -230,10 +254,13 @@ func (s *Server) embed(ctx context.Context, a Actor, input string) (string, erro
 	e = tx.QueryRow(ctx, "SELECT embedding::text FROM embedding_cache WHERE provider=$1 AND model=$2 AND content_hash=$3", provider, s.cfg.EmbeddingModel, cacheKey).Scan(&cached)
 	tx.Rollback(ctx)
 	if e == nil {
+		if s.cloud.redis != nil {
+			s.cloud.redis.Set(ctx, redisKey, cached, 24*time.Hour)
+		}
 		return cached, nil
 	}
 	start := time.Now()
-	b, e := s.postBytes(ctx, strings.TrimRight(provider, "/")+"/embeddings", map[string]any{"model": s.cfg.EmbeddingModel, "input": input}, key)
+	b, e := s.postBytes(ctx, strings.TrimRight(provider, "/")+"/embeddings", map[string]any{"model": s.cfg.EmbeddingModel, "input": input, "dimensions": 1536}, key)
 	if e != nil {
 		return "", e
 	}
@@ -254,7 +281,8 @@ func (s *Server) embed(ctx context.Context, a Actor, input string) (string, erro
 		return "", e
 	}
 	defer tx.Rollback(ctx)
-	_, e = tx.Exec(ctx, "INSERT INTO embedding_cache(tenant_id,provider,model,content_hash,embedding) VALUES($1,$2,$3,$4,$5::vector) ON CONFLICT DO NOTHING", a.TenantID, provider, s.cfg.EmbeddingModel, cacheKey, result)
+	cast := "::vector"
+	_, e = tx.Exec(ctx, "INSERT INTO embedding_cache(tenant_id,provider,model,content_hash,embedding) VALUES($1,$2,$3,$4,$5"+cast+") ON CONFLICT DO NOTHING", a.TenantID, provider, s.cfg.EmbeddingModel, cacheKey, result)
 	if e != nil {
 		return "", e
 	}
@@ -264,6 +292,9 @@ func (s *Server) embed(ctx context.Context, a Actor, input string) (string, erro
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return "", e
+	}
+	if s.cloud.redis != nil {
+		s.cloud.redis.Set(ctx, redisKey, result, 24*time.Hour)
 	}
 	return result, nil
 }
@@ -432,6 +463,26 @@ func terms(q string) []string {
 	}
 	return out
 }
+func usableTeachingEvidence(body string) bool {
+	if len([]rune(strings.TrimSpace(body))) < 80 {
+		return false
+	}
+	lines, noise := 0, 0
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines++
+		for _, marker := range []string{"登录后", "立即购买", "下载地址", "点击下载", "开通会员", "扫码购买"} {
+			if strings.Contains(line, marker) {
+				noise++
+				break
+			}
+		}
+	}
+	return lines > 0 && noise*2 < lines
+}
+
 func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, focus ...string) ([]Source, error) {
 	selectionQuery := q
 	if len(focus) > 0 && strings.TrimSpace(focus[0]) != "" {
@@ -477,7 +528,17 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 			if e != nil {
 				return nil, e
 			}
-			vr, e := queryMaps(ctx, tx, "SELECT c.id,c.document_id,c.content,c.location,d.name,d.source_url FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.embedding IS NOT NULL ORDER BY c.embedding <=> $1::vector LIMIT 24", v)
+			var vr []map[string]any
+			if s.cfg.MilvusURL != "" {
+				ids, err := s.vectorIDs(ctx, a.TenantID, v)
+				if err != nil {
+					tx.Rollback(ctx)
+					return nil, err
+				}
+				vr, e = queryMaps(ctx, tx, "SELECT c.id,c.document_id,c.content,c.location,d.name,d.source_url FROM unnest($1::text[]) WITH ORDINALITY m(id,rank) JOIN chunks c ON c.id=m.id JOIN documents d ON d.id=c.document_id WHERE d.status='ready' ORDER BY m.rank", ids)
+			} else {
+				vr, e = queryMaps(ctx, tx, "SELECT c.id,c.document_id,c.content,c.location,d.name,d.source_url FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.embedding IS NOT NULL ORDER BY c.embedding <=> $1::vector LIMIT 24", v)
+			}
 			tx.Rollback(ctx)
 			if e != nil {
 				return nil, e
@@ -506,44 +567,76 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 		if len(out) > 8 {
 			out = out[:8]
 		}
+		if s.cfg.Mode == "live" {
+			out = append(coreTeachingSources(q), out...)
+		}
 	}
 	if web && s.cfg.Mode == "live" {
 		if s.cfg.SearchKey == "" {
 			return nil, fmt.Errorf("联网搜索未配置")
 		}
-		b, e := s.postBytes(ctx, s.cfg.SearchURL, map[string]any{"api_key": s.cfg.SearchKey, "query": q, "max_results": 5, "include_raw_content": true}, "")
-		if e != nil {
-			return nil, fmt.Errorf("联网检索失败，请重试或明确关闭联网")
+		queries := []string{q}
+		if len(focus) > 0 {
+			queries = append(queries, q+" 定义 公式 适用条件", q+" 典型例题 实验 常见误区")
 		}
-		var sr struct {
-			Results []struct {
-				Title, URL, Content string
-				RawContent          string `json:"raw_content"`
-			} `json:"results"`
-		}
-		if e = json.Unmarshal(b, &sr); e != nil {
-			return nil, e
-		}
-		for i, x := range sr.Results {
-			if i >= 5 {
-				break
-			}
-			body := x.RawContent
-			kind, location := "web", "网页正文"
-			var e error
-			if strings.TrimSpace(body) != "" {
-				kind, location = "web_extracted", "搜索服务提取正文"
-			} else {
-				_, body, e = fetchPage(ctx, x.URL)
-			}
+		seenURL := map[string]bool{}
+		for _, query := range queries {
+			b, e := s.postBytes(ctx, s.cfg.SearchURL, map[string]any{"api_key": s.cfg.SearchKey, "query": query, "max_results": 5, "include_raw_content": true}, "")
 			if e != nil {
-				body = x.Content
-				kind = "search_summary"
-				location = "搜索摘要（正文未抓取）"
+				if len(out) > 0 {
+					break
+				}
+				continue
 			}
-			body, selection := relevantPassages(selectionQuery, body, 1800)
-			if body != "" {
-				out = append(out, Source{Title: x.Title, URL: x.URL, Content: body, Kind: kind, Location: location, Filter: selection})
+			var sr struct {
+				Results []struct {
+					Title, URL, Content string
+					RawContent          string `json:"raw_content"`
+				} `json:"results"`
+			}
+			if e = json.Unmarshal(b, &sr); e != nil {
+				return nil, e
+			}
+			for i, x := range sr.Results {
+				if i >= 5 {
+					break
+				}
+				u, err := url.Parse(x.URL)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
+					continue
+				}
+				u.Fragment = ""
+				for _, key := range []string{"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"} {
+					values := u.Query()
+					values.Del(key)
+					u.RawQuery = values.Encode()
+				}
+				if seenURL[u.String()] {
+					continue
+				}
+				seenURL[u.String()] = true
+				body := x.RawContent
+				kind, location := "web", "网页正文"
+				var e error
+				if strings.TrimSpace(body) != "" {
+					kind, location = "web_extracted", "搜索服务提取正文"
+				} else {
+					_, body, e = fetchPage(ctx, x.URL)
+				}
+				if e != nil {
+					// Search snippets locate candidates; they cannot substantiate teaching claims.
+					continue
+				}
+				if !usableTeachingEvidence(body) {
+					continue
+				}
+				body, selection := relevantPassages(selectionQuery, body, 1800)
+				if body != "" {
+					out = append(out, Source{Title: x.Title, URL: x.URL, Content: body, Kind: kind, Location: location, Filter: selection})
+				}
+			}
+			if len(out) >= 8 {
+				break
 			}
 		}
 	}
@@ -584,18 +677,42 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 	seen := map[string]bool{}
 	unique := []Source{}
 	for _, x := range out {
-		h := sha256.Sum256([]byte(x.Content))
+		h := sha256.Sum256([]byte(strings.Join(strings.Fields(x.Content), " ")))
 		key := hex.EncodeToString(h[:])
 		if !seen[key] {
 			seen[key] = true
+			x.EvidenceKind = textbookPageKind(x.Content)
+			if x.EvidenceKind == "extracted_page" {
+				x.EvidenceKind = "extracted_text"
+			}
 			x.ID = "S" + strconv.Itoa(len(unique)+1)
 			x.Hash = key
 			x.RetrievedAt = time.Now().UTC().Format(time.RFC3339)
+			if x.Reliability == "" {
+				x.Reliability = "待核验来源"
+			}
+			if u, err := url.Parse(x.URL); err == nil {
+				host := strings.ToLower(u.Hostname())
+				if host == "pep.com.cn" || strings.HasSuffix(host, ".pep.com.cn") || strings.HasSuffix(host, ".edu.cn") || strings.HasSuffix(host, ".gov.cn") {
+					x.Reliability = "教育或公共机构候选，仍需核验具体结论"
+				}
+			}
 			unique = append(unique, x)
 		}
 	}
+	sort.SliceStable(unique, func(i, j int) bool {
+		return strings.HasPrefix(unique[i].Reliability, "教育") && !strings.HasPrefix(unique[j].Reliability, "教育")
+	})
+	if len(unique) > 12 {
+		unique = unique[:12]
+	}
+	for i := range unique {
+		unique[i].ID = "S" + strconv.Itoa(i+1)
+	}
+	groupSourceOrigins(unique)
 	return unique, nil
 }
+
 func (s *Server) retrievalTest(w http.ResponseWriter, r *http.Request, a Actor) error {
 	var in struct {
 		Query string `json:"query"`

@@ -39,7 +39,7 @@ func resetSeedPassword(ctx context.Context, databaseURL, username, password stri
 	if err = tx.QueryRow(ctx, "SELECT id FROM users WHERE username=$1 FOR UPDATE", username).Scan(&id); err != nil {
 		return errors.New("demo account not found or unavailable")
 	}
-	if _, err = tx.Exec(ctx, "UPDATE users SET password_hash=$1 WHERE id=$2", string(hash), id); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE users SET password_hash=$1,recovery_hash='' WHERE id=$2", string(hash), id); err != nil {
 		return errors.New("could not update account password")
 	}
 	if _, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id); err != nil {

@@ -15,9 +15,13 @@ import (
 type providerCallError struct {
 	Status    int
 	Temporary bool
+	Timeout   bool
 }
 
 func (e providerCallError) Error() string {
+	if e.Timeout {
+		return "模型响应超时，本次请求未能在等待时限内完成"
+	}
 	if e.Status == 0 {
 		return "服务请求失败，请检查地址或网络"
 	}
@@ -56,7 +60,7 @@ func coursewareTextFields(obj map[string]any, fields ...string) {
 }
 
 func normalizeCoursewareSlide(sl map[string]any) {
-	coursewareTextFields(sl, "title", "notes", "section", "focus", "formula")
+	coursewareTextFields(sl, "title", "notes", "section", "focus", "formula", "answer")
 	for _, field := range []string{"bullets", "emphasis"} {
 		if text, ok := sl[field].(string); ok {
 			if strings.TrimSpace(text) == "" {
@@ -71,7 +75,7 @@ func normalizeCoursewareSlide(sl map[string]any) {
 			}
 		}
 	}
-	for _, field := range []string{"table", "figure", "chart", "picture", "scene"} {
+	for _, field := range []string{"table", "figure", "graph", "scientific", "chart", "picture", "scene"} {
 		empty := sl[field] == nil
 		switch v := sl[field].(type) {
 		case string:
@@ -190,6 +194,10 @@ func coursewareSourceError(d Deck, sources []Source) error {
 			return fmt.Errorf("模型返回了不存在的来源编号")
 		}
 	}
+	if err := teachingClaimEvidenceError(d, sources); err != nil {
+		return err
+	}
+	bindTeachingEvidenceOrigins(d, sources)
 	return nil
 }
 
@@ -246,17 +254,21 @@ func (s *Server) coursewareDraft(ctx context.Context, a Actor, id string, in Tas
 }
 
 func (s *Server) planRepairEvent(ctx context.Context, a Actor, id, message string) {
+	s.coursewareEvent(ctx, a, id, "repairing", message)
+}
+
+func (s *Server) coursewareEvent(ctx context.Context, a Actor, id, stage, message string) {
 	tx, err := s.tx(ctx, a.TenantID)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback(ctx)
 	var active bool
-	err = tx.QueryRow(ctx, "SELECT charge_state='reserved' AND status IN ('researching','expanding') FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL FOR SHARE", id, a.MemberID).Scan(&active)
+	err = tx.QueryRow(ctx, "SELECT charge_state='reserved' AND status IN ('researching','expanding') AND ($3::integer IS NULL OR charge_cycle=$3) AND ($4::integer IS NULL OR attempt=$4) FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL FOR SHARE", id, a.MemberID, generationCycle(ctx), generationAttempt(ctx)).Scan(&active)
 	if err != nil || !active {
 		return
 	}
-	if err = event(ctx, tx, a.TenantID, id, "repairing", message); err == nil {
+	if err = event(ctx, tx, a.TenantID, id, stage, message); err == nil {
 		tx.Commit(ctx)
 	}
 }

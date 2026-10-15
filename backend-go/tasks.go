@@ -3,77 +3,108 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type TaskInput struct {
-	PreviewFirst    bool   `json:"preview_first,omitempty"`
-	AnimationEngine string `json:"animation_engine,omitempty"`
-	SourceTaskID    string `json:"source_task_id,omitempty"`
-	ParentID        string `json:"parent_id,omitempty"`
-	ParentRevision  int    `json:"parent_revision,omitempty"`
-	SlideIndex      int    `json:"slide_index,omitempty"`
-	Instruction     string `json:"instruction,omitempty"`
-	Type            string `json:"type"`
-	Topic           string `json:"topic"`
-	Subject         string `json:"subject"`
-	Grade           string `json:"grade"`
-	Textbook        string `json:"textbook"`
-	Objectives      string `json:"objectives"`
-	Pages           int    `json:"pages"`
-	Theme           string `json:"theme"`
-	UseKB           bool   `json:"use_kb"`
-	UseWeb          bool   `json:"use_web"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	MaterialSnapshot *TextbookSnapshot `json:"material_snapshot,omitempty"`
+	Chapter          string            `json:"chapter,omitempty"`
+	MaterialID       string            `json:"material_id,omitempty"`
+	MaterialStart    int               `json:"material_start,omitempty"`
+	MaterialEnd      int               `json:"material_end,omitempty"`
+	Curriculum       []Page            `json:"curriculum,omitempty"`
+	ReferenceID      string            `json:"reference_id,omitempty"`
+	Reference        *ReferenceProfile `json:"reference,omitempty"`
+	Detail           string            `json:"detail,omitempty"`
+	LessonMinutes    int               `json:"lesson_minutes,omitempty"`
+	StudentLevel     string            `json:"student_level,omitempty"`
+	ReferenceMode    string            `json:"reference_mode,omitempty"`
+	Requirements     string            `json:"requirements,omitempty"`
+	PreviewFirst     bool              `json:"preview_first,omitempty"`
+	AnimationEngine  string            `json:"animation_engine,omitempty"`
+	SourceTaskID     string            `json:"source_task_id,omitempty"`
+	ParentID         string            `json:"parent_id,omitempty"`
+	ParentRevision   int               `json:"parent_revision,omitempty"`
+	SlideIndex       int               `json:"slide_index,omitempty"`
+	Instruction      string            `json:"instruction,omitempty"`
+	Type             string            `json:"type"`
+	Topic            string            `json:"topic"`
+	Subject          string            `json:"subject"`
+	Grade            string            `json:"grade"`
+	Textbook         string            `json:"textbook"`
+	Objectives       string            `json:"objectives"`
+	Pages            int               `json:"pages"`
+	Theme            string            `json:"theme"`
+	UseKB            bool              `json:"use_kb"`
+	UseWeb           bool              `json:"use_web"`
+	IdempotencyKey   string            `json:"idempotency_key"`
 }
 type Slide struct {
-	ID       string           `json:"id,omitempty"`
-	Picture  *TeachingPicture `json:"picture,omitempty"`
-	Emphasis []string         `json:"emphasis,omitempty"`
-	Focus    string           `json:"focus,omitempty"`
-	Table    *TeachingTable   `json:"table,omitempty"`
-	Figure   *TeachingFigure  `json:"figure,omitempty"`
-	Scene    *AnimationScene  `json:"scene,omitempty"`
-	Layout   string           `json:"layout,omitempty"`
-	Section  string           `json:"section,omitempty"`
-	Title    string           `json:"title"`
-	Bullets  []string         `json:"bullets"`
-	Notes    string           `json:"notes"`
-	Formula  string           `json:"formula,omitempty"`
-	Diagram  string           `json:"diagram,omitempty"`
-	Chart    any              `json:"chart,omitempty"`
+	CanvasObjects   []CanvasObject          `json:"canvas_objects,omitempty"`
+	CanvasOrder     []string                `json:"canvas_order,omitempty"`
+	CanvasPositions map[string]CanvasOffset `json:"canvas_positions,omitempty"`
+	Evidence        []TeachingClaimEvidence `json:"evidence,omitempty"`
+	Answer          string                  `json:"answer,omitempty"`
+	Scientific      *ScientificDiagram      `json:"scientific,omitempty"`
+	Order           int                     `json:"order,omitempty"`
+	Graph           *FunctionGraph          `json:"graph,omitempty"`
+	ID              string                  `json:"id,omitempty"`
+	Picture         *TeachingPicture        `json:"picture,omitempty"`
+	Emphasis        []string                `json:"emphasis,omitempty"`
+	Focus           string                  `json:"focus,omitempty"`
+	Table           *TeachingTable          `json:"table,omitempty"`
+	Figure          *TeachingFigure         `json:"figure,omitempty"`
+	Scene           *AnimationScene         `json:"scene,omitempty"`
+	Layout          string                  `json:"layout,omitempty"`
+	Section         string                  `json:"section,omitempty"`
+	Title           string                  `json:"title"`
+	Bullets         []string                `json:"bullets"`
+	Notes           string                  `json:"notes"`
+	Formula         string                  `json:"formula,omitempty"`
+	Diagram         string                  `json:"diagram,omitempty"`
+	Chart           any                     `json:"chart,omitempty"`
 }
 type Deck struct {
-	AnimationQuality *AnimationQuality `json:"animation_quality,omitempty"`
-	Title            string            `json:"title"`
-	Theme            string            `json:"theme"`
-	Lesson           string            `json:"lesson"`
-	Slides           []Slide           `json:"slides"`
-	NeedsReview      bool              `json:"needs_review"`
-	Notice           string            `json:"notice"`
-	Evaluation       any               `json:"evaluation,omitempty"`
-	Script           string            `json:"script,omitempty"`
+	EditableFormulas bool                        `json:"editable_formulas,omitempty"`
+	Plan             *TeachingPlan               `json:"plan,omitempty"`
+	PageChecks       map[string]PageQualityCheck `json:"page_checks,omitempty"`
+	Generation       *CoursewareCheckpoint       `json:"generation,omitempty"`
+	AnimationQuality *AnimationQuality           `json:"animation_quality,omitempty"`
+	Title            string                      `json:"title"`
+	Theme            string                      `json:"theme"`
+	Lesson           string                      `json:"lesson"`
+	Slides           []Slide                     `json:"slides"`
+	NeedsReview      bool                        `json:"needs_review"`
+	Notice           string                      `json:"notice"`
+	Evaluation       any                         `json:"evaluation,omitempty"`
+	Script           string                      `json:"script,omitempty"`
 }
 type Source struct {
-	Filter      *PassageFilter `json:"filter,omitempty"`
-	Hash        string         `json:"hash"`
-	RetrievedAt string         `json:"retrieved_at"`
-	ID          string         `json:"id"`
-	DocumentID  string         `json:"document_id"`
-	Title       string         `json:"title"`
-	Content     string         `json:"content"`
-	Location    string         `json:"location"`
-	URL         string         `json:"url,omitempty"`
-	Kind        string         `json:"kind"`
-	Score       float64        `json:"score"`
+	Textbook      *TextbookSnapshot `json:"textbook,omitempty"`
+	FilePage      int               `json:"file_page,omitempty"`
+	EvidenceKind  string            `json:"evidence_kind,omitempty"`
+	Origin        string            `json:"origin,omitempty"`
+	EvidenceGroup string            `json:"evidence_group,omitempty"`
+	Reliability   string            `json:"reliability,omitempty"`
+	Filter        *PassageFilter    `json:"filter,omitempty"`
+	Hash          string            `json:"hash"`
+	RetrievedAt   string            `json:"retrieved_at"`
+	ID            string            `json:"id"`
+	DocumentID    string            `json:"document_id"`
+	Title         string            `json:"title"`
+	Content       string            `json:"content"`
+	Location      string            `json:"location"`
+	URL           string            `json:"url,omitempty"`
+	Kind          string            `json:"kind"`
+	Score         float64           `json:"score"`
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) error {
@@ -82,6 +113,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 		return e
 	}
 	in.Topic = strings.TrimSpace(in.Topic)
+	if len([]rune(in.Requirements)) > 8000 {
+		return fail(400, "需求摘要不能超过8000字")
+	}
 	if in.Type != "courseware" && in.Type != "animation" {
 		return fail(400, "仅支持课件和教学动画")
 	}
@@ -94,13 +128,44 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	if !allowed(a, perm) {
 		return fail(403, "没有生成权限")
 	}
+	if in.Type == "animation" {
+		return animationUnavailable()
+	}
 	if in.Topic == "" || len([]rune(in.Topic)) > 100 || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 128 {
 		return fail(400, "请填写课题并提供有效幂等键")
 	}
 	if !in.UseKB && !in.UseWeb {
 		return fail(400, "至少选择一种资料来源")
 	}
+	if err := s.resolveTeachingMaterials(r.Context(), a, &in); err != nil {
+		return err
+	}
 	maxPages := 20
+	if in.Type == "courseware" && in.Detail != "" {
+		if in.Detail != "concise" && in.Detail != "default" && in.Detail != "detailed" {
+			return fail(400, "请选择精简、默认或详细")
+		}
+		if in.Subject != "数学" && in.Subject != "物理" {
+			return fail(400, "当前支持数学与物理课件")
+		}
+		in.Pages = map[string]int{"concise": 10, "default": 15, "detailed": 22}[in.Detail]
+		maxPages = 100
+		if in.LessonMinutes == 0 {
+			in.LessonMinutes = 45
+		}
+		if in.LessonMinutes < 10 || in.LessonMinutes > 180 {
+			return fail(400, "课时请填写10至180分钟")
+		}
+		if len([]rune(in.StudentLevel)) > 400 {
+			return fail(400, "学生基础描述过长")
+		}
+		if in.ReferenceMode == "" {
+			in.ReferenceMode = "content"
+		}
+		if in.ReferenceMode != "content" && in.ReferenceMode != "style" && in.ReferenceMode != "sequence" {
+			return fail(400, "参考方式无效")
+		}
+	}
 	if in.Type == "animation" {
 		maxPages = 12
 	}
@@ -126,6 +191,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	}
 	if s.cfg.Mode == "live" && !s.agentConfigured(in.Type) {
 		return fail(503, "当前制作智能体模型未配置，请设置对应COURSEWARE_LLM或ANIMATION_LLM配置，或默认LLM配置")
+	}
+	if in.Type == "courseware" && in.Detail != "" && s.cfg.Mode == "live" && !s.coursewareQualityConfigured() {
+		return fail(503, "内容与画面审核尚未准备好，请联系管理员完成配置。需求保留，本次未创建作品或预留积分。")
 	}
 	if in.UseWeb && in.SourceTaskID == "" && s.cfg.Mode == "live" && s.cfg.SearchKey == "" {
 		return fail(503, "联网搜索服务未配置；可明确关闭联网后仅使用知识库")
@@ -222,18 +290,24 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, a Actor) erro
 	defer tx.Rollback(r.Context())
 	// Keep the unqualified task feed compatible. Collection views hide superseded
 	// retries even if the child was deleted, so deleting it cannot resurrect a card.
-	v, e := queryMaps(r.Context(), tx, `SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,error,cost,mode,revision,created_at,updated_at
+	if e = s.limitInterrupted(r.Context(), tx, a.MemberID); e != nil {
+		return e
+	}
+	v, e := queryMaps(r.Context(), tx, `SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,error,cost,mode,revision,created_at,updated_at,restored_at,capacity_hold
 		FROM tasks t WHERE member_id=$1 AND deleted_at IS NULL
 		AND ($2='' OR type=$2) AND ($3='' OR status=$3)
 		AND ($4='' OR strpos(lower(concat_ws(' ',display_title,input->>'topic',input->>'subject',input->>'grade',result->>'title')),lower($4))>0)
-		AND ($7<>'works' OR status NOT IN ('failed','cancelled'))
-		AND ($7<>'interrupted' OR status IN ('failed','cancelled'))
-		AND ($7 NOT IN ('works','interrupted') OR NOT (t.type='courseware' AND t.status='failed' AND EXISTS (
+		AND ($7<>'works' OR status NOT IN ('failed','cancelled') OR restored_at IS NOT NULL OR capacity_hold)
+		AND ($7<>'interrupted' OR (status IN ('failed','cancelled') AND restored_at IS NULL AND NOT capacity_hold))
+		AND ($7 NOT IN ('works','interrupted') OR NOT (t.type='courseware' AND t.status IN ('failed','cancelled') AND EXISTS (
 			SELECT 1 FROM tasks child WHERE child.tenant_id=t.tenant_id AND child.member_id=t.member_id
 			AND child.type='courseware' AND child.idempotency_key='retry-'||t.id
 		)))
 		ORDER BY created_at DESC,id DESC LIMIT $5 OFFSET $6`, a.MemberID, q.Get("type"), q.Get("status"), strings.TrimSpace(q.Get("q")), limit, offset, view)
 	if e != nil {
+		return e
+	}
+	if e = tx.Commit(r.Context()); e != nil {
 		return e
 	}
 	respond(w, 200, v)
@@ -245,7 +319,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, a Actor) error 
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	v, e := queryMaps(r.Context(), tx, "SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,result,sources,error,mode,cost,charge_state,revision,created_at,updated_at FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID)
+	v, e := queryMaps(r.Context(), tx, "SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,result,sources,error,mode,cost,charge_state,revision,created_at,updated_at,restored_at FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID)
 	if e != nil {
 		return e
 	}
@@ -257,6 +331,14 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, a Actor) error 
 		return e
 	}
 	v[0]["events"] = ev
+	if v[0]["status"] == "failed" {
+		v[0]["error"] = "制作暂未完成，已有页面已保存，预留已释放。可以稍后继续制作，完成页不会重新生成。"
+		for _, row := range ev {
+			if row["stage"] == "failed" {
+				row["message"] = v[0]["error"]
+			}
+		}
+	}
 	if v[0]["type"] == "courseware" {
 		var d Deck
 		if err := json.Unmarshal(asJSON(v[0]["result"]), &d); err == nil {
@@ -270,8 +352,18 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, a Actor) error 
 			if err := tx.QueryRow(r.Context(), "SELECT pptx_path FROM tasks WHERE id=$1", r.PathValue("id")).Scan(&pptxPath); err != nil {
 				return err
 			}
-			_, err = os.Stat(filepath.Join(pptxPath+".slides", "slide-1.png"))
-			v[0]["preview_images_available"] = pptxPath != "" && err == nil
+			pages, err := s.coursewarePreviewPages(r.Context(), tx, r.PathValue("id"), d, pptxPath)
+			if err != nil {
+				return err
+			}
+			ids := []string{}
+			for _, sl := range d.Slides {
+				if pages[sl.ID] != "" {
+					ids = append(ids, sl.ID)
+				}
+			}
+			v[0]["preview_images_available"] = len(ids) > 0
+			v[0]["preview_slide_ids"] = ids
 		}
 	}
 	respond(w, 200, v[0])
@@ -333,8 +425,11 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	if active {
 		return fail(409, "关联的改写或动画任务仍在进行，请先取消后再删除")
 	}
+	if e = coursewareChatIdle(r.Context(), tx, id, ""); e != nil {
+		return e
+	}
 	// Revisions contain copies of the original deck; hide these too, retaining all accounting rows.
-	_, e = tx.Exec(r.Context(), "UPDATE tasks SET deleted_at=now(),updated_at=now() WHERE member_id=$1 AND deleted_at IS NULL AND (id=$2 OR (type='revision' AND input->>'parent_id'=$2))", a.MemberID, id)
+	deleted, e := tx.Exec(r.Context(), "UPDATE tasks SET deleted_at=now(),cleanup_pending=true,updated_at=now() WHERE member_id=$1 AND deleted_at IS NULL AND (id=$2 OR (type='revision' AND input->>'parent_id'=$2))", a.MemberID, id)
 	if e != nil {
 		return e
 	}
@@ -345,7 +440,10 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	if e = tx.Commit(r.Context()); e != nil {
 		return e
 	}
-	respond(w, 200, map[string]bool{"ok": true})
+	cleanupCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
+	defer stop()
+	cleaned, cleanupErr := s.cleanupDeletedTask(cleanupCtx, a.TenantID, id)
+	respond(w, 200, map[string]bool{"ok": true, "cleanup_pending": cleanupErr != nil || !cleaned || deleted.RowsAffected() > 1})
 	return nil
 }
 
@@ -358,6 +456,12 @@ func validTheme(theme string) bool {
 }
 
 func validateDeck(d Deck) error {
+	if d.Plan != nil {
+		if err := validateTeachingPlan(*d.Plan); err != nil {
+			return err
+		}
+		return validateDeckMinimum(d, 3)
+	}
 	return validateDeckMinimum(d, 8)
 }
 func validateDeckMinimum(d Deck, minimum int) error {
@@ -369,6 +473,12 @@ func validateDeckMinimum(d Deck, minimum int) error {
 	}
 	imageSize := 0
 	for _, sl := range d.Slides {
+		if err := validateCanvasPositions(sl); err != nil {
+			return err
+		}
+		for _, obj := range sl.CanvasObjects {
+			imageSize += len(obj.DataURL)
+		}
 		if sl.Picture != nil {
 			imageSize += len(sl.Picture.DataURL)
 		}
@@ -427,18 +537,27 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if !allowed(a, permission) {
 		return fail(403, "没有当前制作权限")
 	}
+	if kind == "animation" {
+		return animationUnavailable()
+	}
 	if kind == "courseware" {
 		in.Result.Notice = old.Notice
+		preserveCoursewareChecks(&in.Result, old)
 		in.Result = arrangeCourseware(in.Result)
 	}
 	if e := validateDeck(in.Result); e != nil {
 		return e
 	}
+	if kind == "courseware" {
+		if err := coursewareSourceError(in.Result, sources); err != nil {
+			return fail(400, err.Error())
+		}
+	}
 	if kind == "courseware" && original.PreviewFirst {
 		if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 			return err
 		}
-		if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
+		if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
 			return err
 		}
 	}
@@ -460,6 +579,7 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	}
 	in.Result.Evaluation = nil
 	in.Result.Script = ""
+	in.Result.Generation = nil
 	in.Result.AnimationQuality = nil
 	if kind == "animation" {
 		seconds, _ := strconv.ParseFloat(s.cfg.VideoDuration, 64)
@@ -471,7 +591,7 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 		return err
 	}
 	if kind == "courseware" && original.PreviewFirst {
-		if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
+		if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), in.Result); err != nil {
 			return err
 		}
 	}
@@ -546,8 +666,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request, a Actor) error
 		return fail(404, "文件尚未生成")
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=lesson."+format)
-	http.ServeFile(w, r, path)
-	return nil
+	return s.serveStoredFile(w, r, path)
 }
 func (s *Server) events(w http.ResponseWriter, r *http.Request, a Actor) error {
 	tx, e := s.tx(r.Context(), a.TenantID)
@@ -630,23 +749,45 @@ func (s *Server) workOne(ctx context.Context) error {
 	tenants := []int64{}
 	for rows.Next() {
 		var id int64
-		rows.Scan(&id)
+		if e = rows.Scan(&id); e != nil {
+			rows.Close()
+			return e
+		}
 		tenants = append(tenants, id)
 	}
 	rows.Close()
+	if e = rows.Err(); e != nil {
+		return e
+	}
 	for _, tid := range tenants {
 		tx, e := s.tx(ctx, tid)
 		if e != nil {
 			return e
 		}
-		expired, e := queryMaps(ctx, tx, "SELECT id FROM tasks WHERE deleted_at IS NULL AND charge_state='reserved' AND ((status IN ('researching','rendering','expanding') AND lease_until<now()) OR (status IN ('awaiting_preview','awaiting_confirmation','awaiting_acceptance') AND updated_at<now()-interval '1 day'))")
+		expired, e := queryMaps(ctx, tx, "SELECT id,member_id,status,type,input,mode,charge_cycle,attempt FROM tasks WHERE deleted_at IS NULL AND charge_state='reserved' AND ((status IN ('researching','rendering','expanding') AND lease_until<now()) OR (status IN ('awaiting_preview','awaiting_confirmation','awaiting_acceptance') AND updated_at<now()-interval '1 day'))")
 		if e != nil {
 			tx.Rollback(ctx)
 			return e
 		}
 		tx.Rollback(ctx)
 		for _, v := range expired {
-			s.finish(ctx, tid, v["id"].(string), "failed", "执行或确认等待超时，积分已释放", "", nil)
+			recoveryCtx := context.WithValue(ctx, generationCycleKey{}, int(v["charge_cycle"].(int32)))
+			recoveryCtx = context.WithValue(recoveryCtx, generationAttemptKey{}, int(v["attempt"].(int32)))
+			var input TaskInput
+			// Unreadable input cannot be resumed safely; it falls through to release.
+			inputErr := json.Unmarshal(asJSON(v["input"]), &input)
+			if inputErr == nil && v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
+				resumed, recoveryErr := s.resumeCoursewareAutomatically(recoveryCtx, Actor{TenantID: tid, MemberID: v["member_id"].(int64)}, v["id"].(string), v["status"].(string), input, context.DeadlineExceeded)
+				if recoveryErr != nil {
+					return recoveryErr
+				}
+				if resumed {
+					continue
+				}
+			}
+			if e = s.finish(recoveryCtx, tid, v["id"].(string), "failed", "执行或确认等待超时，积分已释放", "", nil); e != nil {
+				return e
+			}
 		}
 		tx, e = s.tx(ctx, tid)
 		if e != nil {
@@ -656,7 +797,8 @@ func (s *Server) workOne(ctx context.Context) error {
 		var member int64
 		var in TaskInput
 		var result Deck
-		e = tx.QueryRow(ctx, "SELECT id,status,type,member_id,input,result,mode FROM tasks WHERE deleted_at IS NULL AND status IN ('pending','confirmed','expand_pending') ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1").Scan(&id, &status, &kind, &member, &in, &result, &mode)
+		var cycle, attempt int
+		e = tx.QueryRow(ctx, "SELECT id,status,type,member_id,input,result,mode,charge_cycle,attempt FROM tasks WHERE deleted_at IS NULL AND charge_state='reserved' AND status IN ('pending','confirmed','expand_pending') AND (next_attempt_at IS NULL OR next_attempt_at<=now()) ORDER BY COALESCE(next_attempt_at,created_at) FOR UPDATE SKIP LOCKED LIMIT 1").Scan(&id, &status, &kind, &member, &in, &result, &mode, &cycle, &attempt)
 		if e == pgx.ErrNoRows {
 			tx.Rollback(ctx)
 			continue
@@ -673,10 +815,16 @@ func (s *Server) workOne(ctx context.Context) error {
 			stage = "expanding"
 		}
 		workLimit := 9 * time.Minute
+		if kind == "courseware" && in.PreviewFirst && stage == "researching" {
+			workLimit = 15 * time.Minute
+		}
+		if kind == "courseware" && in.PreviewFirst && stage == "expanding" {
+			workLimit = coursewareExpansionLimit(in.Pages)
+		}
 		if stage == "rendering" && kind == "animation" && in.AnimationEngine == "ark" {
 			workLimit = s.videoWaitLimit() + 2*time.Minute
 		}
-		_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,lease_until=now()+$3*interval '1 second',attempt=attempt+1,updated_at=now() WHERE id=$2", stage, id, int((workLimit + time.Minute).Seconds()))
+		_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,next_attempt_at=NULL,lease_until=now()+$3*interval '1 second',attempt=attempt+1,updated_at=now() WHERE id=$2", stage, id, int((workLimit + time.Minute).Seconds()))
 		if e == nil {
 			e = event(ctx, tx, tid, id, stage, map[string]string{"researching": "正在检索和组织教学方案", "rendering": "正在生成真实文件", "expanding": "前三页已确认，正在生成剩余课件，保留已审核内容"}[stage])
 		}
@@ -687,18 +835,36 @@ func (s *Server) workOne(ctx context.Context) error {
 		if e = tx.Commit(ctx); e != nil {
 			return e
 		}
+		defer s.queueDeletedCleanup(tid, id, true, cycle)
 		workCtx, cancel := context.WithTimeout(ctx, workLimit)
+		workCtx = withCoursewareArtifacts(workCtx)
+		workCtx = context.WithValue(workCtx, generationCycleKey{}, cycle)
+		workCtx = context.WithValue(workCtx, generationAttemptKey{}, attempt+1)
 		a := Actor{MemberID: member, TenantID: tid}
 		if mode != s.cfg.Mode {
 			e = fmt.Errorf("运行模式已切换，请在当前模式重新提交任务")
 		} else {
 			e = s.processTask(workCtx, a, id, kind, stage, in, result)
 		}
+		if errors.Is(workCtx.Err(), context.DeadlineExceeded) {
+			e = fmt.Errorf("制作达到本阶段等待时限，已保存进度：%w", context.DeadlineExceeded)
+		}
 		cancel()
 		if e != nil {
 			finishCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
-			s.finish(finishCtx, tid, id, "failed", e.Error(), "", nil)
+			finishCtx = context.WithValue(finishCtx, generationCycleKey{}, cycle)
+			finishCtx = context.WithValue(finishCtx, generationAttemptKey{}, attempt+1)
+			resumed, recoveryErr := false, error(nil)
+			if kind == "courseware" && mode == s.cfg.Mode {
+				resumed, recoveryErr = s.resumeCoursewareAutomatically(finishCtx, a, id, stage, in, e)
+			}
+			if recoveryErr == nil && !resumed {
+				recoveryErr = s.finish(finishCtx, tid, id, "failed", e.Error(), "", nil)
+			}
 			c()
+			if recoveryErr != nil {
+				return recoveryErr
+			}
 		}
 		return nil
 	}
@@ -719,14 +885,69 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 
 func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 	for _, sl := range d.Slides {
-		if d.Theme == "classroom" || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Focus != "" || len(sl.Emphasis) > 0 {
-			if err := s.requireTeachingMediaRenderer(ctx); err != nil {
+		if len(sl.CanvasPositions) > 0 || len(sl.CanvasObjects) > 0 || len(sl.CanvasOrder) > 0 {
+			// A hung health probe must not consume the render deadline.
+			healthCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			req, err := http.NewRequestWithContext(healthCtx, "GET", s.cfg.RenderURL+"/health", nil)
+			if err != nil {
+				cancel()
 				return nil, err
+			}
+			res, err := s.http.Do(req)
+			if err != nil {
+				cancel()
+				return nil, fail(503, "对象排版服务暂不可用，当前修改保留")
+			}
+			var health map[string]any
+			err = json.NewDecoder(res.Body).Decode(&health)
+			res.Body.Close()
+			cancel()
+			if res.StatusCode != http.StatusOK || err != nil || health["courseware_canvas_version"] != "canvas-v3" {
+				return nil, fail(503, "对象排版服务尚未更新，当前修改保留")
 			}
 			break
 		}
 	}
-	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", d, "")
+	needsScience := false
+	for _, sl := range d.Slides {
+		needsScience = needsScience || sl.Scientific != nil
+		if sl.Graph != nil {
+			for _, series := range sl.Graph.Series {
+				needsScience = needsScience || series.Kind != "" && series.Kind != "linear"
+			}
+		}
+	}
+	if needsScience {
+		c, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(c, "GET", s.cfg.RenderURL+"/health", nil)
+		if err != nil {
+			return nil, err
+		}
+		res, err := s.http.Do(req)
+		if err != nil {
+			return nil, fail(503, "专业图示排版服务暂不可用")
+		}
+		var health map[string]any
+		err = json.NewDecoder(res.Body).Decode(&health)
+		res.Body.Close()
+		if err != nil || health["scientific_diagrams_version"] != "science-v1" {
+			return nil, fail(503, "专业图示排版服务尚未更新，数据已保留")
+		}
+	}
+	needsMedia, needsGraph, needsPlot := d.Theme == "classroom", false, false
+	for _, sl := range d.Slides {
+		needsGraph = needsGraph || sl.Graph != nil
+		needsPlot = needsPlot || usesMatplotlib(sl)
+		needsMedia = needsMedia || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Focus != "" || len(sl.Emphasis) > 0
+	}
+	if needsMedia || needsGraph || needsPlot {
+		if err := s.requireTeachingMediaRenderer(ctx, needsGraph, needsPlot); err != nil {
+			return nil, err
+		}
+	}
+	export := coursewareEvidenceForExport(d)
+	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", &export, "")
 }
 
 func (s *Server) checkWorkPermission(ctx context.Context, a Actor, kind string) error {

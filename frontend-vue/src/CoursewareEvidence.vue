@@ -1,6 +1,10 @@
 <script setup>
 import {ref,computed,onUnmounted} from 'vue'
 import EmphasisText from './EmphasisText.vue'
+import ScientificDiagram from './ScientificDiagram.vue'
+import FunctionPlot from './FunctionPlot.vue'
+import TeachingChart from './TeachingChart.vue'
+import {showGraphCoordinates} from './classroom.js'
 const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean})
 const imageError=ref(''),uploading=ref(false)
 let uploadVersion=0
@@ -24,7 +28,7 @@ async function uploadPicture(event){
   }
   if(data.length>170000)throw Error('图片压缩后仍过大，请裁去无关区域再上传。')
   if(version!==uploadVersion||target!==props.slide||!props.editable)return
-  if(target.chart||target.diagram||(target.table&&target.figure))throw Error('此页图形过多，请先移除图表、示意图，或表格/流程图中的一个。')
+  if(target.scientific||target.graph||target.chart||target.diagram||(target.table&&target.figure))throw Error('此页图形过多，请先移除坐标图、图表、示意图，或表格/流程图中的一个。')
   target.picture={data_url:data,caption:target.picture?.caption||'',source:target.picture?.source||''}
  }catch(e){if(version===uploadVersion)imageError.value=e.message||'图片无法读取，请重新选择。'}
  finally{bitmap?.close();if(version===uploadVersion)uploading.value=false}
@@ -52,7 +56,7 @@ function changeNodes(add){
 </script>
 
 <template>
- <div v-if="preview" class="evidence-preview">
+ <div v-if="preview" class="evidence-preview"><FunctionPlot v-if="slide.graph" :graph="slide.graph" :show-coordinates="showGraphCoordinates(slide)"/><ScientificDiagram :slide="slide" preview/><TeachingChart v-if="slide.chart||slide.diagram" :chart="slide.chart" :diagram="slide.diagram"/>
   <div :class="['evidence-pair',{'has-both':slide.table&&slide.figure||slide.picture&&(slide.table||slide.figure)}]">
    <div v-if="slide.table" class="evidence-table"><h3 v-if="slide.table.title">{{slide.table.title}}</h3><table><thead><tr><th v-for="(h,i) in slide.table.headers" :key="i" scope="col"><EmphasisText :text="h" :terms="slide.emphasis||[]"/></th></tr></thead><tbody><tr v-for="(row,i) in slide.table.rows" :key="i"><td v-for="(value,j) in row" :key="j"><EmphasisText :text="value" :terms="slide.emphasis||[]"/></td></tr></tbody></table></div>
    <div v-if="slide.figure" class="evidence-figure">
@@ -84,12 +88,25 @@ function changeNodes(add){
   <p v-if="slide.focus" class="evidence-focus"><EmphasisText :text="slide.focus" :terms="slide.emphasis||[]"/></p>
  </div>
  <details v-else class="courseware-evidence-editor">
-  <summary>配图、课堂图解、表格与重点标色</summary>
+  <summary>专业图示、配图、课堂图解与表格</summary><ScientificDiagram :slide="slide" :editable="editable"/>
+  <section v-if="slide.graph" class="evidence-edit-section">
+   <label>函数绘图方式<select :value="slide.graph.renderer||'native'" @change="slide.graph.renderer=$event.target.value" :disabled="!editable" aria-label="函数绘图方式"><option value="native">PPT可编辑线条</option><option value="matplotlib">高清函数图 · 网页参数可修改</option></select></label>
+   <p v-if="slide.graph.renderer==='matplotlib'" class="fine">修改函数参数并保存后重新绘制。PPT中呈现为图片。</p>
+   <label>坐标图标题<input v-model="slide.graph.title" :readonly="!editable" maxlength="60"></label>
+   <div class="evidence-grid" style="--columns:2"><label v-for="(label,key) in {x_min:'x 最小值',x_max:'x 最大值',y_min:'y 最小值',y_max:'y 最大值'}" :key="key">{{label}}<input type="number" step="any" v-model.number="slide.graph[key]" :readonly="!editable"></label></div>
+   <div v-for="(series,i) in slide.graph.series" :key="i" class="evidence-edit-section">
+    <label>函数类型<select :value="series.kind||'linear'" @change="series.kind=$event.target.value;series.a??=1;series.c??=0" :disabled="!editable"><option value="linear">一次/常函数 y=kx+b</option><option value="quadratic">二次函数 y=ax²+bx+c</option><option value="inverse">反比例 y=k/x</option></select></label><div v-if="series.kind==='quadratic'" class="evidence-grid" style="--columns:2"><label>a<input type="number" step="any" v-model.number="series.a" :readonly="!editable"></label><label>c<input type="number" step="any" v-model.number="series.c" :readonly="!editable"></label></div>
+    <div class="evidence-grid" style="--columns:2"><label v-if="series.kind!=='quadratic'">k<input type="number" step="any" v-model.number="series.k" :readonly="!editable"></label><label v-if="series.kind!=='inverse'">b<input type="number" step="any" v-model.number="series.b" :readonly="!editable"></label></div>
+    <label v-for="(_,j) in series.mark_x||[]" :key="j">{{'标记点 '+(j+1)+' 的 x'}}<input type="number" step="any" v-model.number="series.mark_x[j]" :readonly="!editable"></label>
+    <div v-if="editable" class="evidence-actions"><button type="button" :disabled="(series.mark_x||[]).length>=2" @click="(series.mark_x||=[]).push(0)">添加标记点</button><button type="button" :disabled="!series.mark_x?.length" @click="series.mark_x.pop()">删除末点</button><button type="button" :disabled="slide.graph.series.length<=1" @click="slide.graph.series.splice(i,1)">移除此函数</button></div>
+   </div>
+   <div v-if="editable" class="evidence-actions"><button type="button" :disabled="slide.graph.series.length>=4" @click="slide.graph.series.push({kind:'linear',k:1,b:0,a:1,c:0,mark_x:[]})">添加函数</button><button type="button" @click="slide.graph=null">移除坐标图</button></div>
+  </section>
   <label>核心问题或结论<input v-model="slide.focus" :readonly="!editable" maxlength="60" placeholder="练习页写提示，不提前透露答案"></label>
   <label>重点词（每行一个，最多6个，每词20字）<textarea :value="(slide.emphasis||[]).join('\n')" @input="slide.emphasis=$event.target.value.split('\n').map(x=>x.trim()).filter(Boolean)" :readonly="!editable" rows="2" placeholder="填写正文或表格中已有的关键词、数值"></textarea></label>
-  <div class="evidence-actions" v-if="editable"><button type="button" v-if="!slide.table" :disabled="!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.figure" @click="addTable(slide)">＋ 教学表格</button><button type="button" v-if="!slide.figure" :disabled="!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.table" @click="addFigure(slide)">＋ 流程/时间线/路线</button></div>
+  <div class="evidence-actions" v-if="editable"><button type="button" v-if="!slide.table" :disabled="!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.figure" @click="addTable(slide)">＋ 教学表格</button><button type="button" v-if="!slide.figure" :disabled="!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.table" @click="addFigure(slide)">＋ 流程/时间线/路线</button><button type="button" v-if="!slide.scientific&&!slide.graph&&!slide.table&&!slide.figure&&!slide.picture&&!slide.chart&&!slide.diagram" @click="slide.graph={title:'函数图像',x_min:-3,x_max:3,y_min:-3,y_max:3,series:[{kind:'linear',k:1,b:0,a:1,c:0,mark_x:[]}]}">＋ 函数坐标图</button></div>
   <section class="evidence-edit-section">
-   <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg" :disabled="uploading||!!slide.chart||!!slide.diagram||!!slide.table&&!!slide.figure" @change="uploadPicture"></label>
+   <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg" :disabled="uploading||!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.table&&!!slide.figure" @change="uploadPicture"></label>
    <p v-if="imageError" role="alert" class="image-error">{{imageError}}</p>
    <template v-if="slide.picture"><img class="image-thumbnail" v-if="/^data:image\/(png|jpeg);base64,/.test(slide.picture.data_url)" :src="slide.picture.data_url" :alt="slide.picture.caption||'上传的配图'"><label>图片说明（必填）<input v-model="slide.picture.caption" :readonly="!editable" maxlength="60" placeholder="说明图片与知识点的关系"></label><label>图片出处（必填）<input v-model="slide.picture.source" :readonly="!editable" maxlength="300" placeholder="如：本人拍摄；或作者、来源网址及许可"></label><button v-if="editable" type="button" @click="removePicture">移除图片</button></template>
    <p class="fine">PNG/JPEG，自动缩放压缩；请使用有权使用的图片。可与表格或流程图组合，图片来源写入PPT备注。单页AI改写保留原图，不读取图像内容。</p>

@@ -1,9 +1,9 @@
 FROM python:3.13-slim
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk poppler-utils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py .
+COPY app.py reference_extract.py pdf_extract.py .
 RUN useradd --uid 1000 --create-home renderer
 USER renderer
 ENV MPLCONFIGDIR=/tmp/matplotlib

@@ -191,7 +191,7 @@ func TestTeachingMediaRoundTripAndBoundaries(t *testing.T) {
 		decoded.Slides[i].Figure = nil
 		decoded.Slides[i].Table = nil
 	}
-	if !strings.Contains(strings.Join(coursewareQualityIssues(decoded, len(decoded.Slides)), "；"), "教学图表") {
-		t.Fatal("text-only deck passed quality check")
+	if strings.Contains(strings.Join(coursewareQualityIssues(decoded, len(decoded.Slides)), "；"), "至少2页教学图表") {
+		t.Fatal("media quantity should not substitute for teaching value")
 	}
 }

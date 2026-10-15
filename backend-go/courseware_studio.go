@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -56,7 +57,19 @@ func slideReviews(ctx context.Context, tx pgx.Tx, id string, d Deck) ([]slideRev
 	}
 	return reviews, nil
 }
-func allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d Deck) error {
+func (s *Server) allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d Deck) error {
+	if d.Plan != nil {
+		var mode string
+		if err := tx.QueryRow(ctx, "SELECT mode FROM tasks WHERE id=$1", id).Scan(&mode); err != nil {
+			return err
+		}
+		for _, sl := range d.Slides {
+			check := d.PageChecks[sl.ID]
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, mode == "sample") {
+				return fail(409, "页面检查尚未通过，请保存并完成内容与画面检查后继续")
+			}
+		}
+	}
 	meta, err := slideReviews(ctx, tx, id, d)
 	if err != nil {
 		return err
@@ -84,8 +97,8 @@ func assignSlideIDs(d *Deck) {
 // must render successfully; the UI explicitly labels any HTML fallback.
 var officePreviewMu sync.Mutex
 
-func (s *Server) snapshotCourseware(ctx context.Context, path string) bool {
-	if runtime.GOOS != "windows" {
+func (s *Server) snapshotCourseware(ctx context.Context, path string, samplePages ...int) bool {
+	if ctx.Err() != nil || runtime.GOOS != "windows" {
 		return false
 	}
 	script, err := filepath.Abs("../scripts/render-courseware-preview.ps1")
@@ -94,10 +107,62 @@ func (s *Server) snapshotCourseware(ctx context.Context, path string) bool {
 	}
 	officePreviewMu.Lock()
 	defer officePreviewMu.Unlock()
+	if ctx.Err() != nil {
+		return false
+	}
+	// Exact PPTX bytes include slide count/position and footer; never substitute
+	// a one-page screenshot for a full-deck page with different numbering.
+	pptx, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	sample := 0
+	if len(samplePages) > 0 {
+		sample = samplePages[0]
+	}
+	key := fmt.Sprintf("office:%x:%d", sha256.Sum256(pptx), sample)
+	if data := artifactCacheGet(ctx, key); data != nil {
+		var pages map[string][]byte
+		if json.Unmarshal(data, &pages) == nil && os.MkdirAll(path+".slides", 0700) == nil {
+			for name, png := range pages {
+				if os.WriteFile(filepath.Join(path+".slides", name), png, 0600) != nil {
+					return false
+				}
+			}
+			return ctx.Err() == nil
+		}
+	}
+	defer coursewareMeasure(ctx, "office_snapshot")()
+
 	c, stop := context.WithTimeout(ctx, 60*time.Second)
 	defer stop()
 	cmd := exec.CommandContext(c, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Path", path, "-OutputDirectory", path+".slides")
-	return cmd.Run() == nil
+	if len(samplePages) > 0 {
+		cmd.Args = append(cmd.Args, "-SamplePages", fmt.Sprint(samplePages[0]))
+	}
+
+	if cmd.Run() != nil || ctx.Err() != nil {
+		return false
+	}
+	pages := map[string][]byte{}
+	entries, err := os.ReadDir(path + ".slides")
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "slide-") && strings.HasSuffix(entry.Name(), ".png") {
+			b, err := os.ReadFile(filepath.Join(path+".slides", entry.Name()))
+			if err != nil {
+				return false
+			}
+			pages[entry.Name()] = b
+		}
+	}
+	if len(pages) == 0 {
+		return false
+	}
+	artifactCachePut(ctx, key, asJSON(pages))
+	return true
 }
 
 func (s *Server) previewArtifact(ctx context.Context, a Actor, id string, d *Deck) (string, error) {
@@ -113,12 +178,16 @@ func (s *Server) previewArtifact(ctx context.Context, a Actor, id string, d *Dec
 }
 
 func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a Actor) error {
+	defer s.queueDeletedCleanup(a.TenantID, r.PathValue("id"), false)
 	var body struct {
 		Result   Deck `json:"result"`
 		Revision int  `json:"revision"`
 	}
 	if err := decode(r, &body); err != nil {
 		return err
+	}
+	if len(body.Result.Slides) > 100 {
+		return fail(400, "课件内容超过处理容量，请保留当前草稿并整理内容")
 	}
 	tx, err := s.tx(r.Context(), a.TenantID)
 	if err != nil {
@@ -134,6 +203,8 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 	}
 	body.Result.Notice, body.Result.NeedsReview, body.Result.Evaluation = st.Deck.Notice, true, nil
 	body.Result.Script = ""
+	body.Result.Generation = nil
+	preserveCoursewareChecks(&body.Result, st.Deck)
 	body.Result = arrangeCourseware(body.Result)
 	if st.Status == "awaiting_preview" && len(body.Result.Slides) != 3 {
 		return fail(422, "预览阶段仅保存前三页；复杂内容请分配到剩余页面，不丢弃数据")
@@ -144,9 +215,16 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		}
 	}
 	if err := coursewareSourceError(body.Result, st.Sources); err != nil {
-		return err
+		return fail(400, err.Error())
 	}
 	assignSlideIDs(&body.Result)
+	if err := validateDeckMinimum(body.Result, 3); err != nil {
+		return err
+	}
+	if _, err := s.renderCoursewareAvailable(r.Context(), body.Result); err != nil {
+		return err
+	}
+	s.checkEditedPages(r.Context(), a, r.PathValue("id"), st.Input, &body.Result)
 	path, err := s.previewArtifact(r.Context(), a, r.PathValue("id"), &body.Result)
 	if err != nil {
 		return err
@@ -167,6 +245,9 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		return fail(409, "草稿已更新或已进入生成阶段；当前修改没有覆盖旧版")
 	}
 	if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
+		return err
+	}
+	if err := invalidateChangedChecks(r.Context(), tx, r.PathValue("id"), body.Result, st.Deck); err != nil {
 		return err
 	}
 	if err = archiveRevision(r.Context(), tx, a.TenantID, r.PathValue("id")); err != nil {
@@ -231,6 +312,12 @@ func (s *Server) recordSlideFeedback(w http.ResponseWriter, r *http.Request, a A
 	if !found {
 		return fail(409, "页面内容已改变，请先保存并评价最新版本")
 	}
+	if review && body.Approved && st.Deck.Plan != nil {
+		check := st.Deck.PageChecks[r.PathValue("slide")]
+		if check.Hash != body.Hash || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+			return fail(409, "本页检查尚未通过，请先保存修改并完成内容与画面检查")
+		}
+	}
 	if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 		return err
 	}
@@ -293,7 +380,7 @@ func (s *Server) confirmCoursewarePreview(w http.ResponseWriter, r *http.Request
 	if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 		return err
 	}
-	if err := allSlidesApproved(r.Context(), tx, r.PathValue("id"), st.Deck); err != nil {
+	if err := s.allSlidesApproved(r.Context(), tx, r.PathValue("id"), st.Deck); err != nil {
 		return err
 	}
 	_, err = tx.Exec(r.Context(), "UPDATE tasks SET status='expand_pending',stage='expand_pending',updated_at=now() WHERE id=$1", r.PathValue("id"))
@@ -323,20 +410,13 @@ func (s *Server) coursewareSlidePreview(w http.ResponseWriter, r *http.Request, 
 	if revision := r.URL.Query().Get("revision"); revision != strconv.Itoa(st.Revision) {
 		return fail(409, "预览版本已变化，请重新加载")
 	}
-	if st.Path == "" || st.Status == "failed" || st.Status == "cancelled" {
-		return fail(404, "当前没有可用预览")
+	pages, err := s.coursewarePreviewPages(r.Context(), tx, r.PathValue("id"), st.Deck, st.Path)
+	if err != nil {
+		return err
 	}
-	for i, sl := range st.Deck.Slides {
-		if sl.ID != r.PathValue("slide") {
-			continue
-		}
-		path := filepath.Join(st.Path+".slides", fmt.Sprintf("slide-%d.png", i+1))
-		if _, err := os.Stat(path); err != nil {
-			return fail(404, "此环境没有Office截图，仍可下载实际PPTX查看")
-		}
+	if path := pages[r.PathValue("slide")]; path != "" {
 		w.Header().Set("Content-Type", "image/png")
-		http.ServeFile(w, r, path)
-		return nil
+		return s.serveStoredFile(w, r, path)
 	}
 	return pgx.ErrNoRows
 }
@@ -354,6 +434,5 @@ func (s *Server) coursewarePreviewDownload(w http.ResponseWriter, r *http.Reques
 		return fail(404, "预览文件尚未就绪")
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=preview.pptx")
-	http.ServeFile(w, r, st.Path)
-	return nil
+	return s.serveStoredFile(w, r, st.Path)
 }

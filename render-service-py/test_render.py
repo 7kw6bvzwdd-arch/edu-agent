@@ -10,6 +10,18 @@ THEMES = ['forest', 'violet', 'ocean', 'midnight', 'paper', 'coral', 'classroom'
 LAYOUTS = ['cover', 'concept', 'steps', 'comparison', 'example', 'exercise', 'summary']
 
 
+def test_inline_tex_font_wrapper_does_not_print_as_literal_command():
+    source = r'y=x²-2x+\mathbf{1}-1-3=(x-1)²-4'
+    response = TestClient(app).post('/render/pptx', json={'title': '配方', 'slides': [
+        {'title': '配方', 'layout': 'steps', 'bullets': [source], 'notes': '教师原文保留：'+source}]})
+    assert response.status_code == 200, response.text
+    ppt = Presentation(io.BytesIO(response.content))
+    visible = '\n'.join(s.text for s in ppt.slides[0].shapes if s.has_text_frame)
+    assert r'\mathbf' not in visible
+    assert 'y=x²-2x+1-1-3=(x-1)²-4' in visible
+    assert source in ppt.slides[0].notes_slide.notes_text_frame.text
+
+
 @pytest.mark.parametrize('command,replacement', [('implies','Rightarrow'),('iff','Leftrightarrow'),('impliedby','Leftarrow')])
 def test_formula_logical_aliases_preserve_meaning(command, replacement):
     def picture(expr):

@@ -504,7 +504,7 @@ func (s *Server) saveArkVideo(ctx context.Context, a Actor, id, raw string, seco
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return "", e
 	}
-	return path, os.WriteFile(path, content, 0600)
+	return path, s.writeStoredFile(ctx, path, content)
 }
 
 func (s *Server) inspectCloudVideo(ctx context.Context, full string, seconds int) error {
@@ -524,12 +524,7 @@ func (s *Server) inspectCloudVideo(ctx context.Context, full string, seconds int
 		mount = strings.TrimSuffix(mount, ",readonly")
 		command = "ffmpeg -v error -xerror -y -i /media/lesson.mp4 -map 0:v:0 -c:v copy -an -movflags +faststart /media/muted.mp4 && " + strings.ReplaceAll(command, "/media/lesson.mp4", "/media/muted.mp4")
 	}
-	// Match host ownership for 0600 files on Linux; Windows bind mounts use image UID.
-	user := "1000:1000"
-	if os.Geteuid() >= 0 {
-		user = fmt.Sprintf("%d:%d", os.Geteuid(), os.Getegid())
-	}
-	cmd := exec.CommandContext(probeCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", user, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "384m", "--cpus", "1", "--pids-limit", "32", "--mount", mount, s.cfg.AnimationImage, "sh", "-c", command)
+	cmd := exec.CommandContext(probeCtx, "docker", "run", "--rm", "--name", name, "--network", "none", "--read-only", "--user", mediaSandboxUser(), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "384m", "--cpus", "1", "--pids-limit", "32", "--mount", mount, s.cfg.AnimationImage, "sh", "-c", command)
 	b, e := cmd.Output()
 	if e != nil {
 		return fmt.Errorf("视频检查失败，请确认本地动画检查镜像可用")

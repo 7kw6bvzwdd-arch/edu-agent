@@ -104,8 +104,9 @@ func TestCoursewareRetryIsolationAndReservationHTTP(t *testing.T) {
 	worksCall(t, s, "POST", "/api/tasks/"+retry+"/cancel", token, nil, 200)
 	worksCall(t, s, "POST", "/api/tasks/"+retry+"/retry", token, nil, 409)
 	worksCall(t, s, "DELETE", "/api/tasks/"+retry, token, nil, 200)
-	worksCall(t, s, "POST", route, token, nil, 409)
-	worksCall(t, s, "DELETE", "/api/tasks/"+id, token, nil, 200)
+	if retry != id {
+		t.Fatal("continuation must retain work identity")
+	}
 	worksCall(t, s, "POST", route, token, nil, 404)
 }
 
@@ -131,6 +132,35 @@ func TestCoursewareRetryInsufficientQuotaHTTP(t *testing.T) {
 	if after := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String(); after != before {
 		t.Fatal("rejected retry changed billing")
 	}
+}
+
+func TestCoursewareRetryFromOldFailedAttemptContinuesLatestFailure(t *testing.T) {
+	s := worksServer(t)
+	token := worksLogin(t, s, "teacher")
+	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest", UseKB: true, PreviewFirst: true, IdempotencyKey: newID()}
+	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
+	var actor Actor
+	json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", token, nil, 200).Body.Bytes(), &actor)
+	if err := s.finish(context.Background(), actor.TenantID, id, "failed", "第一次暂停", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	child := worksObject(t, worksCall(t, s, "POST", "/api/tasks/"+id+"/retry", token, nil, 202))["id"].(string)
+	if err := s.finish(context.Background(), actor.TenantID, child, "failed", "第二次暂停", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	before := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
+	next := worksObject(t, worksCall(t, s, "POST", "/api/tasks/"+id+"/retry", token, nil, 202))["id"].(string)
+	if next != id || next != child {
+		t.Fatal("continuation must reuse the same work")
+	}
+	if again := worksObject(t, worksCall(t, s, "POST", "/api/tasks/"+id+"/retry", token, nil, 202))["id"].(string); again != next {
+		t.Fatal("repeated click created another reservation")
+	}
+	after := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
+	if after["reserved"].(float64)-before["reserved"].(float64) != 20 {
+		t.Fatal("continuation reservation incorrect")
+	}
+	worksCall(t, s, "POST", "/api/tasks/"+next+"/cancel", token, nil, 200)
 }
 
 func TestCoursewareRecoveryRejectsUnknownCitations(t *testing.T) {

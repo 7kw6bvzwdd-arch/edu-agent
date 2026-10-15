@@ -32,16 +32,20 @@ jobs:
       # app.py renders Chinese formulas through matplotlib, which emits
       # "Glyph ... missing" and draws tofu unless the face named by FONT
       # actually exists. The runner image ships no CJK font.
+      # Reference PDF previews also require Poppler's pdftoppm executable.
       # Must precede the first `import matplotlib` so its font cache sees it.
-      - name: Install CJK fonts
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - name: Install rendering system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk poppler-utils
+          command -v pdftoppm
       - run: python -m pytest -q render-service-py
       - run: docker build -f render-service-py/Dockerfile.manim -t edu-manim:local render-service-py
       - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &
       - run: |
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
           cd backend-go
-          TEST_VIDEO_SANDBOX=1 go test -v -run '^Test(Manim|DashScope)' ./...
+          TEST_VIDEO_SANDBOX=1 go test -v -run '^Test(Manim|DashScope|CloudVideo)' ./...
           go test -v ./...
           go vet ./...
         env:

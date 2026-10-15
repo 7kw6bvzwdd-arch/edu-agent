@@ -4,14 +4,35 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	urlpkg "net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type exerciseCompactRetryKey struct{}
+
+func chatEndpoint(address string) (string, error) {
+	u, err := urlpkg.Parse(strings.TrimSpace(address))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("模型服务地址无效，请填写HTTP或HTTPS地址")
+	}
+	u.Path = strings.TrimRight(u.Path, "/")
+	if strings.HasSuffix(u.Path, "/responses") {
+		return "", fmt.Errorf("当前文本模型使用Chat Completions协议，请将模型地址中的/responses改为/chat/completions，或填写API基础地址")
+	}
+	if !strings.HasSuffix(u.Path, "/chat/completions") {
+		u.Path += "/chat/completions"
+	}
+	u.RawPath = ""
+	return u.String(), nil
+}
 
 func (s *Server) postBytes(ctx context.Context, url string, body any, key string) ([]byte, error) {
 	return s.postBytesWithClient(ctx, s.http, url, body, key)
@@ -28,23 +49,31 @@ func (s *Server) postBytesWithClient(ctx context.Context, client *http.Client, u
 	}
 	res, e := client.Do(req)
 	if e != nil {
-		return nil, providerCallError{Temporary: true}
+		return nil, providerTransportError(ctx, e)
 	}
 	defer res.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(res.Body, 25<<20))
 	if e != nil {
-		return nil, e
+		return nil, providerTransportError(ctx, e)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		if url == s.cfg.RenderURL+"/render/pptx" {
+		if url == s.cfg.RenderURL+"/render/pptx" || strings.HasPrefix(url, s.cfg.RenderURL+"/render/canvas-preview-pptx?") {
 			if res.StatusCode == 422 {
 				return nil, renderValidationError(b)
 			}
-			return nil, fmt.Errorf("PPT排版服务返回HTTP %d", res.StatusCode)
+			return nil, fail(res.StatusCode, fmt.Sprintf("PPT排版服务返回HTTP %d", res.StatusCode))
 		}
 		return nil, providerCallError{Status: res.StatusCode, Temporary: res.StatusCode == 429 || res.StatusCode == 502 || res.StatusCode == 503 || res.StatusCode == 504}
 	}
 	return b, nil
+}
+
+func providerTransportError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var network net.Error
+	return providerCallError{Temporary: true, Timeout: errors.As(err, &network) && network.Timeout()}
 }
 
 func renderValidationError(body []byte) error {
@@ -60,11 +89,15 @@ func renderValidationError(body []byte) error {
 	message := "PPT内容不符合排版要求，请检查页面字段、公式和图表"
 	if json.Unmarshal(body, &reply) == nil {
 		if known := map[string]string{
-			"text_overflow":    "文字过密，请缩短要点、将详细推导移到讲解备注，或拆分页面",
-			"formula_invalid":  "公式包含不支持的语法，请检查LaTeX命令",
-			"formula_overflow": "公式过长或过高，请拆分公式",
-			"chart_invalid":    "图表标签与数据不匹配或标签过长，请检查图表",
-			"content_invalid":  "内容字段格式或长度不符合要求，请检查后再导出",
+			"canvas_rotation_protected": "学科图示和公式保持原方向，请调整位置或大小",
+			"canvas_text_too_small":     "缩放后文字过小，请放大对象后保存；原版本仍保留",
+			"canvas_outside_slide":      "对象移动超出了页面边界，请移回页面后保存；原版本仍保留",
+			"canvas_object_missing":     "页面结构已变化，请关闭对象移动并重新打开后调整",
+			"text_overflow":             "文字过密，请缩短要点、将详细推导移到讲解备注，或拆分页面",
+			"formula_invalid":           "公式包含不支持的语法，请检查LaTeX命令",
+			"formula_overflow":          "公式过长或过高，请拆分公式",
+			"chart_invalid":             "图表标签与数据不匹配或标签过长，请检查图表",
+			"content_invalid":           "内容字段格式或长度不符合要求，请检查后再导出",
 		}[reply.Detail.Code]; known != "" {
 			message = known
 		}
@@ -83,6 +116,11 @@ func (s *Server) chat(ctx context.Context, a Actor, task, model, operation, prom
 }
 
 func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, model, operation, prompt string, outputLimit ...int) (content string, err error) {
+	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" || operation == "courseware.exercise.review" {
+		if err = s.reserveCoursewareProviderCall(ctx, a, task); err != nil {
+			return "", err
+		}
+	}
 	start := time.Now()
 	inputTokens, outputTokens := 0, 0
 	defer func() {
@@ -107,6 +145,9 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 	}
 	// Copy the client so long-form chat has its own deadline without changing other services.
 	client := *s.http
+	if strings.HasSuffix(operation, ".review") && s.reviewHTTP != nil {
+		client = *s.reviewHTTP
+	}
 	client.Timeout = 180 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	chatCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
@@ -117,10 +158,34 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 		if model == "deepseek-flash" && strings.HasSuffix(operation, ".review") {
 			// Flash defaults to thinking; reserve the bounded review budget for the JSON answer.
 			payload["thinking"] = map[string]string{"type": "disabled"}
+			if operation == "courseware.exercise.review" && ctx.Value(exerciseCompactRetryKey{}) != true {
+				// Only the blind exercise solver needs reasoning; keep other audits fast.
+				payload["thinking"] = map[string]string{"type": "enabled"}
+			}
 		}
 	}
-	b, e := s.postBytesWithClient(chatCtx, &client, strings.TrimRight(url, "/")+"/chat/completions", payload, key)
+	endpoint, e := chatEndpoint(url)
 	if e != nil {
+		return "", e
+	}
+	// This Ark model defaults to reasoning, which can exceed the page batch's
+	// output/time budget. Only send the provider-specific option to that model.
+	providerURL, _ := urlpkg.Parse(endpoint)
+	if providerURL.Hostname() == "ark.cn-beijing.volces.com" && model == "glm-5-3-flash-260828" && strings.HasPrefix(operation, "courseware.") {
+		payload["thinking"] = map[string]string{"type": "disabled"}
+	}
+	var b []byte
+	if stream, ok := ctx.Value(briefStreamKey{}).(func(string) error); ok && operation == "courseware.brief" {
+		payload["stream"] = true
+		payload["stream_options"] = map[string]bool{"include_usage": true}
+		b, e = s.postBriefStream(chatCtx, &client, endpoint, payload, key, stream)
+	} else {
+		b, e = s.postBytesWithClient(chatCtx, &client, endpoint, payload, key)
+	}
+	if e != nil {
+		if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
+			return "", providerCallError{Temporary: true, Timeout: true}
+		}
 		return "", e
 	}
 	var reply struct {
@@ -191,11 +256,8 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 	for _, src := range sources {
 		known["["+src.ID+"]"] = src
 	}
-	combined := d.Lesson + string(asJSON(d.Slides))
-	for _, ref := range citation.FindAllString(combined, -1) {
-		if _, ok := known[ref]; !ok {
-			return d, fmt.Errorf("模型返回了不存在的来源编号")
-		}
+	if err := coursewareSourceError(d, sources); err != nil {
+		return d, err
 	}
 	// A retrieved source is not proof of every factual statement. Human review remains explicit.
 	d.NeedsReview = true
@@ -236,10 +298,8 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 			if err := validateDeck(repaired); err != nil {
 				return d, err
 			}
-			for _, ref := range citation.FindAllString(repaired.Lesson+string(asJSON(repaired.Slides)), -1) {
-				if _, ok := known[ref]; !ok {
-					return d, fail(422, "修复后引用了不存在的来源编号")
-				}
+			if err := coursewareSourceError(repaired, sources); err != nil {
+				return d, fail(422, err.Error())
 			}
 			remaining, err := s.coursewarePreflight(ctx, &repaired, in.Pages)
 			if err != nil {

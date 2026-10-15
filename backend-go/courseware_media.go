@@ -21,7 +21,7 @@ type TeachingPicture struct {
 	Source  string `json:"source"`
 }
 
-func (s *Server) requireTeachingMediaRenderer(ctx context.Context) error {
+func (s *Server) requireTeachingMediaRenderer(ctx context.Context, graph ...bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.RenderURL+"/health", nil)
@@ -37,11 +37,23 @@ func (s *Server) requireTeachingMediaRenderer(ctx context.Context) error {
 	if res.StatusCode != 200 || json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&health) != nil || health["courseware_media_version"] != "media-v1" {
 		return fail(503, "PPT排版服务尚未更新，请重启后端与排版服务后重试；未丢弃图解内容")
 	}
+	if len(graph) > 0 && graph[0] && health["courseware_graph_version"] != "graph-v1" {
+		return fail(503, "PPT排版服务尚不支持数值坐标图，请更新排版服务；图像数据已保留")
+	}
+	if len(graph) > 1 && graph[1] && health["courseware_plot_version"] != "matplotlib-v1" {
+		return fail(503, "高清图表排版服务尚未更新，绘图参数已保留")
+	}
 	return nil
 }
 
 // Text-only model calls never receive uploaded binary data or mutate the original.
 func slideForTextModel(sl Slide) Slide {
+	sl.CanvasPositions = nil
+	sl.CanvasOrder = nil
+	sl.CanvasObjects = append([]CanvasObject(nil), sl.CanvasObjects...)
+	for i := range sl.CanvasObjects {
+		sl.CanvasObjects[i].DataURL = ""
+	}
 	if sl.Picture != nil {
 		picture := *sl.Picture
 		picture.DataURL = "[图片未发送，仅提供说明；不得评价画面准确性]"
@@ -62,6 +74,24 @@ type TeachingTable struct {
 	Headers []string   `json:"headers"`
 	Rows    [][]string `json:"rows"`
 }
+
+type FunctionSeries struct {
+	Kind  string    `json:"kind,omitempty"`
+	A     float64   `json:"a,omitempty"`
+	C     float64   `json:"c,omitempty"`
+	K     float64   `json:"k"`
+	B     float64   `json:"b"`
+	MarkX []float64 `json:"mark_x,omitempty"`
+}
+type FunctionGraph struct {
+	Renderer string           `json:"renderer,omitempty"`
+	Title    string           `json:"title"`
+	XMin     float64          `json:"x_min"`
+	XMax     float64          `json:"x_max"`
+	YMin     float64          `json:"y_min"`
+	YMax     float64          `json:"y_max"`
+	Series   []FunctionSeries `json:"series"`
+}
 type FigureItem struct {
 	Label  string `json:"label"`
 	Detail string `json:"detail,omitempty"`
@@ -75,8 +105,74 @@ type TeachingFigure struct {
 }
 
 func validateTeachingMedia(sl Slide) error {
+	if err := validateDataChart(sl.Chart); err != nil {
+		return err
+	}
+	if len([]rune(sl.Answer)) > 2000 {
+		return fail(400, "课堂答案最多2000字，完整推导可留在教师备注")
+	}
+	if err := validateScientific(sl); err != nil {
+		return err
+	}
 	valid := func(s string, limit int, required bool) bool {
 		return len([]rune(s)) <= limit && (!required || strings.TrimSpace(s) != "")
+	}
+	if g := sl.Graph; g != nil {
+		if g.Renderer != "" && g.Renderer != "native" && g.Renderer != "matplotlib" {
+			return fail(400, "不支持该函数绘图方式")
+		}
+		finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) <= 1000 }
+		if !valid(g.Title, 60, true) || len(g.Series) < 1 || len(g.Series) > 4 || !finite(g.XMin) || !finite(g.XMax) || !finite(g.YMin) || !finite(g.YMax) || g.XMin > 0 || g.XMax < 0 || g.YMin > 0 || g.YMax < 0 || g.XMax-g.XMin < 1 || g.YMax-g.YMin < 1 {
+			return fail(400, "函数图像需有1–4条曲线、明确标题及包含原点的有限数值坐标范围（允许0作为边界，跨度至少1，绝对值不超过1000）")
+		}
+		if sl.Scientific != nil || sl.Chart != nil || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Diagram != "" {
+			return fail(400, "函数坐标图请独立展示，不与其他媒体混排")
+		}
+		for _, series := range g.Series {
+			if !finite(series.K) || !finite(series.B) || !finite(series.A) || !finite(series.C) || len(series.MarkX) > 2 {
+				return fail(400, "直线系数须为有限数值，每条最多标注2个关键点")
+			}
+			visible := false
+			if series.Kind != "" && series.Kind != "linear" && series.Kind != "quadratic" && series.Kind != "inverse" {
+				return fail(400, "函数类型仅支持一次、二次和反比例")
+			}
+			if series.Kind == "quadratic" && series.A == 0 || series.Kind == "inverse" && series.K == 0 {
+				return fail(400, "二次项或反比例系数不能为零")
+			}
+			if series.Kind == "quadratic" || series.Kind == "inverse" {
+				for n := 0; n <= 400; n++ {
+					x := g.XMin + (g.XMax-g.XMin)*float64(n)/400
+					y, ok := functionValue(series, x)
+					if ok && y >= g.YMin && y <= g.YMax {
+						visible = true
+					}
+				}
+			} else {
+				for _, x := range []float64{g.XMin, g.XMax} {
+					y := series.K*x + series.B
+					if y >= g.YMin && y <= g.YMax {
+						visible = true
+					}
+				}
+				if series.K != 0 {
+					for _, y := range []float64{g.YMin, g.YMax} {
+						x := (y - series.B) / series.K
+						if x >= g.XMin && x <= g.XMax {
+							visible = true
+						}
+					}
+				}
+			}
+			if !visible {
+				return fail(400, "直线不在坐标范围内，请调整显示范围")
+			}
+			for _, x := range series.MarkX {
+				y, defined := functionValue(series, x)
+				if !defined || !finite(x) || x < g.XMin || x > g.XMax || y < g.YMin || y > g.YMax {
+					return fail(400, "标注点必须位于函数图像与可见坐标范围内")
+				}
+			}
+		}
 	}
 	if !valid(sl.Focus, 60, false) {
 		return fail(400, "核心问题或结论最多60字")
@@ -162,7 +258,7 @@ func validateTeachingMedia(sl Slide) error {
 	return nil
 }
 
-const coursewareMediaContract = `
+const coursewareMediaContract = matplotlibPlotContract + `
 课堂图解字段（可省略，不要null）：
 emphasis：0–6个重点词的字符串数组，每词最多20字，必须来自本页正文/表格/核心问题，只标关键概念或数值，不把整句标色。
 picture仅供教师上传PNG/JPEG；模型不得生成图片data_url或伪造图片地址。配图不能代替实际图解或来源证据。

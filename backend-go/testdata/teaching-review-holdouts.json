@@ -1,0 +1,242 @@
+[
+  {
+    "id": "holdout-negative-linear",
+    "input": {
+      "topic": "一次函数",
+      "subject": "数学",
+      "grade": "九年级",
+      "lesson_minutes": 45
+    },
+    "origin": {
+      "path": "backend-go/testdata/teaching-review-holdouts.json",
+      "sha256": "cad3574956a700203250ccc5cccb9cb43652189be6a7e52a16bc992a7db4b873",
+      "page": 1,
+      "variant": "independently-authored-holdout-not-generated-deck"
+    },
+    "categories": [
+      "answer",
+      "knowledge"
+    ],
+    "evidence_terms": [
+      "-2",
+      "10",
+      "代入"
+    ],
+    "good": {
+      "title": "一次函数",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "已知y=-3x+4，求x=2时的y。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "代入x=2，y=-3×2+4=-2。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "代入x=2，y=-3×2+4=-2。"
+        }
+      ]
+    },
+    "bad": {
+      "title": "一次函数",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "已知y=-3x+4，求x=2时的y。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "代入x=2，y=-3×2+4=10。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "代入x=2，y=-3×2+4=10。"
+        }
+      ]
+    }
+  },
+  {
+    "id": "holdout-negative-quadratic",
+    "input": {
+      "topic": "二次函数",
+      "subject": "数学",
+      "grade": "九年级",
+      "lesson_minutes": 45
+    },
+    "origin": {
+      "path": "backend-go/testdata/teaching-review-holdouts.json",
+      "sha256": "55af5953551c2e0798cd18eff7a86608deb57993e2af0cadd829b08168ab531b",
+      "page": 1,
+      "variant": "independently-authored-holdout-not-generated-deck"
+    },
+    "categories": [
+      "answer",
+      "knowledge"
+    ],
+    "evidence_terms": [
+      "-13",
+      "平方",
+      "代入"
+    ],
+    "good": {
+      "title": "二次函数",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "已知y=-2x²+4x+3，求x=-2时的y。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "先平方再乘：y=-2×4-8+3=-13。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "先平方再乘：y=-2×4-8+3=-13。"
+        }
+      ]
+    },
+    "bad": {
+      "title": "二次函数",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "已知y=-2x²+4x+3，求x=-2时的y。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "先平方再乘：y=-2×4-8+3=3。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "先平方再乘：y=-2×4-8+3=3。"
+        }
+      ]
+    }
+  },
+  {
+    "id": "holdout-displaced-volume",
+    "input": {
+      "topic": "浮力",
+      "subject": "物理",
+      "grade": "九年级",
+      "lesson_minutes": 45
+    },
+    "origin": {
+      "path": "backend-go/testdata/teaching-review-holdouts.json",
+      "sha256": "0742a70dee61bf5f6ff5789c2989dceb79e9091a5a76450e7bf1bf2443496b2e",
+      "page": 1,
+      "variant": "independently-authored-holdout-not-generated-deck"
+    },
+    "categories": [
+      "answer",
+      "knowledge"
+    ],
+    "evidence_terms": [
+      "2",
+      "20",
+      "浮力"
+    ],
+    "good": {
+      "title": "浮力",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "油的密度800kg/m³，物体全浸没，体积250cm³，g=10N/kg，求浮力。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "V排=250×10⁻⁶m³=0.00025m³，F浮=800×10×0.00025=2N。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "V排=250×10⁻⁶m³=0.00025m³，F浮=800×10×0.00025=2N。"
+        }
+      ]
+    },
+    "bad": {
+      "title": "浮力",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "油的密度800kg/m³，物体全浸没，体积250cm³，g=10N/kg，求浮力。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "V排=250×10⁻⁶m³=0.00025m³，F浮=800×10×0.00025=20N。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "V排=250×10⁻⁶m³=0.00025m³，F浮=800×10×0.00025=20N。"
+        }
+      ]
+    }
+  },
+  {
+    "id": "holdout-series-current",
+    "input": {
+      "topic": "串并联电路",
+      "subject": "物理",
+      "grade": "九年级",
+      "lesson_minutes": 45
+    },
+    "origin": {
+      "path": "backend-go/testdata/teaching-review-holdouts.json",
+      "sha256": "0e41951206513995a590ec60d60c1fc8185748369d29c410c482c367f5f8e61c",
+      "page": 1,
+      "variant": "independently-authored-holdout-not-generated-deck"
+    },
+    "categories": [
+      "answer",
+      "knowledge"
+    ],
+    "evidence_terms": [
+      "0.2",
+      "0.6",
+      "电流"
+    ],
+    "good": {
+      "title": "串并联电路",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "理想6V电源与10Ω、20Ω电阻串联，导线电阻忽略，仅作纸面计算，求电流。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "R总=10+20=30Ω，I=6/30=0.2A。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "R总=10+20=30Ω，I=6/30=0.2A。"
+        }
+      ]
+    },
+    "bad": {
+      "title": "串并联电路",
+      "theme": "ocean",
+      "slides": [
+        {
+          "id": "holdout-page",
+          "order": 1,
+          "title": "条件明确的计算",
+          "layout": "example",
+          "bullets": [
+            "理想6V电源与10Ω、20Ω电阻串联，导线电阻忽略，仅作纸面计算，求电流。",
+            "请写出关系式、代入和单位。"
+          ],
+          "notes": "R总=10+20=30Ω，I=6/30=0.6A。 教师先让学生独立代入，再核对数值与题设；纸面计算不宣称已有实测。",
+          "answer": "R总=10+20=30Ω，I=6/30=0.6A。"
+        }
+      ]
+    }
+  }
+]

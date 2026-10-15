@@ -16,8 +16,8 @@ function Check-Endpoint([string]$key,[string]$address,[bool]$video=$false) {
  if(![Uri]::TryCreate($address,[UriKind]::Absolute,[ref]$parsed) -or $parsed.Scheme -notin @('http','https') -or !$parsed.Host -or $parsed.UserInfo -or $parsed.Query -or $parsed.Fragment) {
   $problems.Add("${key}: use an HTTP(S) base URL without credentials, query or fragment.");return
  }
- if(!$video -and $parsed.AbsolutePath.TrimEnd('/') -match '/(chat/completions|contents/generations/tasks)$') {
-  $problems.Add("${key}: use the text API base URL, usually ending in /api/v3; do not include a task or chat path.")
+ if(!$video -and $parsed.AbsolutePath.TrimEnd('/') -match '/(responses|contents/generations/tasks)$') {
+  $problems.Add("${key}: this app uses Chat Completions; use the API base URL or /chat/completions, not /responses or a video task path.")
  }
  if($video -and $parsed.AbsolutePath.TrimEnd('/') -match '/chat/completions$') {
   $problems.Add("${key}: a text chat endpoint cannot generate videos.")
