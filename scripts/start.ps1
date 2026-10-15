@@ -24,12 +24,24 @@ npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
 Pop-Location
 New-Item -ItemType Directory -Force work | Out-Null
-Push-Location backend-go
-& $goExe build -o ../work/edu-server.exe .
+$backendSource=Join-Path $projectRoot 'backend-go'
+$backendDeployment=Join-Path $projectRoot 'work/backend-deployment.json'
+if(Test-Path -LiteralPath $backendDeployment){
+ $backendSource=(Get-Content -LiteralPath $backendDeployment -Raw|ConvertFrom-Json).runtime_source_directory
+ if(!(Test-Path -LiteralPath (Join-Path $backendSource 'go.mod'))){throw 'Deployed backend source missing; inspect work/backend-deployment.json.'}
+}
+Push-Location $backendSource
+& $goExe build -o (Join-Path $projectRoot 'work/edu-server.exe') .
 if ($LASTEXITCODE -ne 0) { throw 'Backend build failed.' }
 Pop-Location
 foreach ($port in @(8000,8080)) { if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { throw "Port $port is already in use. Stop the current service before starting another instance." } }
-$render=Start-Process -FilePath $pythonExe -ArgumentList '-m','uvicorn','app:app','--host','127.0.0.1','--port','8000' -WorkingDirectory (Join-Path $projectRoot 'render-service-py') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $projectRoot 'work/render.out.log') -RedirectStandardError (Join-Path $projectRoot 'work/render.err.log')
+$rendererDir=Join-Path $projectRoot 'render-service-py'
+$rendererDeployment=Join-Path $projectRoot 'work/renderer-deployment.json'
+if(Test-Path -LiteralPath $rendererDeployment){
+ $rendererDir=(Get-Content -LiteralPath $rendererDeployment -Raw|ConvertFrom-Json).runtime_directory
+ if(!(Test-Path -LiteralPath (Join-Path $rendererDir 'app.py'))){throw 'Deployed renderer source missing; inspect work/renderer-deployment.json.'}
+}
+$render=Start-Process -FilePath $pythonExe -ArgumentList '-m','uvicorn','app:app','--host','127.0.0.1','--port','8000' -WorkingDirectory $rendererDir -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $projectRoot 'work/render.out.log') -RedirectStandardError (Join-Path $projectRoot 'work/render.err.log')
 $backend=Start-Process -FilePath (Join-Path $projectRoot 'work/edu-server.exe') -WorkingDirectory (Join-Path $projectRoot 'backend-go') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $projectRoot 'work/backend.out.log') -RedirectStandardError (Join-Path $projectRoot 'work/backend.err.log')
 @{render=$render.Id;backend=$backend.Id} | ConvertTo-Json | Set-Content -LiteralPath 'work/service-pids.json'
 $healthy=$false

@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict')
+;(async()=>{
+ const {answerSteps,showGraphCoordinates}=await import('../frontend-vue/src/classroom.js')
+ assert.equal(showGraphCoordinates({layout:'exercise',title:'读图',bullets:['读出交点坐标']}),false)
+ assert.equal(showGraphCoordinates({layout:'exercise',title:'判断增减性',bullets:['图中已标出两个点']}),true)
+ assert.equal(showGraphCoordinates({layout:'example',title:'求交点坐标'}),true)
+ assert.deepEqual(answerSteps('第一步：列式\n\n第二步：代入\r\n第三步：检查单位'),['第一步：列式','第二步：代入','第三步：检查单位'])
+ assert.deepEqual(answerSteps('含；号的完整解释'),['含；号的完整解释'])
+ assert.deepEqual(answerSteps(),[])
+ console.log('Classroom answer steps: PASS')
+})().catch(e=>{console.error(e);process.exitCode=1})

@@ -11,7 +11,22 @@ try{
   foreach($shape in $slide.Shapes){
    if($shape.HasTextFrame -and $shape.TextFrame.HasText){
     $range=$shape.TextFrame.TextRange
-    if($range.BoundHeight -gt ($shape.Height+1) -or $range.BoundWidth -gt ($shape.Width+1)){$issues+=@{page=$slide.SlideIndex;shape=$shape.Name}}
+    $widthOverflow=$range.BoundWidth -gt ($shape.Width+1)
+    if($widthOverflow){
+     # PowerPoint includes invisible trailing ideographic spaces in BoundWidth.
+     # Keep the actual PPTX intact and measure each line's visible characters.
+     $widthOverflow=$false
+     for($lineIndex=1;$lineIndex -le $range.Lines().Count;$lineIndex++){
+      $line=$range.Lines($lineIndex,1);$visible=$line.Text.TrimEnd()
+      if($visible.Length){
+       $visibleRange=$line.Characters(1,$visible.Length)
+       if($visibleRange.BoundWidth -gt ($shape.Width+1)){$widthOverflow=$true}
+       [void][Runtime.InteropServices.Marshal]::ReleaseComObject($visibleRange)
+      }
+      [void][Runtime.InteropServices.Marshal]::ReleaseComObject($line)
+     }
+    }
+    if($range.BoundHeight -gt ($shape.Height+1) -or $widthOverflow){$issues+=@{page=$slide.SlideIndex;shape=$shape.Name}}
     [void][Runtime.InteropServices.Marshal]::ReleaseComObject($range)
    }
    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shape)
