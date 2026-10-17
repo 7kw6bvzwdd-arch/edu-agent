@@ -615,6 +615,7 @@ async function startFromHome({ topic, subject }) {
 }
 async function openWork(t) {
   await run(async () => {
+    tab.value = 'outline';
     page.value = t.type === 'animation' ? 'animation' : 'courseware';
     await nextTick();
     await selectTask(t.id);
@@ -643,7 +644,6 @@ async function openWork(t) {
       form.pages = v.input.pages || 8;
       form.theme = v.result?.theme || v.input.theme || 'forest';
     }
-    tab.value = 'outline';
     await focusOutput();
   });
 }
