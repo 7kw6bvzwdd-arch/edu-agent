@@ -24,9 +24,9 @@ func coursewareAutomaticRepairable(err error) bool {
 }
 
 func coursewareExpansionLimit(pages int) time.Duration {
-	// Two calls per remaining page where possible, with a finite ceiling.
-	// The checkpoint survives that ceiling and a later continuation resumes it.
-	return time.Duration(min(40, 4+(min(20, max(8, pages))-3)*6)) * time.Minute
+	// Observed 15-page run: ~76 seconds/page including repair. Budget 120s
+	// per remaining page plus 6 minutes, bounded at three hours for 100 pages.
+	return min(3*time.Hour, 6*time.Minute+time.Duration(max(0, min(100, pages)-3))*120*time.Second)
 }
 
 func (s *Server) coursewareGenerationActive(ctx context.Context, a Actor, id string) error {

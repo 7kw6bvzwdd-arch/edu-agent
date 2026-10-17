@@ -1,5 +1,28 @@
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path -Parent $PSScriptRoot
+$pidFile=Join-Path $projectRoot 'work/service-pids.json'
+if (Test-Path -LiteralPath $pidFile) {
+ $serviceIds=Get-Content -LiteralPath $pidFile | ConvertFrom-Json
+ if($serviceIds.shutdown_file){
+  $shutdownPath=[IO.Path]::GetFullPath($serviceIds.shutdown_file)
+  $workRoot=[IO.Path]::GetFullPath((Join-Path $projectRoot 'work'))+[IO.Path]::DirectorySeparatorChar
+  if(!$shutdownPath.StartsWith($workRoot,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($shutdownPath) -notmatch '^shutdown-[a-f0-9]{32}\.request$'){throw 'Invalid shutdown request path.'}
+  $backendProcess=Get-Process -Id $serviceIds.backend -ErrorAction SilentlyContinue
+  if($backendProcess -and $backendProcess.Path -and $backendProcess.Path.StartsWith($projectRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){
+   [IO.File]::WriteAllText($shutdownPath,'shutdown')
+   if(!$backendProcess.WaitForExit(45000)){throw 'Backend did not stop gracefully; task state is retained. Inspect logs before forcing termination.'}
+  }
+ }
+ foreach ($serviceId in @($serviceIds.render,$serviceIds.backend)) {
+  $process=Get-Process -Id $serviceId -ErrorAction SilentlyContinue
+  if ($process -and $process.Path -and $process.Path.StartsWith($projectRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {
+   # Windows venv Python launches a child interpreter which also owns the renderer port.
+   taskkill.exe /PID $serviceId /T /F | Out-Null
+   if ($LASTEXITCODE -ne 0) { throw "Could not stop service process tree $serviceId." }
+  }
+ }
+ Remove-Item -LiteralPath $pidFile
+}
 # Stop the reconnect loop first so shutdown cannot recreate the tunnel.
 $watchPidFile=Join-Path $projectRoot 'work/cloud/watch-pid.json'
 if(Test-Path -LiteralPath $watchPidFile){
@@ -13,19 +36,6 @@ if(Test-Path -LiteralPath $watchPidFile){
   if($watchProcess){$watchProcess.WaitForExit()}
  }
  Remove-Item -LiteralPath $watchPidFile
-}
-$pidFile=Join-Path $projectRoot 'work/service-pids.json'
-if (Test-Path -LiteralPath $pidFile) {
- $serviceIds=Get-Content -LiteralPath $pidFile | ConvertFrom-Json
- foreach ($serviceId in @($serviceIds.render,$serviceIds.backend)) {
-  $process=Get-Process -Id $serviceId -ErrorAction SilentlyContinue
-  if ($process -and $process.Path -and $process.Path.StartsWith($projectRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {
-   # Windows venv Python launches a child interpreter which also owns the renderer port.
-   taskkill.exe /PID $serviceId /T /F | Out-Null
-   if ($LASTEXITCODE -ne 0) { throw "Could not stop service process tree $serviceId." }
-  }
- }
- Remove-Item -LiteralPath $pidFile
 }
 $tunnelPidFile=Join-Path $projectRoot 'work/cloud/tunnel-pid.json'
 if (Test-Path -LiteralPath $tunnelPidFile) {

@@ -33,7 +33,7 @@ func (s *Server) createMember(w http.ResponseWriter, r *http.Request, a Actor) e
 	}
 	defer tx.Rollback(r.Context())
 	var uid, mid int64
-	e = tx.QueryRow(r.Context(), "INSERT INTO users(username,password_hash,display_name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id", in.Username, string(hash), in.Name).Scan(&uid)
+	e = tx.QueryRow(r.Context(), "SELECT id FROM (SELECT auth_create_user($1,$2,$3,'') AS id) created WHERE id IS NOT NULL", in.Username, string(hash), in.Name).Scan(&uid)
 	if e == pgx.ErrNoRows {
 		return fail(409, "账号已存在，请使用新的成员账号")
 	}

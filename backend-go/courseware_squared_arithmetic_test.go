@@ -54,13 +54,35 @@ func TestPausedReviewBlocksSquaredArithmeticHTTP(t *testing.T) {
 	}
 	json.Unmarshal(worksCall(t, s, "GET", route, token, nil, 200).Body.Bytes(), &saved)
 	for _, tc := range []struct {
-		text string
-		bad  bool
+		text    string
+		bad     bool
+		subject string
+		figure  *TeachingFigure
 	}{
-		{"主例：Δ=4²-4×1×(-3)=16，两个交点。", true},
-		{"主例：Δ=(-2)²-4×1×(-3)=16，两个交点。", false},
+		{"主例：Δ=4²-4×1×(-3)=16，两个交点。", true, "数学", nil},
+		{"主例：Δ=(-2)²-4×1×(-3)=16，两个交点。", false, "数学", nil},
+		{"反应：H2 + O2 → H2O", true, "化学", nil},
+		{"已配平：H2 + O2 → H2O", true, "化学", nil},
+		{"请配平：H2 + O2 → H2O", false, "化学", nil},
+		{"反应：2H2 + O2 → 2H2O", false, "化学", nil},
+		{"按事件先后梳理", true, "历史", &TeachingFigure{Kind: "timeline", Title: "事件顺序", Items: []FigureItem{{Label: "1912年", Detail: "民国成立"}, {Label: "1911年", Detail: "武昌起义"}}}},
+		{"按事件先后梳理", false, "历史", &TeachingFigure{Kind: "timeline", Title: "事件顺序", Items: []FigureItem{{Label: "1911年", Detail: "武昌起义"}, {Label: "1912年", Detail: "民国成立"}}}},
 	} {
+		subjectTx, subjectErr := s.tx(context.Background(), a.TenantID)
+		if subjectErr != nil {
+			t.Fatal(subjectErr)
+		}
+		_, err = subjectTx.Exec(context.Background(), "UPDATE tasks SET input=jsonb_set(input,'{subject}',$1::jsonb) WHERE id=$2", asJSON(tc.subject), id)
+		if err == nil {
+			err = subjectTx.Commit(context.Background())
+		} else {
+			subjectTx.Rollback(context.Background())
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		saved.Result.Slides[0].Bullets = []string{tc.text}
+		saved.Result.Slides[0].Figure = tc.figure
 		saved.Result.Slides[0].Notes = "只核对题中完整的数值算式，修正此页不改其他页。"
 		worksCall(t, s, "POST", route+"/draft", token, map[string]any{"result": saved.Result, "revision": saved.Revision}, 200)
 		json.Unmarshal(worksCall(t, s, "GET", route, token, nil, 200).Body.Bytes(), &saved)

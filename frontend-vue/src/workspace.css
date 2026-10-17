@@ -116,3 +116,6 @@ label,legend{color:#68667e}a{color:#7048dc}small{color:#726a83}
  .sidebar-collapsed .sidebar nav{grid-column:2;display:flex;flex-wrap:wrap;min-height:0}
  .sidebar-collapsed .sidebar nav button{padding:8px 12px}
 }
+
+/* Keep keyboard focus visible over component-specific resets. */
+:where(button,a,input,textarea,select,summary,[tabindex]):focus-visible{outline:3px solid #7551b8!important;outline-offset:3px!important}

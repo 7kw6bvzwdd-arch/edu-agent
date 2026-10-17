@@ -55,7 +55,12 @@ func TestKnowledgeLargeDocumentForwarding(t *testing.T) {
 }
 
 func TestKnowledgeOversizedUpload(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "upload-*.pdf")
+	fixtureDir, err := os.MkdirTemp("", "edu-upload-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(fixtureDir)
+	f, err := os.CreateTemp(fixtureDir, "upload-*.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +88,9 @@ func TestKnowledgeOversizedUpload(t *testing.T) {
 	}()
 	r := httptest.NewRequest("POST", "/api/documents", reader)
 	r.Header.Set("Content-Type", m.FormDataContentType())
-	s := &Server{cfg: Config{Storage: t.TempDir()}}
+	storage := t.TempDir()
+	defer os.RemoveAll(storage)
+	s := &Server{cfg: Config{Storage: storage}}
 	err = s.uploadDocument(httptest.NewRecorder(), r, Actor{TenantID: 1})
 	if err == nil || err.Error() != "文件超过100MB" {
 		t.Fatalf("expected 100MB upload rejection, got %v", err)

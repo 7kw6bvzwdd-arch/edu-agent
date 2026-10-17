@@ -5,11 +5,11 @@ $database='edu_verify_20261009_'+([guid]::NewGuid().ToString('N').Substring(0,12
 $go=Join-Path $root 'work/toolchain/go/bin/go.exe'
 if(!(Test-Path -LiteralPath $go)){$go=(Get-Command go -ErrorAction Stop).Source}
 $databaseAdminURL=$env:TEST_DATABASE_ADMIN_URL
-if(!$databaseAdminURL){$databaseAdminURL='postgres://edu:edu-local-only@127.0.0.1:55432/postgres?sslmode=disable'}
+if(!$databaseAdminURL){throw 'Set explicit TEST_DATABASE_ADMIN_URL for the isolated test cluster.'}
 $env:TEST_DATABASE_ADMIN_URL=$databaseAdminURL
 $uri=[UriBuilder]::new($databaseAdminURL);$uri.Path='/'+$database
 $env:TEST_DATABASE_URL=$uri.Uri.AbsoluteUri
-$env:TEST_RUNTIME_DATABASE_URL='';$env:TEST_RENDER_URL='http://127.0.0.1:8000'
+if($env:TEST_RUNTIME_DATABASE_BASE_URL){$runtime=[UriBuilder]::new($env:TEST_RUNTIME_DATABASE_BASE_URL);$runtime.Path='/'+$database;$env:TEST_RUNTIME_DATABASE_URL=$runtime.Uri.AbsoluteUri}else{$env:TEST_RUNTIME_DATABASE_URL=''};$env:TEST_RENDER_URL='http://127.0.0.1:8000'
 $out=Join-Path $root 'work/conversation-first';New-Item -ItemType Directory -Force -Path $out|Out-Null
 $created=$false;$result=1
 Push-Location (Join-Path $root 'backend-go')

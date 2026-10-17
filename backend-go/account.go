@@ -3,6 +3,7 @@ package main
 import (
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -46,27 +47,25 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, a Actor)
 	if in.New == in.Current {
 		return fail(400, "新密码不能与当前密码相同")
 	}
+	if err := s.authAttempt(r, "password", strconv.FormatInt(a.UserID, 10)); err != nil {
+		return err
+	}
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	var hash string
-	if err = tx.QueryRow(r.Context(), "SELECT password_hash FROM users WHERE id=$1 AND active FOR UPDATE", a.UserID).Scan(&hash); err != nil {
-		return err
-	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Current)) != nil {
-		return fail(400, "当前密码不正确")
-	}
 	fresh, err := bcrypt.GenerateFromPassword([]byte(in.New), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), "UPDATE users SET password_hash=$1,recovery_hash='' WHERE id=$2", string(fresh), a.UserID); err != nil {
+	var changed bool
+	if err = tx.QueryRow(r.Context(), "SELECT auth_change_password($1,$2,$3)", a.UserID, in.Current, string(fresh)).Scan(&changed); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), "DELETE FROM sessions WHERE user_id=$1", a.UserID); err != nil {
-		return err
+
+	if !changed {
+		return fail(400, "当前密码不正确")
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		return err

@@ -13,7 +13,7 @@ $database='edu_verify_20261009_'+([guid]::NewGuid().ToString('N').Substring(0,12
 $report=Join-Path $root ('work/quality-gate/'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+$database.Substring($database.Length-4))
 New-Item -ItemType Directory -Force -Path $report|Out-Null
 $databaseAdminURL=$env:TEST_DATABASE_ADMIN_URL
-if(!$databaseAdminURL){$databaseAdminURL='postgres://edu:edu-local-only@127.0.0.1:55432/postgres?sslmode=disable'}
+if(!$databaseAdminURL){throw 'Set explicit TEST_DATABASE_ADMIN_URL for the isolated test cluster.'}
 $env:TEST_DATABASE_ADMIN_URL=$databaseAdminURL
 $uri=[UriBuilder]::new($databaseAdminURL);$uri.Path='/'+$database
 $env:TEST_DATABASE_URL=$uri.Uri.AbsoluteUri

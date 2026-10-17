@@ -10,12 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -28,6 +31,8 @@ import (
 var schema embed.FS
 
 type Config struct {
+	AllowSimulatedPayment                                                   bool
+	CoursewareReviewPolicy                                                  string
 	CoursewareContentReviewDisabled                                         bool
 	MinIOEndpoint, MinIOAccessKey, MinIOSecretKey, MinIOBucket, MinIOPrefix string
 	RedisAddr, RedisUsername, RedisPassword, RedisPrefix                    string
@@ -41,7 +46,10 @@ type Config struct {
 	DatabaseURL, RuntimeURL, Secret, Mode, SeedPassword, Storage, RenderURL, LLMURL, LLMKey, LLMModel, EvalModel, EmbeddingModel, EmbeddingURL, EmbeddingKey, SearchKey, SearchURL, RerankURL, RerankModel, RerankKey string
 }
 type Server struct {
-	cloud cloudServices
+	scheduleMu       sync.Mutex
+	nextTenant       int64
+	nextExportTenant int64
+	cloud            cloudServices
 
 	db         *pgxpool.Pool
 	cfg        Config
@@ -107,13 +115,16 @@ func api(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 			} else if errors.Is(e, pgx.ErrNoRows) {
 				respond(w, 404, map[string]string{"message": "记录不存在或无权访问"})
 			} else {
-				log.Printf("request %s %s: %v", r.Method, r.URL.Path, e)
+				slog.Error("request failed", "request_id", r.Context().Value(requestIDKey{}), "error_type", fmt.Sprintf("%T", e))
 				respond(w, 500, map[string]string{"message": "暂时无法完成操作，已有内容会保留，请稍后重试"})
 			}
 		}
 	}
 }
 func NewServer(ctx context.Context, c Config) (*Server, error) {
+	if c.CoursewareReviewPolicy != "" && c.CoursewareReviewPolicy != "key" && c.CoursewareReviewPolicy != "all" && c.CoursewareReviewPolicy != "none" {
+		return nil, errors.New("COURSEWARE_REVIEW_POLICY must be key, all or none")
+	}
 	if c.Mode != "sample" && c.Mode != "live" {
 		return nil, errors.New("APP_MODE must be sample or live")
 	}
@@ -196,12 +207,7 @@ func (s *Server) Close() {
 	}
 }
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Cache-Control", "no-store")
-		s.mux.ServeHTTP(w, r)
-	})
+	return http.HandlerFunc(s.serveObserved)
 }
 func (s *Server) tx(ctx context.Context, tenant int64) (pgx.Tx, error) {
 	t, e := s.db.Begin(ctx)
@@ -226,7 +232,7 @@ func (s *Server) actor(r *http.Request) (Actor, error) {
 		return a, fail(401, "请登录")
 	}
 	var active bool
-	e = s.db.QueryRow(r.Context(), "SELECT u.active FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.expires_at>now()", claims.Session, claims.UserID).Scan(&active)
+	e = s.db.QueryRow(r.Context(), "SELECT auth_session_active($1,$2)", claims.Session, claims.UserID).Scan(&active)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		return a, fail(503, "登录验证服务暂不可用，请稍后重试")
 	}
@@ -291,18 +297,32 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 	if e := decode(r, &in); e != nil {
 		return e
 	}
+	in.Username = strings.TrimSpace(in.Username)
+	if len(in.Username) > 40 || len(in.Password) > 72 {
+		return fail(401, "用户名或密码错误")
+	}
+	if err := s.authAttempt(r, "login", in.Username); err != nil {
+		return err
+	}
 	var id int64
-	var hash string
-	var active bool
+	sid := newID()
 	tx, e := s.db.Begin(r.Context())
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	// Serialize credential verification/session creation with password changes.
-	e = tx.QueryRow(r.Context(), "SELECT id,password_hash,active FROM users WHERE username=$1 FOR SHARE", in.Username).Scan(&id, &hash, &active)
-	if e != nil || !active || bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
+	// Database proof verification and session creation hold the same user row lock.
+	var authenticated *int64
+	e = tx.QueryRow(r.Context(), "SELECT auth_login($1,$2,$3,$4)", in.Username, in.Password, sid, time.Now().Add(12*time.Hour)).Scan(&authenticated)
+	if e != nil {
+		return e
+	}
+	if authenticated == nil {
 		return fail(401, "用户名或密码错误")
+	}
+	id = *authenticated
+	if err := s.clearLoginAttempts(r, in.Username); err != nil {
+		return err
 	}
 	rows, e := tx.Query(r.Context(), "SELECT id,name,role FROM auth_memberships($1)", id)
 	if e != nil {
@@ -327,11 +347,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	if first == 0 {
 		return fail(403, "没有可用企业")
-	}
-	sid := newID()
-	_, e = tx.Exec(r.Context(), "INSERT INTO sessions VALUES($1,$2,$3)", sid, id, time.Now().Add(12*time.Hour))
-	if e != nil {
-		return e
 	}
 	token, e := s.token(id, first, sid)
 	if e != nil {
@@ -403,7 +418,7 @@ func (s *Server) routes() {
 			}
 		}
 		_, _, coursewareModel := s.agentModel("courseware")
-		respond(w, 200, map[string]any{"status": "ok", "release_tag": releaseTag, "release_commit": releaseCommit, "courseware_brief_version": "conversation-stream-v1", "workspace_needs_version": "clarify-v1", "workspace_context_version": "rolling-summary-v1", "courseware_subjects_version": "all-subjects-v1", "workspace_brief_version": "tools-inline-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "parallel-reviews-v2", "courseware_classroom_version": "answer-steps-v2", "courseware_composition_prompt_version": "purpose-v2", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled, "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "courseware_workflow_optimization_version": "bounded-drafts-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.htmlAnimationConfigured(), "animation_html_version": "workflow-v1", "animation_service_status": map[bool]string{true: "html_ready", false: "unconfigured"}[s.htmlAnimationConfigured()], "animation_service_message": "明亮课堂HTML动画支持通用讲解、教学示意图与教师配图，保留一次函数和几何专用演示", "animation_archetypes": []string{"func.params@1", "geo.transform@1", "lesson.explain@1"}, "animation_video_configured": animationVideoConfigured(), "animation_geometry_version": "geometry-v1", "animation_tts_configured": s.cfg.TTS.configured(), "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
+		respond(w, 200, map[string]any{"status": "ok", "release_tag": releaseTag, "release_commit": releaseCommit, "courseware_brief_version": "conversation-stream-v1", "workspace_needs_version": "clarify-v1", "workspace_context_version": "rolling-summary-v1", "courseware_subjects_version": "all-subjects-v1", "workspace_brief_version": "tools-inline-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "parallel-reviews-v2", "courseware_classroom_version": "answer-steps-v2", "courseware_composition_prompt_version": "purpose-v2", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_review_policy": s.reviewPolicy(), "worker_pool_size": 2, "video_worker_pool_size": 1, "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled && s.reviewPolicy() != "none", "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "courseware_workflow_optimization_version": "bounded-drafts-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.htmlAnimationConfigured(), "animation_html_version": "workflow-v1", "animation_service_status": map[bool]string{true: "html_ready", false: "unconfigured"}[s.htmlAnimationConfigured()], "animation_service_message": "明亮课堂HTML动画支持通用讲解、教学示意图与教师配图，保留一次函数和几何专用演示", "animation_archetypes": []string{"func.params@1", "geo.transform@1", "lesson.explain@1"}, "animation_video_configured": animationVideoConfigured(), "animation_geometry_version": "geometry-v1", "animation_tts_configured": s.cfg.TTS.configured(), "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
 		return nil
 	}))
 	s.mux.HandleFunc("POST /api/auth/login", api(s.login))
@@ -442,7 +457,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/logout", s.auth("", func(w http.ResponseWriter, r *http.Request, a Actor) error {
 		c := &Claims{}
 		jwt.ParseWithClaims(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), c, func(t *jwt.Token) (any, error) { return []byte(s.cfg.Secret), nil })
-		_, e := s.db.Exec(r.Context(), "DELETE FROM sessions WHERE id=$1", c.Session)
+		_, e := s.db.Exec(r.Context(), "SELECT auth_session_revoke($1)", c.Session)
 		respond(w, 200, map[string]bool{"ok": true})
 		return e
 	}))
@@ -520,11 +535,13 @@ func (s *Server) routes() {
 	s.mux.Handle("/", http.FileServer(http.Dir(env("FRONTEND_DIST", "../frontend-vue/dist"))))
 }
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	log.SetOutput(slog.NewLogLogger(slog.Default().Handler(), slog.LevelInfo).Writer())
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		json.NewEncoder(os.Stdout).Encode(map[string]string{"release_tag": releaseTag, "release_commit": releaseCommit})
 		return
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if handled, err := runAnimCLI(ctx, os.Args[1:]); handled {
 		if err != nil {
@@ -536,17 +553,21 @@ func main() {
 		if len(os.Args) != 3 || os.Args[1] != "--reset-seed-password" {
 			log.Fatal("Usage: edu-server [--sync-cloud | --reset-seed-password teacher|admin|low|other]")
 		}
-		if err := resetSeedPassword(ctx, env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), os.Args[2], os.Getenv("SEED_PASSWORD")); err != nil {
-			log.Fatal(err)
+		if err := resetSeedPassword(ctx, os.Getenv("DATABASE_URL"), os.Args[2], os.Getenv("SEED_PASSWORD")); err != nil {
+			slog.Error("password reset failed", "error_type", fmt.Sprintf("%T", err))
+			os.Exit(1)
 		}
 		log.Printf("Password reset for %s; previous sessions revoked. No other account or business data changed.", os.Args[2])
 		return
 	}
 	secret := os.Getenv("JWT_SECRET")
+	if os.Getenv("DATABASE_URL") == "" || os.Getenv("RUNTIME_DATABASE_URL") == "" {
+		log.Fatal("Set explicit DATABASE_URL and RUNTIME_DATABASE_URL; provision credentials before starting")
+	}
 	if secret == "" {
 		log.Fatal("Set JWT_SECRET (32+ characters); see .env.example")
 	}
-	c := Config{RuntimeURL: env("RUNTIME_DATABASE_URL", "postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu?sslmode=disable"), DatabaseURL: env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), Secret: secret, Mode: env("APP_MODE", "sample"), SeedPassword: os.Getenv("SEED_PASSWORD"), Storage: env("STORAGE_DIR", "../storage"), RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000"), LLMURL: env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL"), EvalModel: os.Getenv("LLM_EVAL_MODEL"), EmbeddingModel: os.Getenv("EMBEDDING_MODEL"), EmbeddingURL: env("EMBEDDING_BASE_URL", env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")), EmbeddingKey: env("EMBEDDING_API_KEY", os.Getenv("LLM_API_KEY")), RerankURL: os.Getenv("RERANK_URL"), RerankModel: os.Getenv("RERANK_MODEL"), RerankKey: os.Getenv("RERANK_API_KEY"), SearchKey: os.Getenv("SEARCH_API_KEY"), SearchURL: env("SEARCH_API_URL", "https://api.tavily.com/search")}
+	c := Config{RuntimeURL: os.Getenv("RUNTIME_DATABASE_URL"), DatabaseURL: os.Getenv("DATABASE_URL"), Secret: secret, Mode: env("APP_MODE", "sample"), SeedPassword: os.Getenv("SEED_PASSWORD"), Storage: env("STORAGE_DIR", "../storage"), RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000"), LLMURL: env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL"), EvalModel: os.Getenv("LLM_EVAL_MODEL"), EmbeddingModel: os.Getenv("EMBEDDING_MODEL"), EmbeddingURL: env("EMBEDDING_BASE_URL", env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")), EmbeddingKey: env("EMBEDDING_API_KEY", os.Getenv("LLM_API_KEY")), RerankURL: os.Getenv("RERANK_URL"), RerankModel: os.Getenv("RERANK_MODEL"), RerankKey: os.Getenv("RERANK_API_KEY"), SearchKey: os.Getenv("SEARCH_API_KEY"), SearchURL: env("SEARCH_API_URL", "https://api.tavily.com/search")}
 	c.MinIOEndpoint, c.MinIOAccessKey, c.MinIOSecretKey = os.Getenv("MINIO_ENDPOINT"), os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY")
 	c.MinIOBucket, c.MinIOPrefix = env("MINIO_BUCKET", "edu-agent"), env("MINIO_PREFIX", "files/")
 	c.RedisAddr, c.RedisUsername, c.RedisPassword = os.Getenv("REDIS_ADDR"), os.Getenv("REDIS_USERNAME"), os.Getenv("REDIS_PASSWORD")
@@ -556,12 +577,15 @@ func main() {
 	c.CoursewareLLMURL, c.CoursewareLLMKey, c.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 	c.AnimationLLMURL, c.AnimationLLMKey, c.AnimationLLMModel = os.Getenv("ANIMATION_LLM_BASE_URL"), os.Getenv("ANIMATION_LLM_API_KEY"), os.Getenv("ANIMATION_LLM_MODEL")
 	c.ReviewURL, c.ReviewKey, c.ReviewModel = os.Getenv("EVAL_LLM_BASE_URL"), os.Getenv("EVAL_LLM_API_KEY"), os.Getenv("EVAL_LLM_MODEL")
+	c.AllowSimulatedPayment = env("ALLOW_SIMULATED_PAYMENT", "false") == "true"
+	c.CoursewareReviewPolicy = env("COURSEWARE_REVIEW_POLICY", "key")
 	c.CoursewareContentReviewDisabled = env("COURSEWARE_CONTENT_REVIEW_DISABLED", "false") == "true"
 	c.VisionURL, c.VisionKey, c.VisionModel = os.Getenv("VISION_LLM_BASE_URL"), os.Getenv("VISION_LLM_API_KEY"), os.Getenv("VISION_LLM_MODEL")
 	c.TTS = ttsConfigFromEnv()
 	s, e := NewServer(ctx, c)
 	if e != nil {
-		log.Fatal(e)
+		slog.Error("backend initialization failed; connection details suppressed", "error_type", fmt.Sprintf("%T", e))
+		os.Exit(1)
 	}
 	defer s.Close()
 	if len(os.Args) == 2 && os.Args[1] == "--sync-cloud" {
@@ -570,7 +594,9 @@ func main() {
 		}
 		return
 	}
-	go s.worker(ctx)
+	go watchShutdownFile(ctx, os.Getenv("SHUTDOWN_REQUEST_FILE"), cancel)
+	workersDone := make(chan struct{})
+	go func() { defer close(workersDone); s.worker(ctx) }()
 	go s.documentWorker(ctx)
 	go s.deletedWorkCleaner(ctx)
 	server := &http.Server{Addr: env("LISTEN_ADDR", "127.0.0.1:8080"), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
@@ -584,6 +610,8 @@ func main() {
 	if e = server.ListenAndServe(); e != nil && e != http.ErrServerClosed {
 		log.Fatal(e)
 	}
+	cancel()
+	<-workersDone
 }
 func storagePath(s *Server, tid int64, id, ext string) string {
 	return filepath.Join(s.cfg.Storage, fmt.Sprintf("%d", tid), id+ext)

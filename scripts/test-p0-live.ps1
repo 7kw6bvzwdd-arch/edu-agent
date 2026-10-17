@@ -7,9 +7,8 @@ if(!(Test-Path -LiteralPath $go)){$go=(Get-Command go -ErrorAction Stop).Source}
 $out=Join-Path $root ('work/conversation-first/live-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $out|Out-Null
 Get-Content -LiteralPath (Join-Path $root '.env') -Encoding UTF8|ForEach-Object{if($_ -match '^([^#=]+)=(.*)$'){[Environment]::SetEnvironmentVariable($matches[1].Trim(),$matches[2].Trim(),'Process')}}
-if($env:COURSEWARE_CONTENT_REVIEW_DISABLED -ne 'true'){throw 'User requires content model review to remain disabled.'}
 $databaseAdminURL=$env:TEST_DATABASE_ADMIN_URL
-if(!$databaseAdminURL){$databaseAdminURL='postgres://edu:edu-local-only@127.0.0.1:55432/postgres?sslmode=disable'}
+if(!$databaseAdminURL){throw 'Set explicit TEST_DATABASE_ADMIN_URL for the isolated test cluster.'}
 $env:TEST_DATABASE_ADMIN_URL=$databaseAdminURL
 $uri=[UriBuilder]::new($databaseAdminURL);$uri.Path='/'+$database
 $env:TEST_DATABASE_URL=$uri.Uri.AbsoluteUri;$env:TEST_RUNTIME_DATABASE_URL='';$env:TEST_RENDER_URL='http://127.0.0.1:8000'

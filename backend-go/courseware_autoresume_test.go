@@ -75,7 +75,7 @@ func TestAutomaticResumeQueueAndLeaseHTTP(t *testing.T) {
 	}
 	old := context.WithValue(context.Background(), generationCycleKey{}, 0)
 	old = context.WithValue(old, generationAttemptKey{}, 1)
-	if err = s.workOne(context.Background()); err != nil {
+	if err = s.recoverExpiredTasks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	v := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
@@ -83,6 +83,17 @@ func TestAutomaticResumeQueueAndLeaseHTTP(t *testing.T) {
 		t.Fatal("expired worker requires manual resume", v["status"], v["error"])
 	}
 	// Not yet due: no generation, no charge, no duplicate event.
+	tx, err = s.tx(context.Background(), a.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(context.Background(), "UPDATE tasks SET next_attempt_at=now()+interval '1 hour' WHERE id=$1", id); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
 	events := len(v["events"].([]any))
 	if err = s.workOne(context.Background()); err != nil {
 		t.Fatal(err)

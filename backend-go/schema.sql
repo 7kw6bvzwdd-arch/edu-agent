@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS users (
  id bigserial PRIMARY KEY, username text NOT NULL UNIQUE, password_hash text NOT NULL,
  display_name text NOT NULL, active boolean NOT NULL DEFAULT true
@@ -173,7 +174,7 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO edu_runtime;
 -- Only authentication needs to discover memberships before a tenant is selected.
 CREATE OR REPLACE FUNCTION auth_memberships(uid bigint)
 RETURNS TABLE(id bigint,name text,role text)
-LANGUAGE sql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT t.id,t.name,m.role FROM public.tenants t JOIN public.members m ON m.tenant_id=t.id
  WHERE m.user_id=uid AND m.active ORDER BY t.id
 $$;
@@ -181,10 +182,11 @@ REVOKE ALL ON FUNCTION auth_memberships(bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION auth_memberships(bigint) TO edu_runtime;
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='edu_app') THEN
-  CREATE ROLE edu_app LOGIN PASSWORD 'edu-runtime-local-only' NOSUPERUSER NOBYPASSRLS;
+  CREATE ROLE edu_app LOGIN NOSUPERUSER NOBYPASSRLS;
  END IF;
 END $$;
 GRANT edu_runtime TO edu_app;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC,edu_runtime,edu_app;
 
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_charge_state_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_charge_state_check CHECK(charge_state IN ('unreserved','reserved','settled','released'));
@@ -194,3 +196,67 @@ ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS html_path text NOT NULL 
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export_lease_until timestamptz;
+
+-- Credential operations run under a fixed owner/search_path. Public profile
+-- columns remain joinable by tenant-scoped business queries.
+REVOKE ALL ON users,sessions FROM PUBLIC,edu_runtime,edu_app;
+GRANT SELECT(id,username,display_name,active) ON users TO edu_runtime;
+GRANT UPDATE(display_name) ON users TO edu_runtime;
+DROP FUNCTION IF EXISTS auth_credentials(text,bigint,boolean);
+DROP FUNCTION IF EXISTS auth_set_password(bigint,text,text);
+DROP FUNCTION IF EXISTS auth_set_recovery(bigint,text);
+DROP FUNCTION IF EXISTS auth_session_create(text,bigint,timestamptz);
+-- Proof-bearing operations never return hashes to the business runtime.
+CREATE OR REPLACE FUNCTION auth_login(account text,password text,sid text,expires timestamptz)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE u public.users%ROWTYPE; candidate text; verified boolean; BEGIN
+ SELECT * INTO u FROM public.users WHERE username=account FOR SHARE;
+ candidate:=COALESCE(u.password_hash,'$2a$10$7EqJtq98hPqEX7fNZaFWoO5uHNwyP1g3qJWt/2y3N7sG6uEp9XKgG');
+ verified:=public.crypt(password,candidate)=candidate;
+ IF u.id IS NULL OR NOT u.active OR verified IS DISTINCT FROM true THEN RETURN NULL; END IF;
+ INSERT INTO public.sessions VALUES(sid,u.id,LEAST(expires,now()+interval '12 hours'));
+ RETURN u.id; END $$;
+CREATE OR REPLACE FUNCTION auth_change_password(uid bigint,current_password text,new_hash text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE u public.users%ROWTYPE; BEGIN
+ SELECT * INTO u FROM public.users WHERE id=uid AND active FOR UPDATE;
+ IF u.id IS NULL OR public.crypt(current_password,u.password_hash) IS DISTINCT FROM u.password_hash THEN RETURN false; END IF;
+ UPDATE public.users SET password_hash=new_hash,recovery_hash='' WHERE id=uid;
+ DELETE FROM public.sessions WHERE user_id=uid;
+ RETURN true; END $$;
+CREATE OR REPLACE FUNCTION auth_reset_password(account text,proof text,new_hash text,recovery text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE u public.users%ROWTYPE; BEGIN
+ SELECT * INTO u FROM public.users WHERE username=account AND active FOR UPDATE;
+ IF u.id IS NULL OR u.recovery_hash='' OR u.recovery_hash IS DISTINCT FROM proof THEN RETURN false; END IF;
+ UPDATE public.users SET password_hash=new_hash,recovery_hash=recovery WHERE id=u.id;
+ DELETE FROM public.sessions WHERE user_id=u.id;
+ RETURN true; END $$;
+CREATE OR REPLACE FUNCTION auth_issue_recovery(uid bigint,password text,recovery text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE u public.users%ROWTYPE; BEGIN
+ SELECT * INTO u FROM public.users WHERE id=uid AND active FOR UPDATE;
+ IF u.id IS NULL OR public.crypt(password,u.password_hash) IS DISTINCT FROM u.password_hash THEN RETURN false; END IF;
+ UPDATE public.users SET recovery_hash=recovery WHERE id=uid;
+ RETURN true; END $$;
+CREATE OR REPLACE FUNCTION auth_create_user(account text,hash text,label text,recovery text)
+RETURNS bigint LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ INSERT INTO public.users(username,password_hash,display_name,recovery_hash) VALUES(account,hash,label,recovery) ON CONFLICT DO NOTHING RETURNING id
+$$;
+CREATE OR REPLACE FUNCTION auth_session_active(sid text,uid bigint)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ SELECT EXISTS(SELECT 1 FROM public.sessions s JOIN public.users u ON u.id=s.user_id WHERE s.id=sid AND s.user_id=uid AND s.expires_at>now() AND u.active) $$;
+CREATE OR REPLACE FUNCTION auth_session_revoke(sid text)
+RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ DELETE FROM public.sessions WHERE id=sid $$;
+CREATE OR REPLACE FUNCTION auth_session_refresh(sid text,uid bigint,expires timestamptz)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ BEGIN
+ PERFORM 1 FROM public.users WHERE id=uid AND active FOR SHARE;
+ IF NOT FOUND THEN RETURN false; END IF;
+ UPDATE public.sessions SET expires_at=GREATEST(expires_at,LEAST(expires,now()+interval '12 hours')) WHERE id=sid AND user_id=uid AND expires_at>now();
+ RETURN FOUND;
+END $$;
+DO $$ DECLARE f text; BEGIN
+ FOREACH f IN ARRAY ARRAY['auth_login(text,text,text,timestamp with time zone)','auth_create_user(text,text,text,text)','auth_change_password(bigint,text,text)','auth_reset_password(text,text,text,text)','auth_issue_recovery(bigint,text,text)','auth_session_active(text,bigint)','auth_session_revoke(text)','auth_session_refresh(text,bigint,timestamp with time zone)'] LOOP
+ EXECUTE 'REVOKE ALL ON FUNCTION '||f||' FROM PUBLIC';
+ EXECUTE 'GRANT EXECUTE ON FUNCTION '||f||' TO edu_runtime';
+ END LOOP;
+END $$;

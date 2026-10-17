@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"os"
 )
 
 func TestActiveSessionRefreshHTTP(t *testing.T) {
@@ -16,6 +18,12 @@ func TestActiveSessionRefreshHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	// Only the test administrator controls time in credential fixtures.
+	adminDB, err := pgxpool.New(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminDB.Close()
 	// Simulate a working browser approaching the fixed twelve-hour deadline.
 	expires := time.Now().Add(5 * time.Minute)
 	claims.ExpiresAt = jwt.NewNumericDate(expires)
@@ -23,7 +31,7 @@ func TestActiveSessionRefreshHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec(ctx, "UPDATE sessions SET expires_at=$1 WHERE id=$2", expires, claims.Session); err != nil {
+	if _, err = adminDB.Exec(ctx, "UPDATE sessions SET expires_at=$1 WHERE id=$2", expires, claims.Session); err != nil {
 		t.Fatal(err)
 	}
 	before := worksCall(t, s, "GET", "/api/auth/me", old, nil, 200).Body.String()
@@ -40,7 +48,7 @@ func TestActiveSessionRefreshHTTP(t *testing.T) {
 		t.Fatal("renewal changed identity or failed to extend expiry")
 	}
 	var databaseExpiry time.Time
-	if err = s.db.QueryRow(ctx, "SELECT expires_at FROM sessions WHERE id=$1", claims.Session).Scan(&databaseExpiry); err != nil {
+	if err = adminDB.QueryRow(ctx, "SELECT expires_at FROM sessions WHERE id=$1", claims.Session).Scan(&databaseExpiry); err != nil {
 		t.Fatal(err)
 	}
 	if time.Until(databaseExpiry) < 11*time.Hour {
@@ -58,7 +66,7 @@ func TestActiveSessionRefreshHTTP(t *testing.T) {
 	if _, err = jwt.ParseWithClaims(original, claims, func(*jwt.Token) (any, error) { return []byte(s.cfg.Secret), nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec(ctx, "UPDATE sessions SET expires_at=now()-interval '1 second' WHERE id=$1", claims.Session); err != nil {
+	if _, err = adminDB.Exec(ctx, "UPDATE sessions SET expires_at=now()-interval '1 second' WHERE id=$1", claims.Session); err != nil {
 		t.Fatal(err)
 	}
 	worksCall(t, s, "POST", "/api/auth/refresh", original, nil, 401)
@@ -86,11 +94,11 @@ func TestActiveSessionRefreshHTTP(t *testing.T) {
 	if _, err = jwt.ParseWithClaims(admin, claims, func(*jwt.Token) (any, error) { return []byte(s.cfg.Secret), nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec(ctx, "UPDATE sessions SET expires_at=now()+interval '5 minutes' WHERE id=$1", claims.Session); err != nil {
+	if _, err = adminDB.Exec(ctx, "UPDATE sessions SET expires_at=now()+interval '5 minutes' WHERE id=$1", claims.Session); err != nil {
 		t.Fatal(err)
 	}
 	switched := worksObject(t, worksCall(t, s, "POST", "/api/auth/switch-tenant", admin, map[string]int64{"tenant_id": 2}, 200))["token"].(string)
-	if err = s.db.QueryRow(ctx, "SELECT expires_at FROM sessions WHERE id=$1", claims.Session).Scan(&databaseExpiry); err != nil {
+	if err = adminDB.QueryRow(ctx, "SELECT expires_at FROM sessions WHERE id=$1", claims.Session).Scan(&databaseExpiry); err != nil {
 		t.Fatal(err)
 	}
 	if time.Until(databaseExpiry) < 11*time.Hour {

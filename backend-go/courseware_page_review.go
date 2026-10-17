@@ -43,7 +43,7 @@ type pageReviewContractError struct{ error }
 
 func (s *Server) coursewareQualityConfigured() bool {
 	url, key, model := s.reviewModel("courseware")
-	return (s.cfg.CoursewareContentReviewDisabled || (url != "" && key != "" && model != "")) && s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != ""
+	return (s.cfg.CoursewareContentReviewDisabled || s.reviewPolicy() == "none" || (url != "" && key != "" && model != "")) && s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != ""
 }
 
 func (e pageReviewUnavailable) Error() string {
@@ -53,8 +53,9 @@ func (e pageReviewUnavailable) Unwrap() error { return e.Cause }
 
 const contentReviewDisabledNotice = "内容模型审核已停用；保留程序校验与截图审核，请教师核对知识、题设、计算和答案。"
 
-func (s *Server) pageCheckPassed(check PageQualityCheck, sample bool) bool {
-	if !sample && s.cfg.CoursewareContentReviewDisabled && check.Content == "disabled" {
+func (s *Server) pageCheckPassed(check PageQualityCheck, sample bool, slides ...Slide) bool {
+	skippable := len(slides) == 1 && !importantTeachingPage(Deck{Slides: slides})
+	if !sample && ((s.cfg.CoursewareContentReviewDisabled && check.Content == "disabled") || (s.reviewPolicy() == "key" && check.Content == "skipped" && skippable) || (s.reviewPolicy() == "none" && check.Content == "disabled")) {
 		return check.Visual == "checked" && blockingPageIssues(check.Issues) == ""
 	}
 	return pageCheckPassed(check, sample)
@@ -185,7 +186,7 @@ func (s *Server) checkEditedPages(ctx context.Context, a Actor, id string, in Ta
 	}
 	for _, sl := range d.Slides {
 		check := d.PageChecks[sl.ID]
-		if check.Hash == slideContentHash(*d, sl) && s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+		if check.Hash == slideContentHash(*d, sl) && s.pageCheckPassed(check, s.cfg.Mode == "sample", sl) {
 			continue
 		}
 		one := *d
@@ -396,9 +397,12 @@ func pageForReview(d Deck) Deck {
 	return page
 }
 func (s *Server) reviewTeachingPage(ctx context.Context, a Actor, id string, in TaskInput, d Deck) ([]PageQualityIssue, string, error) {
-	calculated := teachingDeckArithmeticIssues(d)
-	if s.cfg.CoursewareContentReviewDisabled {
+	calculated := subjectContentIssues(in, d)
+	if s.cfg.CoursewareContentReviewDisabled || s.reviewPolicy() == "none" {
 		return append(calculated, exerciseVisibilityIssues(d)...), "disabled", nil
+	}
+	if s.reviewPolicy() == "key" && !importantTeachingPage(d) {
+		return append(calculated, exerciseVisibilityIssues(d)...), "skipped", nil
 	}
 	if len(calculated) > 0 {
 		return calculated, "checked", nil
@@ -630,7 +634,7 @@ func (s *Server) inspectGeneratedPageWithNext(ctx context.Context, a Actor, id s
 	if err != nil {
 		return check, pageReviewUnavailable{err}
 	}
-	if status != "checked" && !(s.cfg.CoursewareContentReviewDisabled && status == "disabled") {
+	if status != "checked" && status != "skipped" && !((s.cfg.CoursewareContentReviewDisabled || s.reviewPolicy() == "none") && status == "disabled") {
 		return check, pageReviewUnavailable{}
 	}
 	if reason := blockingPageIssues(issues); reason != "" {

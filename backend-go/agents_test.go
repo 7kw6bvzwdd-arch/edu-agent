@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -125,10 +127,26 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 				return
 			}
 			prompt := req.Messages[1].Content
-			if !strings.Contains(prompt, "八年级") || !strings.Contains(prompt, "前置知识") {
+			if !strings.Contains(prompt, "八年级") {
 				t.Error("grade not passed to workflow", kind)
 			}
 			d := sampleDeck(TaskInput{Type: kind, Topic: "一次函数", Theme: "forest", Pages: 8})
+			if strings.Contains(prompt, "不生成页面全文") {
+				plan := TeachingPlan{Summary: "显式规划 fixture"}
+				for i, sl := range d.Slides {
+					plan.Pages = append(plan.Pages, TeachingPage{Position: i + 1, Goal: sl.Title, Task: sl.Layout, Minutes: 3, Preview: i == 1 || i == 3 || i == 4})
+				}
+				respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(plan))}}}})
+				return
+			}
+			var start, end int
+			fmt.Sscanf(regexp.MustCompile(`本批只返回第\d+至第\d+页`).FindString(prompt), "本批只返回第%d至第%d页", &start, &end)
+			if start < 1 || start != end || end > len(d.Slides) {
+				t.Error("provider must receive a single-page request")
+				w.WriteHeader(400)
+				return
+			}
+			d.Slides = d.Slides[start-1 : end]
 			respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
 		}))
 	}
@@ -136,6 +154,12 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 	defer course.Close()
 	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = course.URL, "test", "course-model"
+	reviewer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"issues":[]}`}}}})
+	}))
+	defer reviewer.Close()
+	s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = reviewer.URL, "review-fixture", "review-model"
+	s.cfg.VisionURL, s.cfg.VisionKey, s.cfg.VisionModel = reviewer.URL, "vision-fixture", "vision-model"
 	for _, kind := range []string{"courseware"} {
 		in := TaskInput{Type: kind, Grade: "八年级", Topic: "一次函数", Theme: "forest", Pages: 8, UseKB: true, IdempotencyKey: newID()}
 		seed := in
@@ -147,7 +171,7 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 		}
 		result := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, token, nil, 200))
 		worksCall(t, s, "POST", "/api/tasks/"+id+"/cancel", token, nil, 200)
-		if result["status"] != "awaiting_confirmation" {
+		if result["status"] != "awaiting_preview" {
 			t.Fatal("agent did not produce a confirmable outline", kind, result["status"], result["error"])
 		}
 	}

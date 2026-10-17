@@ -39,7 +39,7 @@ func (s *Server) billing(w http.ResponseWriter, r *http.Request, a Actor) error 
 	if e != nil {
 		return e
 	}
-	respond(w, 200, map[string]any{"plan": plan, "balance": b, "reserved": res, "available": b - res, "products": products, "ledger": ledger, "orders": orders})
+	respond(w, 200, map[string]any{"plan": plan, "balance": b, "reserved": res, "available": b - res, "products": products, "simulated_payment_enabled": s.cfg.Mode != "live" || s.cfg.AllowSimulatedPayment, "ledger": ledger, "orders": orders})
 	return nil
 }
 func queryMaps(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]map[string]any, error) {
@@ -96,6 +96,9 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request, a Actor) er
 	return nil
 }
 func (s *Server) payOrder(w http.ResponseWriter, r *http.Request, a Actor) error {
+	if s.cfg.Mode == "live" && !s.cfg.AllowSimulatedPayment {
+		return fail(403, "真实模型环境已关闭自助模拟入账，请联系管理员分配演示额度")
+	}
 	tx, e := s.tx(r.Context(), a.TenantID)
 	if e != nil {
 		return e
@@ -275,7 +278,7 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 				}
 				for _, sl := range final.Slides {
 					check := final.PageChecks[sl.ID]
-					if check.Hash != slideContentHash(final, sl) || !s.pageCheckPassed(check, mode == "sample") {
+					if check.Hash != slideContentHash(final, sl) || !s.pageCheckPassed(check, mode == "sample", sl) {
 						return fail(409, "课件仍有页面未完成内容与实际画面审核，暂不能交付")
 					}
 				}

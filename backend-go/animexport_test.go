@@ -64,8 +64,15 @@ func TestAnimationExportRecoveryHTTP(t *testing.T) {
 	}
 	worksCall(t, s, "POST", path+"/export", token, body, 409)
 	worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", token, nil, 200)
-	// Crash recovery uses a persisted expired lease; restart never resets budget.
+	// Infrastructure interruption restores this attempt and automatically queues
+	// the accepted revision. Ordinary renderer failures still consume the budget.
 	seed(animExport{Status: "running", Revision: 1, Hash: animDigest(b), Attempt: 2, Token: newID()}, true)
+	if e := s.recoverExpiredTasks(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	if job := state(); job["status"] != "pending" || job["attempts"] != float64(1) {
+		t.Fatal(job)
+	}
 	if _, e := s.workAnimationExport(context.Background(), a.TenantID); e != nil {
 		t.Fatal(e)
 	}

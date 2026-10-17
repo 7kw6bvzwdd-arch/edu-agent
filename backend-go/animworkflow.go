@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"io"
@@ -591,31 +592,9 @@ func (s *Server) workHTMLAnimation(ctx context.Context, tid int64) (bool, error)
 		return false, e
 	}
 	defer tx.Rollback(ctx)
-	// Expired waits release holds; expired leases retain checkpoints for explicit recovery.
-	rows, e := queryMaps(ctx, tx, `SELECT id,member_id FROM tasks WHERE deleted_at IS NULL AND input->>'animation_engine'='html' AND ((status LIKE 'anim_%_running' AND lease_until<now()) OR (status IN ('anim_plan','anim_representative','anim_acceptance','anim_edit_acceptance') AND updated_at<now()-interval '1 day')) FOR UPDATE SKIP LOCKED`)
-	if e != nil {
-		return false, e
-	}
-	for _, v := range rows {
-		a := Actor{TenantID: tid, MemberID: v["member_id"].(int64)}
-		t, err := animRead(ctx, tx, v["id"].(string), a.MemberID, false)
-		if err != nil {
-			return false, err
-		}
-		t.Flow.Resume = animResumeStage(t.Status)
-		if err = animRelease(ctx, tx, a, &t); err != nil {
-			return false, err
-		}
-		t.Status = "failed"
-		if err = animSave(ctx, tx, t); err != nil {
-			return false, err
-		}
-		if err = event(ctx, tx, tid, t.ID, "failed", "制作或审核等待超时，检查点已保留；未结算预留已释放"); err != nil {
-			return false, err
-		}
-	}
 	var coursewarePending bool
-	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE deleted_at IS NULL AND type IN ('courseware','revision') AND charge_state='reserved' AND status IN ('pending','confirmed','expand_pending') AND (next_attempt_at IS NULL OR next_attempt_at<=now()))`).Scan(&coursewarePending); e != nil {
+	// Prioritize courseware, but age ready animation jobs into the shared pool.
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE deleted_at IS NULL AND type IN ('courseware','revision') AND charge_state='reserved' AND status IN ('pending','confirmed','expand_pending') AND (next_attempt_at IS NULL OR next_attempt_at<=now())) AND NOT EXISTS(SELECT 1 FROM tasks WHERE deleted_at IS NULL AND input->>'animation_engine'='html' AND status IN ('anim_plan_pending','anim_rep_pending','anim_full_pending','anim_edit_pending') AND (lease_until IS NULL OR lease_until<now()) AND updated_at<now()-interval '2 minutes')`).Scan(&coursewarePending); e != nil {
 		return false, e
 	}
 	if coursewarePending {
@@ -637,15 +616,20 @@ func (s *Server) workHTMLAnimation(ctx context.Context, tid int64) (bool, error)
 	}
 	t.Status = strings.Replace(t.Status, "_pending", "_running", 1)
 	t.Attempt++
-	if _, e = tx.Exec(ctx, `UPDATE tasks SET status=$1,stage=$1,attempt=$2,lease_until=now()+interval '31 minutes',updated_at=now() WHERE id=$3`, t.Status, t.Attempt, id); e != nil {
+	if _, e = tx.Exec(ctx, `UPDATE tasks SET status=$1,stage=$1,attempt=$2,lease_until=now()+interval '3 minutes',updated_at=now() WHERE id=$3`, t.Status, t.Attempt, id); e != nil {
 		return false, e
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return false, e
 	}
 	work, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	next, err := s.buildHTMLAnimation(work, a, &t)
+	var next string
+	err := s.runLeasedTask(work, cancel, a, id, t.Attempt, func() error { var buildErr error; next, buildErr = s.buildHTMLAnimation(work, a, &t); return buildErr })
+	interrupted := errors.Is(work.Err(), context.Canceled)
 	cancel()
+	if ctx.Err() != nil || interrupted {
+		return true, s.requeueInterrupted(tid, id, t.Attempt)
+	}
 	done, c := context.WithTimeout(context.Background(), 15*time.Second)
 	defer c()
 	tx, e = s.tx(done, tid)

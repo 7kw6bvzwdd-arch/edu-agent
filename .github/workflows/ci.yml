@@ -3,17 +3,6 @@ on: [push, pull_request, workflow_dispatch]
 jobs:
   checks:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: edu
-          POSTGRES_PASSWORD: edu-local-only
-          POSTGRES_DB: edu_test
-        ports: ['55432:5432']
-        options: >-
-          --health-cmd "pg_isready -U edu -d edu_test"
-          --health-interval 3s --health-timeout 3s --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -28,6 +17,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Start isolated database with ephemeral credentials
+        shell: bash
+        run: |
+          admin_password=$(openssl rand -hex 32)
+          runtime_password=$(openssl rand -hex 32)
+          echo "::add-mask::$admin_password"
+          echo "::add-mask::$runtime_password"
+          echo "DATABASE_URL=postgres://edu:$admin_password@127.0.0.1:55432/edu_test?sslmode=disable" >> "$GITHUB_ENV"
+          echo "RUNTIME_DATABASE_URL=postgres://edu_app:$runtime_password@127.0.0.1:55432/edu_test?sslmode=disable" >> "$GITHUB_ENV"
+          echo "TEST_DATABASE_URL=postgres://edu:$admin_password@127.0.0.1:55432/edu_test?sslmode=disable" >> "$GITHUB_ENV"
+          echo "TEST_RUNTIME_DATABASE_URL=postgres://edu_app:$runtime_password@127.0.0.1:55432/edu_test?sslmode=disable" >> "$GITHUB_ENV"
+          docker run -d --name edu-ci-postgres -e POSTGRES_USER=edu -e POSTGRES_DB=edu_test -e POSTGRES_PASSWORD="$admin_password" -p 127.0.0.1:55432:5432 pgvector/pgvector:pg16
+          for i in $(seq 1 60); do docker exec edu-ci-postgres pg_isready -U edu -d edu_test && break; sleep 1; done
+          docker exec edu-ci-postgres pg_isready -U edu -d edu_test
+        # GITHUB_ENV becomes visible in the following step.
+      - name: Provision isolated runtime role
+        working-directory: backend-go
+        run: go run ../scripts/provision-database.go
       - run: pip install -r render-service-py/requirements.txt
       # app.py renders Chinese formulas through matplotlib, which emits
       # "Glyph ... missing" and draws tofu unless the face named by FONT
@@ -47,7 +54,7 @@ jobs:
       - name: Go portable tests (no database or Office prerequisite)
         working-directory: backend-go
         run: |
-          go test -count=1 ./...
+          env -u TEST_DATABASE_URL -u TEST_RUNTIME_DATABASE_URL go test -count=1 ./...
           go vet ./...
       - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &
       # Explicit HTTP boundary suite. Full courseware screenshot acceptance requires
@@ -57,12 +64,10 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
           curl -fsS http://127.0.0.1:8000/health
           cd backend-go
-          go test -count=1 -timeout 15m -v -run '^(TestHTTPMemberQuotaAndIsolation|TestRegisterCreatesIsolatedSpaceAndRecovery|TestActiveSessionRefreshHTTP|TestAccountSettingsHTTP|TestCloudHealthHTTP|TestMemberPackageAndConcurrentReservations|TestHTMLAnimationWorkflowHTTP|TestHTMLGeometryWorkflowHTTP|TestHTMLGeneralLessonWorkflowHTTP|TestHTMLAnimationRecoveryHTTP|TestHTMLAnimationCancelledWorkerHTTP|TestAnimationExportRecoveryHTTP)$' ./...
+          go test -count=1 -timeout 15m -v -run '^(TestHTTPMemberQuotaAndIsolation|TestRegisterCreatesIsolatedSpaceAndRecovery|TestActiveSessionRefreshHTTP|TestAccountSettingsHTTP|TestCloudHealthHTTP|TestMemberPackageAndConcurrentReservations|TestHTMLAnimationWorkflowHTTP|TestHTMLGeometryWorkflowHTTP|TestHTMLGeneralLessonWorkflowHTTP|TestHTMLAnimationRecoveryHTTP|TestHTMLAnimationCancelledWorkerHTTP|TestAnimationExportRecoveryHTTP|TestRemediationTeacherWaitPersistsHTTP|TestRemediationExpiredLeaseHTTP|TestRemediationLoginRateLimitHTTP|TestRemediationLiveSimulationHTTP|TestRemediationAuthStoragePrivilegesHTTP|TestRemediationCredentialFunctionPrivilegesHTTP|TestRemediationCredentialNullProofHTTP|TestRemediationReviewPolicyHTTP|TestRemediationWorkersShutdownAndRenewalHTTP|TestRemediationObservabilityAndStreamHTTP|TestRemediationAnimationQueueAgingHTTP|TestRemediationProcessRecoveryHTTP)$' ./...
         env:
-          TEST_DATABASE_URL: postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable
-          TEST_RUNTIME_DATABASE_URL: postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable
           TEST_RENDER_URL: http://127.0.0.1:8000
-      - run: npm ci && npm run build
+      - run: npm ci && npm run format:check && npm run build
         working-directory: frontend-vue
       - name: Browser and classroom fixture contracts (no provider calls)
         run: |
@@ -96,9 +101,6 @@ jobs:
           export ANIMATION_EXPORT_TEST_SOURCE="$GITHUB_WORKSPACE/work/lesson-video/fixture.html"
           cd backend-go
           go test -count=1 -timeout 18m -v -run '^TestAnimationExportActualMP4HTTP$' ./...
-        env:
-          TEST_DATABASE_URL: postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable
-          TEST_RUNTIME_DATABASE_URL: postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable
       - name: Retain fixture acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

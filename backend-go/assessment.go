@@ -35,7 +35,7 @@ func (s *Server) assessTeaching(ctx context.Context, a Actor, task, kind string,
 		checked, suggestions, blocking := 0, 0, 0
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]
-			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample", sl) {
 				return map[string]any{"status": "unavailable", "reason": "仍有页面未完成内容与实际画面审核；请恢复后继续检查。", "rubric_version": "page-review-v1"}
 			}
 			checked++
@@ -46,6 +46,18 @@ func (s *Server) assessTeaching(ctx context.Context, a Actor, task, kind string,
 					suggestions++
 				}
 			}
+		}
+		contentChecked, skipped := 0, 0
+		for _, sl := range d.Slides {
+			c := d.PageChecks[sl.ID]
+			if c.Content == "checked" {
+				contentChecked++
+			} else {
+				skipped++
+			}
+		}
+		if skipped > 0 && !s.cfg.CoursewareContentReviewDisabled {
+			return map[string]any{"status": "partial", "content_review": s.reviewPolicy(), "content_pages_checked": contentChecked, "content_pages_unchecked": skipped, "visual_pages_checked": checked, "scope": "重点内容分级核验；未核验页面仍需教师逐页核对", "blocking_issues": blocking, "suggestions": suggestions}
 		}
 		if s.cfg.CoursewareContentReviewDisabled {
 			return map[string]any{"status": "partial", "reason": contentReviewDisabledNotice, "content_review": "disabled", "visual_review": "checked", "pages_checked": checked, "blocking_issues": blocking, "suggestions": suggestions}

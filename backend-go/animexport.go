@@ -113,14 +113,10 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 		return false, e
 	}
 	defer tx.Rollback(ctx)
-	// A crashed exporter remains explicitly retryable; its attempt count persists.
-	if _, e = tx.Exec(ctx, `UPDATE tasks SET animation_export=animation_export || jsonb_build_object('status','failed','error','视频导出中断，可重试；已验收作品保留'),animation_export_lease_until=NULL WHERE deleted_at IS NULL AND animation_export->>'status'='running' AND animation_export_lease_until<now()`); e != nil {
-		return false, e
-	}
 	var id string
 	var member int64
 	var job animExport
-	e = tx.QueryRow(ctx, `SELECT id,member_id,animation_export FROM tasks WHERE deleted_at IS NULL AND input->>'animation_engine'='html' AND animation_export->>'status'='pending' AND (animation_export_lease_until IS NULL OR animation_export_lease_until<now()) AND NOT EXISTS(SELECT 1 FROM tasks c WHERE c.deleted_at IS NULL AND c.type IN ('courseware','revision') AND c.charge_state='reserved' AND c.status IN ('pending','confirmed','expand_pending')) ORDER BY updated_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &member, &job)
+	e = tx.QueryRow(ctx, `SELECT id,member_id,animation_export FROM tasks WHERE deleted_at IS NULL AND input->>'animation_engine'='html' AND animation_export->>'status'='pending' AND (animation_export_lease_until IS NULL OR animation_export_lease_until<now()) ORDER BY updated_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &member, &job)
 	if e == pgx.ErrNoRows {
 		return false, tx.Commit(ctx)
 	}
@@ -129,7 +125,7 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 	}
 	job.Status = "running"
 	job.Attempt++
-	if _, e = tx.Exec(ctx, "UPDATE tasks SET animation_export=$1,animation_export_lease_until=now()+interval '16 minutes' WHERE id=$2", asJSON(job), id); e != nil {
+	if _, e = tx.Exec(ctx, "UPDATE tasks SET animation_export=$1,animation_export_lease_until=now()+interval '3 minutes' WHERE id=$2", asJSON(job), id); e != nil {
 		return false, e
 	}
 	if e = tx.Commit(ctx); e != nil {
@@ -140,9 +136,12 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 	defer cancel()
 	// Poll persisted cancellation, deletion and lease identity while rendering.
 	stopped := make(chan struct{})
-	defer close(stopped)
+	monitorDone := make(chan struct{})
+	defer func() { close(stopped); cancel(); <-monitorDone }()
 	go func() {
+		defer close(monitorDone)
 		ticker := time.NewTicker(2 * time.Second)
+		lastRenew := time.Now()
 		defer ticker.Stop()
 		for {
 			select {
@@ -157,7 +156,14 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 					return
 				}
 				var current bool
-				err = check.QueryRow(work, "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL AND animation_export->>'token'=$3 AND animation_export->>'status'='running')", id, member, job.Token).Scan(&current)
+				err = check.QueryRow(work, "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL AND animation_export->>'token'=$3 AND (animation_export->>'attempt')::int=$4 AND animation_export->>'status'='running')", id, member, job.Token, job.Attempt).Scan(&current)
+				if err == nil && current && time.Since(lastRenew) >= time.Minute {
+					_, err = check.Exec(work, "UPDATE tasks SET animation_export_lease_until=now()+interval '3 minutes' WHERE id=$1 AND animation_export->>'token'=$2 AND (animation_export->>'attempt')::int=$3 AND animation_export->>'status'='running'", id, job.Token, job.Attempt)
+					if err == nil {
+						err = check.Commit(work)
+						lastRenew = time.Now()
+					}
+				}
 				check.Rollback(work)
 				if err != nil || !current {
 					cancel()
@@ -188,8 +194,8 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 	if e = tx.QueryRow(done, "SELECT animation_export,deleted_at IS NOT NULL,COALESCE((animation->>'accepted_revision')::int,0) FROM tasks WHERE id=$1 AND member_id=$2 FOR UPDATE", id, member).Scan(&current, &deleted, &accepted); e != nil {
 		return true, e
 	}
-	if deleted || current.Token != job.Token || current.Status != "running" {
-		_, e = tx.Exec(done, "UPDATE tasks SET animation_export_lease_until=NULL WHERE id=$1 AND animation_export->>'token'=$2", id, job.Token)
+	if deleted || current.Token != job.Token || current.Attempt != job.Attempt || current.Status != "running" {
+		_, e = tx.Exec(done, "UPDATE tasks SET animation_export_lease_until=NULL WHERE id=$1 AND animation_export->>'token'=$2 AND (animation_export->>'attempt')::int=$3", id, job.Token, job.Attempt)
 		if e != nil {
 			return true, e
 		}
@@ -198,7 +204,12 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 	if renderErr == nil {
 		renderErr = s.checkWorkPermission(done, a, "animation")
 	}
-	if renderErr != nil {
+	if ctx.Err() != nil {
+		job.Status = "pending"
+		job.Attempt--
+		job.Token = newID()
+		job.Error = "服务重启，视频导出已排队恢复；已验收课件保留"
+	} else if renderErr != nil {
 		job.Status = "failed"
 		job.Error = "视频导出未完成，可重试；已验收作品和积分不受影响"
 	} else {
@@ -215,13 +226,13 @@ func (s *Server) workAnimationExport(ctx context.Context, tid int64) (bool, erro
 	if _, e = tx.Exec(done, "UPDATE tasks SET animation_export=$1,animation_export_lease_until=NULL,updated_at=now() WHERE id=$2", asJSON(job), id); e != nil {
 		return true, e
 	}
-	if e = event(done, tx, tid, id, "animation_export_"+job.Status, map[bool]string{true: "已验收版本 MP4 导出完成", false: job.Error}[renderErr == nil]); e != nil {
+	if e = event(done, tx, tid, id, "animation_export_"+job.Status, map[bool]string{true: "已验收版本 MP4 导出完成", false: job.Error}[job.Status == "succeeded"]); e != nil {
 		return true, e
 	}
 	if e = tx.Commit(done); e != nil {
 		return true, e
 	}
-	published = renderErr == nil
+	published = job.Status == "succeeded"
 	return true, nil
 }
 
@@ -252,7 +263,10 @@ func (s *Server) renderAnimationMP4(ctx context.Context, a Actor, id string, job
 	if e = os.WriteFile(input, html, 0600); e != nil {
 		return "", e
 	}
-	script := env("ANIMATION_EXPORT_SCRIPT", "../animation-video/export.mjs")
+	script, e := filepath.Abs(env("ANIMATION_EXPORT_SCRIPT", "../animation-video/export.mjs"))
+	if e != nil {
+		return "", e
+	}
 	cmd := exec.CommandContext(ctx, env("ANIMATION_NODE_PATH", "node"), script, input, output)
 	// Rendering receives only OS/browser settings, never model keys or database credentials.
 	for _, key := range []string{"PATH", "PATHEXT", "SystemRoot", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "ANIMATION_CHROME_PATH"} {
@@ -264,6 +278,12 @@ func (s *Server) renderAnimationMP4(ctx context.Context, a Actor, id string, job
 	if runtime.GOOS == "windows" {
 		cmd.Cancel = func() error { return exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run() }
 	}
+	releaseToken, restrictErr := restrictExportProcess(cmd)
+	if restrictErr != nil {
+		return "", fmt.Errorf("无法降低视频导出权限")
+	}
+	defer releaseToken()
+	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	if e = cmd.Run(); e != nil {
 		return "", fmt.Errorf("视频渲染失败")

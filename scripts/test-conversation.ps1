@@ -5,7 +5,7 @@ $database='edu_verify_20261009_'+([guid]::NewGuid().ToString('N').Substring(0,12
 $go=Join-Path $root 'work/toolchain/go/bin/go.exe'
 if(!(Test-Path -LiteralPath $go)){$go=(Get-Command go -ErrorAction Stop).Source}
 $databaseAdminURL=$env:TEST_DATABASE_ADMIN_URL
-if(!$databaseAdminURL){$databaseAdminURL='postgres://edu:edu-local-only@127.0.0.1:55432/postgres?sslmode=disable'}
+if(!$databaseAdminURL){throw 'Set explicit TEST_DATABASE_ADMIN_URL for the isolated test cluster.'}
 $env:TEST_DATABASE_ADMIN_URL=$databaseAdminURL
 $uri=[UriBuilder]::new($databaseAdminURL);$uri.Path='/'+$database
 $env:TEST_DATABASE_URL=$uri.Uri.AbsoluteUri

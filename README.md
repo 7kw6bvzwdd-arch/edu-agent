@@ -4,6 +4,8 @@ Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，支持�
 
 ## 当前状态 · 2026-10-17
 
+本轮14项整改进入统一发布验收；当前运行版本以 `/api/health` 和 `work/active-release.json` 为准。实现、证据和发布边界见 [整改记录](docs/remediation-20261017.md)。
+
 - 各学科通用讲解与可选MP4已发布本机，保留分镜/代表幕/验收/修改/我的作品流程；历史验收边界见 [动画记录](docs/animation-general-video-20261016.md)。本轮代码和发布整顿状态见 [整改记录](docs/remediation-20261017.md)。
 
 - 首页支持真实流式需求对话，资料和设置按需展开；教师可继续讨论或直接制作三页预览，不增加摘要确认关卡。制作时预留20积分，教师审核后继续，完整交付时结算一次。
@@ -30,10 +32,10 @@ Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，支持�
 ```powershell
 # 在 D:/tools/harness/edu-agent 中
 # 先在完成验收的提交上创建本地tag，再构建；构建不读取工作区未提交源码。
-git tag -a edu-20261017-baseline -m "Published-scope baseline"
-python scripts/build-release.py --tag edu-20261017-baseline
-python scripts/verify-release.py --release work/releases/edu-20261017-baseline --expect-tag edu-20261017-baseline
-powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -ReleasePath work/releases/edu-20261017-baseline
+git tag -a edu-20261017-remediation-v1 -m "Published-scope baseline"
+python scripts/build-release.py --tag edu-20261017-remediation-v1
+python scripts/verify-release.py --release work/releases/edu-20261017-remediation-v1 --expect-tag edu-20261017-remediation-v1
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -ReleasePath work/releases/edu-20261017-remediation-v1
 # 停止由脚本启动的进程；保留数据库和数据
 powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 ```
@@ -46,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 
 数据库用 `docker compose up -d --wait db` 启动，宿主机端口55432。默认Python解析/PPT服务作为本机进程运行；也可用 `docker compose --profile render up -d --build renderer`，不要同时占用8000端口。
 
-Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编码 MP4。模型只能提供受约束 JSON，不执行模型生成的 JavaScript；导出子进程采用环境白名单，页面外网请求被阻止。这不是容器或操作系统权限沙箱；独立低权限导出身份仍待落实。Docker 当前用于本地 PostgreSQL 和可选 Python 渲染服务。
+Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编码 MP4。模型只提供受约束 JSON，不执行模型生成的 JavaScript；导出使用环境白名单及临时工作目录，页面外网请求被阻止。Windows 要求服务以非管理员身份运行，Linux 拒绝 root 并用 setpriv 清除能力、禁止提权；这不是独立账户或文件系统沙箱。Docker 用于本地 PostgreSQL 和可选 Python 渲染服务。
 
 ## 已有功能
 
@@ -61,11 +63,11 @@ Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编
 - 页面保持打开时，登录令牌剩余不足30分钟会自动续期；受保护的API请求也会先检查续期。续期和企业切换同时延长令牌及数据库会话12小时，保留课件和未保存编辑。临时验证故障不清除登录，已到期、主动退出、改密或停用的会话不能续期。`node scripts/browser-session-renewal.cjs` 使用拦截接口和加速时钟验证制作中跨越到期、临时故障及退出与续期并发，不调用真实模型或修改业务数据。
 - 课件自动修复：超行/超列表格拆为续页并重复标识列；过长单元格转为逐项记录，正文按原文分页，长标题和表头完整原文保留在备注。缺失数据明确标注，不补造数值。首次生成、确认、编辑导出、版本恢复和单页改写共用排版修复；实际PPTX渲染通过后才交付。
 - 新建课件逐页生成并保存检查点；前三页逐页审核、明确确认后才继续。后续模型、内容检查或排版失败只定位并修复问题页；请求包含该页与前后相邻页、教学目标及简短路线，不发送整套页面正文。已保存页及内容未变的审核结果在续作中保留。每页响应首次6000 tokens、截断/结构错误可用12000 tokens重试一次；内容或排版问题另有一次本页修复，全套质量缺项定向修复未审核页，每页最多两轮。所有修复受总时限约束，持续失败保存检查点并释放原预留。自动修复不新增业务积分，手动续作沿用20积分预留规则。
-- 逐页续作时限按剩余页预算计算，上限40分钟，单次模型请求最多180秒；到时保留检查点。Ark 的 `glm-5-3-flash-260828` 课件请求仍关闭额外思考输出。工作台显示真实保存页数、百分比与当前修复页；内容生成100%后仍需排版与审核。预览按页面内容缓存，新增页或其他页修复不会重载未变化图片，同版本轮询保留未保存编辑。
+- 逐页续作预算为6分钟加剩余页数乘120秒，上限3小时；规划请求最多6分钟，普通请求最多180秒。这是保护预算，不是完成承诺。到时保留检查点；工作台显示真实保存页数和当前修复页，内容生成完成后仍需排版与审核。
 - 项目技能位于 `backend-go/skills/edu-courseware/SKILL.md`，适配自 WorkBuddy PPTX v20260918；教学与视觉规范经 `go:embed` 接入生成及单页改写，单页修复规范接入自动修复。使用现有 Deck/Slide、七种布局和真实 PPTX 渲染器，不依赖 WorkBuddy 的 slidep 或 editor_sdk。
 - 旧作品兼容流程的模型结构错误、输出截断、临时网络或429/502/503/504最多共用一次额外模型尝试；本地排版最多尝试32次、成品最多100页。密钥错误、无效公式和不可信引用仍保留真实错误。过程页显示“自动修复与排版检查”，不把无法交付的任务标成成功。
 - 模型格式兼容覆盖教案/备注的文本数组、单条要点、空的可选图形、图解文字节点与明确的数值字符串；无法无歧义转换的字段仍拒绝，并将具体页码、字段和预期类型反馈给修复模型及过程记录（不记录原始响应内容）。流程/时间线/路线/区间图超过4个节点时自动拆为首尾相连续页，区间图拆页前检查全局数值关系；各页按本段缩放，不跨页比较线段长度。
-- 旧作品兼容流程：检索 → 教案及8–20页大纲（默认12页）→ 自动整理与真实PPTX预检 → 教师编辑/确认 → PPTX → 结算。新建课件改为上方三页先审流程。课件和动画工作台直接更新状态。取消、失败、等待超时释放预留。
+- 旧作品兼容流程：检索 → 教案及8–20页大纲（默认12页）→ 自动整理与真实PPTX预检 → 教师编辑/确认 → PPTX → 结算。新建课件改为上方三页先审流程。课件和动画工作台直接更新状态。用户取消或最终失败释放预留，教师待审长期保留。
 - 七套视觉主题（新增明亮课堂）、七种页面版式：导入、概念、步骤、对比、例题、练习、总结；编辑文字、重点词、核心问题、教学表格、流程/时间顺序/路线/数值区间图、基础图表、讲解备注及答案。支持公式图片、基础示意图和教师上传有出处的配图；教案Markdown和PPTX下载。
 - 我的作品支持新建、搜索、按类型/状态筛选、分页、打开编辑、重命名及删除。“待处理与已取消”收纳中断和取消记录；还原只移回当前作品并保留草稿，不自动制作或预留积分，之后可手动继续。课件支持版本历史、旧版内容查看、旧版PPTX下载和免费恢复；版本恢复会生成新修订，旧版继续保留。活跃任务须先取消，关联的改写/动画及课件对话未结束时禁止删除源课件。确认删除后不可还原，会清理草稿、历史版本、独占文件及预览，保留其他作品仍引用的文件、历史账单和审计；取消中的制作退出后再清理，云端失败会后台重试，页面显示待清理状态。不会自动清理本次更新前已经隐藏的记录。
 - 免费手工修改/换模板/重导出；单页AI修改独立预留5积分，文件保存与结算一致，失败保留原课件。
@@ -73,10 +75,10 @@ Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编
 - 企业隔离检索、来源正文快照/页码/URL/hash/抓取时间；中文关键词、可选1536维向量、RRF融合、可选重排。
 - 简单基础套餐500积分/模拟49元、加量100积分/模拟9元；重复支付只入账一次。管理员分配套餐留审计记录。演示生成价格：课件20积分、动画40积分、单页修改5积分。
 - 个人成果对其他成员及管理员私有；管理员只能看到企业汇总和成员管理。
-- 新教学动画使用 HTML 工作台，经方案、代表幕与成品确认后交付带语音和字幕的离线 HTML；当前仅支持一次函数参数动画，MP4 导出尚未实现。旧生成入口已移除，历史作品仍可查看和下载。代码及部署状态见实施记录。
+- 新教学动画使用 HTML 工作台，经方案、代表幕与成品确认后交付带语音和字幕的离线 HTML；支持通用讲解、一次函数与几何变换，已验收修订可导出 MP4。旧生成入口已移除，历史作品仍可查看和下载。代码及部署状态见实施记录。
 - 数据库持久化任务事件、SSE接口和页面过程树，基本仪表盘、模型调用记录、五条固定检索评测；可配置独立模型辅助评审。
 
-样例模式 `APP_MODE=sample` **不调用真实模型、搜索或向量接口**。课件内容来自五个内置教学样例，PPTX、数据库和积分流程真实执行；其它课题显示通用示例提示，不伪装成AI成果。动画入口在样例及真实模式下均停用；新引擎开发命令另行区分无语音、测试音和真实 TTS。
+样例模式 `APP_MODE=sample` **不调用真实模型、搜索或向量接口**。课件内容来自五个内置教学样例，PPTX、数据库和积分流程真实执行；其它课题显示通用示例提示，不伪装成AI成果。动画显式区分样例、测试音和真实 TTS；不把样例音标为真实生成。
 
 ## 接入火山方舟
 
@@ -103,7 +105,7 @@ Embedding独立配置地址、密钥、模型。当前pgvector索引固定1536�
 
 课件工作流负责检索、教案和页面设计、PPTX制作及课件改写。动画保留独立模型配置与历史实现，当前不调度旧生成引擎。业务工作流共享登录、教师确认、任务队列及账务，未引入多进程或自由对话式Agent框架。
 
-`COURSEWARE_LLM_BASE_URL/API_KEY/MODEL` 与 `ANIMATION_LLM_BASE_URL/API_KEY/MODEL` 分别选择模型，支持兼容Chat Completions的服务。留空的字段沿用 `LLM_*`；跨供应商切换时应把三项一起填写。辅助评审使用 DeepSeek 官方 API：`EVAL_LLM_BASE_URL=https://api.deepseek.com`、`EVAL_LLM_MODEL=deepseek-flash`，在本地 `.env` 填写 `EVAL_LLM_API_KEY` 后重启。旧 `LLM_EVAL_MODEL` 不再启用自动评审。内容审核启用时逐页核验；显式停用时记录 disabled，不冒充通过，实际截图检查与教师确认继续生效。完成后的状态页汇总已有页面检查；所有模型审核均是辅助意见，不能证明事实正确或替代教师审核。
+课件和动画分别使用 COURSEWARE_LLM_* 与 ANIMATION_LLM_*；空字段兼容回退至 LLM_*。审核必须显式配置独立 EVAL_LLM_BASE_URL/API_KEY/MODEL，不接受与课件生成相同的 endpoint/model。默认 COURSEWARE_REVIEW_POLICY=key 重点核验，也可选择 all 或 none。总停用 COURSEWARE_CONTENT_REVIEW_DISABLED=true 记为 disabled；每页区分已核验、未核验和停用，教师仍须确认。
 
 联网检索优先使用搜索服务提取的正文，再回退到受限网页抓取；只有搜索摘要时不将其作为教学证据。网页和知识库内容按课题筛选段落、去除常见广告和完全重复段落，并保留相邻公式、适用条件与安全提示。机构来源仅优先作为待核验候选，不能据域名认定事实正确。来源面板展示保留数量和截断提示。当前采用关键词与上下文规则，并非 embedding 语义过滤；向量召回但未命中关键词的知识库候选保留并标记未做关键词筛选，选配 rerank 可进一步重排。评分和保留数量都不是事实可信度。
 
@@ -124,8 +126,8 @@ Manim、Ark、MiniMax、DashScope 的旧动画生成代码、专用 Docker 镜�
 参考 PDF 的页面取图需要 Poppler 的 `pdftoppm` 在 PATH 中；仅安装 Python 依赖不够。Ubuntu/Debian 可执行 `sudo apt-get install -y fonts-noto-cjk poppler-utils`，Windows 需安装 Poppler 并将其可执行文件目录加入 PATH。CI 和渲染服务 Docker 镜像会安装这些依赖，`test_reference_pdf_contains_real_sampled_images` 会验证真实 PDF 取图，不会在缺少工具时跳过。
 
 ```powershell
-$env:TEST_DATABASE_URL='postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable'
-$env:TEST_RUNTIME_DATABASE_URL='postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable'
+# 管理连接与随机 runtime 凭据仅通过本地私有环境提供。
+# 推荐 scripts/test-conversation.ps1 创建并清理随机隔离库，禁止使用业务库。
 $env:TEST_RENDER_URL='http://127.0.0.1:8000'
 # 首次测试前创建独立数据库edu_test；禁止对业务数据库跑测试。
 cd backend-go
@@ -155,9 +157,21 @@ CI 配置包含 Linux/Windows Go 检查、Python 真实 PPTX、前端构建、No
 
 这是本地原型，不宣称已达商业生产标准。真实文本模型及搜索已抽测；embedding/rerank、自评模型及五课题完整真实验收仍待验证。本次新版课件抽测一份12页浮力课件（知识库开启、联网关闭），人工纠正物理表述并补充示意图表后导出；不可据此保证模型原始输出的事实准确性，仍须教师审核。
 
-关键词检索扫描每企业最多1万切片；单个生成worker顺序处理任务，单个文档worker处理解析；租约过期时失败释放，不恢复到上一个模型步骤。尚无自动清理历史产物、邮件/短信找回、登录限流防爆破、备份/恢复演练或公开网络部署配置。注册与恢复码接口已有15分钟窗口限制，不能代替登录防护。初版价格是服务端固定演示值，尚未做可视化定价管理。
+关键词检索扫描每企业最多1万切片。制作采用两个 worker，按企业轮转领取；视频导出独立一个 worker，租约扫描独立运行。执行中每60秒续租到未来3分钟；进程正常退出立即回队，异常退出在租约到期后从已有检查点恢复，保留预留与失败预算。教师待审不再因一天未操作自动失败。文档解析仍为一个 worker；历史产物保留期限、邮件/短信找回和可视化定价管理尚未实现。
 
-RLS业务连接使用非超级用户 `edu_app`；迁移连接完成建表和种子后关闭。数据库默认口令仅供本地演示，公开部署需另建运行凭证、收紧权限并增加TLS、访问控制和运维措施。
+RLS业务连接使用非超级用户 `edu_app`；迁移连接完成建表和种子后关闭。运行角色不能直接读取 users 密码/恢复码列或 sessions 表；证明校验在固定 search_path 的 SECURITY DEFINER 函数中完成，public schema 不向运行角色开放 CREATE。登录、改密按 IP 和账号/IP 两级限流；缺失账号仍执行 bcrypt。数据库密码不写入 schema，首次部署在加载私有配置后，从 backend-go 运行 `go run ../scripts/provision-database.go`，显式设置独立的随机运行密码。公开部署仍需 TLS、入口访问控制及专用服务身份。
+
+### 本轮运行与运维约定
+
+- `COURSEWARE_REVIEW_POLICY=key` 为重点核验；`all` 逐页，`none` 不调用内容模型。`COURSEWARE_CONTENT_REVIEW_DISABLED=true` 是显式总停用。每页分别显示内容和截图状态；未核验不标为通过。所有新建 API 请求统一走代表三页及逐页检查流程。
+- 内容审核必须独立配置 EVAL_LLM_*，不能自动借用生成密钥，也不接受相同 endpoint/model 冒充独立审核。重点页包括例题、答案、推导、史实、原文和实验安全等；程序检查按学科注册。化学仅支持简单分子方程，复杂离子/括号式交模型核验。
+- 规划请求超时6分钟；扩展预算为6分钟加剩余页数乘120秒，上限3小时，这是依据已有运行数据设定的保护预算，不是完成时间承诺。
+- live 默认关闭自助模拟入账，管理员可沿用额度分配。仅演示环境可显式设置 `ALLOW_SIMULATED_PAYMENT=true`；sample 保留模拟购买。没有接入真实支付。
+- 首页会话和未发送草稿按企业/成员保存到当前标签页 sessionStorage；hash 保存页面和任务 id，恢复任务仍走鉴权 API。清除浏览器存储或关闭标签页会丢失本地草稿。
+- HTTP 使用 JSON slog、请求 ID、panic 恢复并保留 SSE flush；不记录凭据、请求正文或模型错误正文。
+- `python scripts/backup.py --drill` 备份本项目 PostgreSQL、storage 和指定 MinIO prefix，并在随机库/临时对象前缀恢复校验。跨存储同一时点恢复需要暂停写入；在线运行仅保证 DB 快照及各文件校验。
+- `./scripts/install-backup-task.ps1` 安装每日03:30任务，默认已登录用户身份、非管理员、错过后补跑；用户未登录时不会无人值守运行。备份不自动删除，需由运维安排容量与保留期。
+- `python scripts/database-maintenance.py` 只读统计活动任务；`--rotate` 只对本项目 edu/edu_app 轮换并更新私有配置，要求队列已清空，随后重启。私有恢复文件保留在忽略提交的 work 下。
 
 免费导出对可修复的拥挤文字和表格自动拆页；超出修复边界时保留错误，不默默截断。早期六主题×七版式的42页样张已通过PowerPoint文字边界检查。2026-10-07新增七主题×八页课堂图解样例及八页浏览器编辑产物，共64页检查通过；另有10份表格异常回归产物共91页通过检查。数值区间按真实比例绘制，数字与常用单位保持同行；网站内预览是布局示意，以下载的实际文件为准。质量提升、证据与未验证范围见 [课堂图解验收](docs/courseware-teaching-media.md)。
 

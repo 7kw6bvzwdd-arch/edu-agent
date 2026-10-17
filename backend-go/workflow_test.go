@@ -74,15 +74,39 @@ func TestCoursewareHTTPWorkflow(t *testing.T) {
 		t.Fatal(e)
 	}
 	_, v, _ = call("GET", "/api/tasks/"+id, token, nil)
-	if v["status"] != "awaiting_confirmation" {
-		t.Fatalf("research result: %v", v)
+	if v["status"] != "awaiting_preview" {
+		t.Fatalf("new requests must use staged review: %v", v["status"])
+	}
+	approve := func(v map[string]any) {
+		for _, row := range v["slide_reviews"].([]any) {
+			meta := row.(map[string]any)
+			code, reply, _ := call("POST", "/api/tasks/"+id+"/slides/"+meta["id"].(string)+"/review", token, map[string]any{"revision": v["revision"], "hash": meta["hash"], "approved": true})
+			if code != 200 {
+				t.Fatal(code, reply)
+			}
+		}
 	}
 	result := v["result"].(map[string]any)
 	revision := v["revision"]
-	code, _, _ = call("GET", "/api/tasks/"+id+"/download/pptx", token, nil)
-	if code != 404 {
-		t.Fatal("PPTX available before teacher confirmation")
+	code, _, _ = call("POST", "/api/tasks/"+id+"/expand", token, map[string]any{"revision": revision, "accept_review": true})
+	if code != 409 {
+		t.Fatal("unapproved preview expanded", code)
 	}
+	approve(v)
+	code, v, _ = call("POST", "/api/tasks/"+id+"/expand", token, map[string]any{"revision": revision, "accept_review": true})
+	if code != 202 {
+		t.Fatal(code, v)
+	}
+	if e = s.workOne(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	_, v, _ = call("GET", "/api/tasks/"+id, token, nil)
+	if v["status"] != "awaiting_confirmation" {
+		t.Fatal("remaining pages not ready", v["status"])
+	}
+	result = v["result"].(map[string]any)
+	revision = v["revision"]
+	approve(v)
 	code, _, _ = call("POST", "/api/tasks/"+id+"/confirm", token, map[string]any{"result": result, "revision": revision, "accept_review": false})
 	if code != 400 {
 		t.Fatal("unverified content accepted without consent")

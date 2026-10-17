@@ -26,6 +26,8 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 	}
 	s := worksServer(t)
 	s.cfg.Mode = "live"
+	// This fixture explicitly exercises the optional demo-payment deployment.
+	s.cfg.AllowSimulatedPayment = true
 	var script AnimScript
 	if kind == "geometry" {
 		script = loadGeometryFixture(t)
@@ -384,7 +386,7 @@ func TestHTMLAnimationRecoveryHTTP(t *testing.T) {
 	if e != nil || reserve != 3 || release != 2 || settle != 1 {
 		t.Fatalf("ledger history changed %d/%d/%d %v", reserve, release, settle, e)
 	}
-	// An unreserved plan can be cancelled, resumed, and expires without touching balances.
+	// An unreserved plan can be cancelled/resumed and survives a teacher's delay.
 	id2 := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, TaskInput{Type: "animation", AnimationEngine: "html", Topic: "一次函数取消测试", IdempotencyKey: newID()}, 202))["id"].(string)
 	p2 := "/api/tasks/" + id2 + "/animation"
 	worksCall(t, s, "POST", "/api/tasks/"+id2+"/cancel", token, nil, 200)
@@ -404,12 +406,13 @@ func TestHTMLAnimationRecoveryHTTP(t *testing.T) {
 	}
 	work()
 	v2 = worksObject(t, worksCall(t, s, "GET", p2, token, nil, 200))
-	if v2["status"] != "failed" || v2["charge_state"] != "unreserved" {
-		t.Fatal("plan expiry mishandled", v2)
+	if v2["status"] != "anim_plan" || v2["charge_state"] != "unreserved" {
+		t.Fatal("teacher delay expired an unreserved plan", v2)
 	}
 	// Refill this isolated test account after the earlier settlement.
 	setBalance(100)
 	// A restarted request retains its TTS cap and cannot spend another provider call.
+	worksCall(t, s, "POST", "/api/tasks/"+id2+"/cancel", token, nil, 200)
 	v2 = worksObject(t, worksCall(t, s, "GET", p2, token, nil, 200))
 	worksCall(t, s, "POST", p2+"/resume", token, map[string]any{"revision": v2["revision"]}, 202)
 	v2 = worksObject(t, worksCall(t, s, "GET", p2, token, nil, 200))

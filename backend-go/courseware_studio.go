@@ -65,7 +65,7 @@ func (s *Server) allSlidesApproved(ctx context.Context, tx pgx.Tx, id string, d 
 		}
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]
-			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, mode == "sample") {
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, mode == "sample", sl) {
 				return fail(409, "页面检查尚未通过，请保存并完成内容与画面检查后继续")
 			}
 		}
@@ -304,9 +304,11 @@ func (s *Server) recordSlideFeedback(w http.ResponseWriter, r *http.Request, a A
 		return fail(409, "当前版本已变化或正在生成，不能审核或评价")
 	}
 	found := false
+	var reviewedSlide Slide
 	for _, sl := range st.Deck.Slides {
 		if sl.ID == r.PathValue("slide") && body.Hash == slideContentHash(st.Deck, sl) {
 			found = true
+			reviewedSlide = sl
 		}
 	}
 	if !found {
@@ -314,7 +316,7 @@ func (s *Server) recordSlideFeedback(w http.ResponseWriter, r *http.Request, a A
 	}
 	if review && body.Approved && st.Deck.Plan != nil {
 		check := st.Deck.PageChecks[r.PathValue("slide")]
-		if check.Hash != body.Hash || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+		if check.Hash != body.Hash || !s.pageCheckPassed(check, s.cfg.Mode == "sample", reviewedSlide) {
 			return fail(409, "本页检查尚未通过，请先保存修改并完成内容与画面检查")
 		}
 	}

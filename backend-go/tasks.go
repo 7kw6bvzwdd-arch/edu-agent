@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +107,15 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 		return e
 	}
 	in.Topic = strings.TrimSpace(in.Topic)
+	// All newly created courseware uses the same staged quality pipeline.
+	// Historical deliveries remain readable and downloadable.
+	if in.Type == "courseware" {
+		in.PreviewFirst = true
+		if in.Detail == "" {
+			in.Detail = "auto"
+		}
+	}
+
 	if len([]rune(in.Requirements)) > 8000 {
 		return fail(400, "需求摘要不能超过8000字")
 	}
@@ -687,69 +695,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a Actor) error {
 		}
 	}
 }
-func (s *Server) worker(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		if e := s.workOne(ctx); e != nil {
-			fmt.Fprintln(os.Stderr, "worker:", e)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
 func (s *Server) workOne(ctx context.Context) error {
-	// The privileged connection only enumerates tenants; every business operation uses RLS.
-	rows, e := s.db.Query(ctx, "SELECT id FROM tenants ORDER BY id")
+	tenants, e := s.workerTenants(ctx)
 	if e != nil {
 		return e
 	}
-	tenants := []int64{}
-	for rows.Next() {
-		var id int64
-		rows.Scan(&id)
-		tenants = append(tenants, id)
-	}
-	rows.Close()
 	for _, tid := range tenants {
 		if worked, err := s.workHTMLAnimation(ctx, tid); worked || err != nil {
 			return err
 		}
-		if worked, err := s.workAnimationExport(ctx, tid); worked || err != nil {
-			return err
-		}
 		tx, e := s.tx(ctx, tid)
-		if e != nil {
-			return e
-		}
-		expired, e := queryMaps(ctx, tx, "SELECT id,member_id,status,type,input,mode,charge_cycle,attempt FROM tasks WHERE deleted_at IS NULL AND charge_state='reserved' AND ((status IN ('researching','rendering','expanding') AND lease_until<now()) OR (status IN ('awaiting_preview','awaiting_confirmation','awaiting_acceptance') AND updated_at<now()-interval '1 day'))")
-		if e != nil {
-			tx.Rollback(ctx)
-			return e
-		}
-		tx.Rollback(ctx)
-		for _, v := range expired {
-			recoveryCtx := context.WithValue(ctx, generationCycleKey{}, int(v["charge_cycle"].(int32)))
-			recoveryCtx = context.WithValue(recoveryCtx, generationAttemptKey{}, int(v["attempt"].(int32)))
-			var input TaskInput
-			json.Unmarshal(asJSON(v["input"]), &input)
-			if v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
-				resumed, recoveryErr := s.resumeCoursewareAutomatically(recoveryCtx, Actor{TenantID: tid, MemberID: v["member_id"].(int64)}, v["id"].(string), v["status"].(string), input, context.DeadlineExceeded)
-				if recoveryErr != nil {
-					return recoveryErr
-				}
-				if resumed {
-					continue
-				}
-			}
-			if e = s.finish(recoveryCtx, tid, v["id"].(string), "failed", "执行或确认等待超时，积分已释放", "", nil); e != nil {
-				return e
-			}
-		}
-		tx, e = s.tx(ctx, tid)
 		if e != nil {
 			return e
 		}
@@ -781,7 +736,7 @@ func (s *Server) workOne(ctx context.Context) error {
 		if kind == "courseware" && in.PreviewFirst && stage == "expanding" {
 			workLimit = coursewareExpansionLimit(in.Pages)
 		}
-		_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,next_attempt_at=NULL,lease_until=now()+$3*interval '1 second',attempt=attempt+1,updated_at=now() WHERE id=$2", stage, id, int((workLimit + time.Minute).Seconds()))
+		_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,next_attempt_at=NULL,lease_until=now()+interval '3 minutes',attempt=attempt+1,updated_at=now() WHERE id=$2", stage, id)
 		if e == nil {
 			e = event(ctx, tx, tid, id, stage, map[string]string{"researching": "正在检索和组织教学方案", "rendering": "正在生成真实文件", "expanding": "前三页已确认，正在生成剩余课件，保留已审核内容"}[stage])
 		}
@@ -801,12 +756,16 @@ func (s *Server) workOne(ctx context.Context) error {
 		if mode != s.cfg.Mode {
 			e = fmt.Errorf("运行模式已切换，请在当前模式重新提交任务")
 		} else {
-			e = s.processTask(workCtx, a, id, kind, stage, in, result)
+			e = s.runLeasedTask(workCtx, cancel, a, id, attempt+1, func() error { return s.processTask(workCtx, a, id, kind, stage, in, result) })
 		}
 		if errors.Is(workCtx.Err(), context.DeadlineExceeded) {
 			e = fmt.Errorf("制作达到本阶段等待时限，已保存进度：%w", context.DeadlineExceeded)
 		}
+		interrupted := errors.Is(workCtx.Err(), context.Canceled)
 		cancel()
+		if ctx.Err() != nil || interrupted {
+			return s.requeueInterrupted(tid, id, attempt+1)
+		}
 		if e != nil {
 			finishCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
 			finishCtx = context.WithValue(finishCtx, generationCycleKey{}, cycle)

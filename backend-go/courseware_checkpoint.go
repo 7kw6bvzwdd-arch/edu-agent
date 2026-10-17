@@ -76,7 +76,7 @@ func (s *Server) saveCoursewareCheckpoint(ctx context.Context, a Actor, id strin
 	if progress && d.Plan != nil {
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]
-			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample", sl) {
 				progress = false
 				break
 			}

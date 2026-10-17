@@ -95,7 +95,7 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 					break
 				}
 				check := d.PageChecks[sl.ID]
-				if check.Hash == slideContentHash(d, sl) && s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+				if check.Hash == slideContentHash(d, sl) && s.pageCheckPassed(check, s.cfg.Mode == "sample", sl) {
 					continue
 				}
 				one := d
@@ -348,7 +348,7 @@ func (s *Server) researchCoursewarePreview(ctx context.Context, a Actor, id stri
 	d.Generation = nil
 	if d.Plan != nil {
 		in.Pages = len(d.Plan.Pages)
-		if _, err = tx.Exec(ctx, "UPDATE tasks SET input=$1 WHERE id=$2", asJSON(in), id); err != nil {
+		if _, err = tx.Exec(ctx, "UPDATE tasks SET input=$1 WHERE id=$2 AND status='researching' AND deleted_at IS NULL AND ($3::integer IS NULL OR charge_cycle=$3) AND ($4::integer IS NULL OR attempt=$4)", asJSON(in), id, generationCycle(ctx), generationAttempt(ctx)); err != nil {
 			return err
 		}
 	}

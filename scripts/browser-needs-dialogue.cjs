@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  const writes=[],errors=[],checks=[];const deck=JSON.parse(await fs.readFile(path.join(root,'fixtures/courseware-quality-v2.json'),'utf8'));deck.slides=deck.slides.slice(0,3);deck.slides.forEach((s,i)=>s.id='slide-'+i);
  const animationScript=JSON.parse(await fs.readFile(path.join(root,'fixtures/animation-v2-linear-k.json'),'utf8'));let animationTask=null;
  const task={id:'conversation-fixture',type:'courseware',status:'pending',mode:'live',revision:1,cost:20,input:{topic:'二次函数',subject:'数学',grade:'九年级',preview_first:true},result:null,events:[],sources:[],slide_reviews:[]};
- let animationOnly=false;
+ let animationOnly=false,memberID=1;
  browser=spawn(process.env.TEST_BROWSER_PATH||(process.platform==='win32'?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':'google-chrome'),['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9303','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  browser.on('error',error=>{console.error('Cannot launch test browser:',error.message);socket?.close();server?.close();process.exitCode=1});
  let page;for(let i=0;i<50;i++){try{page=(await fetch('http://127.0.0.1:9303/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(100)}assert.ok(page);
@@ -18,7 +18,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
   if(m.method!=='Fetch.requestPaused')return;const {requestId,request}=m.params,p=new URL(request.url).pathname;let reply,code=200,contentType='application/json';
   if(request.method!=='GET')writes.push({path:p,data:JSON.parse(request.postData||'{}')});
   if(p==='/api/health')reply={status:'ok',mode:'live',animation_configured:true,animation_html_version:'workflow-v1',courseware_quality_configured:true,courseware_content_review_enabled:false,courseware_media_version:'media-v1',courseware_studio_version:'studio-v1'};
-  else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'林老师',role:'teacher',permissions:['courseware.generate','animation.render']};
+  else if(p==='/api/auth/me')reply={tenant_id:1,member_id:memberID,name:'林老师',role:'teacher',permissions:['courseware.generate','animation.render']};
   else if(p==='/api/tenants')reply=[{id:1,name:'测试教研空间'}];
   else if(p==='/api/billing')reply={balance:100,reserved:0,available:100,plan:'basic',products:[],orders:[],ledger:[]};
   else if(p==='/api/tasks'){if(request.method==='POST'){const data=JSON.parse(request.postData);if(data.type==='animation'){animationTask={id:'inline-animation',type:'animation',mode:'live',status:'anim_plan',revision:1,cost:40,input:data,result:null,events:[],sources:[]};reply={id:animationTask.id}}else reply={id:task.id}}else reply=[];}
@@ -31,7 +31,8 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
   else {errors.push('Unexpected API '+p);code=404;reply={message:'Missing fixture'}}
   if(animationOnly&&p==='/api/health')reply.teaching_features_version='teaching-v1';
   if(animationOnly&&p==='/api/auth/me')reply.permissions=['animation.render'];
-  call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:Buffer.from(typeof reply==='string'?reply:JSON.stringify(reply)).toString('base64')}).catch(e=>{if(!animationOnly||!String(e).includes('Invalid InterceptionId'))errors.push(String(e))});
+  // Reload cancels an intercepted old-document request before its fixture reply arrives.
+  call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:Buffer.from(typeof reply==='string'?reply:JSON.stringify(reply)).toString('base64')}).catch(e=>{if(!String(e).includes('Invalid InterceptionId'))errors.push(String(e))});
  };
  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
  const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(50)}throw Error('UI timeout '+expression)};
@@ -220,6 +221,32 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await evaluate("window.__event('done',{reply:'已记录。',tool:'courseware',action:'discuss',mode:'live',requirements:'保留史料讨论，取消分组表演。',settings:{},questions:[],blocks:[],context_summary:'当前历史课件；史料讨论；分组表演已取消。'});window.__end()");await wait("!document.querySelector('.brief-composer textarea').disabled");
  assert.equal(writes.filter(w=>w.path==='/api/tasks').length,2);
  checks.push('Missing compaction summary preserves accepted settings, input and previous memory; retry completes without task creation');
+ const transcriptBefore=await evaluate("document.querySelector('.courseware-setup').textContent");
+ const requestsBeforeReload=writes.filter(w=>w.path==='/api/tasks').length;
+ await fill('.brief-composer textarea','刷新保留的草稿');
+ await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");
+ assert.equal(await evaluate("document.querySelector('.brief-composer textarea').value"),'刷新保留的草稿');
+ assert.ok(await evaluate("document.querySelector('.courseware-setup').textContent.includes('保留史料讨论')"));
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,requestsBeforeReload);
+ checks.push('Refreshing restores member-scoped conversation, unsent input, settings and embedded works without a new charge');
+ await evaluate("location.hash='#courseware?task=conversation-fixture'");
+ await wait("document.querySelector('.app-shell')?.dataset.page==='courseware'&&!!document.querySelector('.courseware-studio')");
+ await call('Page.reload',{ignoreCache:true});
+ await wait("document.querySelector('.app-shell')?.dataset.page==='courseware'&&!!document.querySelector('.courseware-studio')");
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,requestsBeforeReload);
+ checks.push('Hash restores the authenticated current task after refresh without restarting production');
+ await evaluate("location.hash='#home'");
+ await wait("document.querySelector('.app-shell')?.dataset.page==='home'&&!!document.querySelector('.brief-composer textarea')");
+ await sleep(100);
+ await evaluate("const k='edu_workspace_v1:1:1';const v=JSON.parse(sessionStorage.getItem(k));v.session.messages.push({id:'interrupted-fixture',role:'assistant',content:'未完成的流式回复',pending:true});sessionStorage.setItem(k,JSON.stringify(v))");
+ await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");
+ assert.ok(await evaluate("document.querySelector('.courseware-setup').textContent.includes('连接已中断')"));
+ checks.push('Refreshing during a stream marks its saved partial reply interrupted');
+ memberID=2;await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");
+ assert.equal(await evaluate("document.querySelector('.brief-composer textarea').value"),'');
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble.user').length"),0);
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,requestsBeforeReload);
+ checks.push('A different member cannot restore the previous member conversation or draft');
  animationOnly=true;await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");await sleep(200);
  assert.equal(await evaluate("document.querySelector('.home-tool-switch button:last-child')?.disabled"),false,'Animation-only member can select animation');
  assert.deepEqual(errors,[],'Animation-only homepage cannot fetch restricted courseware materials');

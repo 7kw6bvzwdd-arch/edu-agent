@@ -12,6 +12,7 @@ foreach($port in @(8000,8080)){if(Get-NetTCPConnection -LocalPort $port -State L
 Set-Location -LiteralPath $projectRoot
 if (!(Test-Path -LiteralPath '.env')) { throw 'Copy .env.example to .env and set JWT_SECRET and SEED_PASSWORD first.' }
 Get-Content -LiteralPath '.env' | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1].Trim(),$matches[2].Trim(),'Process') } }
+if(!$env:DATABASE_URL -or !$env:RUNTIME_DATABASE_URL){throw 'Set explicit DATABASE_URL and RUNTIME_DATABASE_URL before starting.'}
 $env:FRONTEND_DIST=Join-Path $release 'frontend-vue/dist'
 $env:RENDER_SERVICE_URL='http://127.0.0.1:8000'
 $env:LISTEN_ADDR='127.0.0.1:8080'
@@ -38,6 +39,7 @@ if($env:ANIMATION_EXPORT_SCRIPT){
  }finally{Pop-Location}
 }
 New-Item -ItemType Directory -Force work | Out-Null
+$env:SHUTDOWN_REQUEST_FILE=Join-Path $projectRoot ('work/shutdown-'+[guid]::NewGuid().ToString('N')+'.request')
 $rendererDir=Join-Path $release 'render-service-py'
 $render=$null;$backend=$null
 try {
@@ -49,7 +51,7 @@ $backend=Start-Process -FilePath $binary -WorkingDirectory (Join-Path $release '
 $healthy=$false
 for ($attempt=0;$attempt -lt 40;$attempt++) { try { $status=Invoke-RestMethod 'http://127.0.0.1:8080/api/health' -TimeoutSec 2; if ($status.status -eq 'ok' -and $status.release_tag -eq $manifest.tag -and $status.release_commit -eq $manifest.commit) { $healthy=$true; break } } catch {} ; Start-Sleep -Milliseconds 250 }
 if (!$healthy) { throw 'Backend did not become healthy. Check work/backend.err.log.' }
-@{render=$render.Id;backend=$backend.Id;release=$release;tag=$manifest.tag;commit=$manifest.commit} | ConvertTo-Json | Set-Content -LiteralPath 'work/service-pids.json'
+@{render=$render.Id;backend=$backend.Id;release=$release;tag=$manifest.tag;commit=$manifest.commit;shutdown_file=$env:SHUTDOWN_REQUEST_FILE} | ConvertTo-Json | Set-Content -LiteralPath 'work/service-pids.json'
 @{release=$release;tag=$manifest.tag;commit=$manifest.commit;started_at=(Get-Date -Format o)} | ConvertTo-Json | Set-Content -LiteralPath 'work/active-release.json'
 Write-Host "Started http://127.0.0.1:8080 from tag $($manifest.tag), commit $($manifest.commit)."
 }catch{

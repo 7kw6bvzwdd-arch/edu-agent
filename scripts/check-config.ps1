@@ -41,9 +41,16 @@ foreach($agent in @('COURSEWARE','ANIMATION')) {
 $reviewBase=Value 'EVAL_LLM_BASE_URL'
 $reviewKey=Value 'EVAL_LLM_API_KEY'
 $reviewModel=Value 'EVAL_LLM_MODEL'
+$policy=Value 'COURSEWARE_REVIEW_POLICY' 'key'
+if($policy -notin @('key','all','none')){$problems.Add('COURSEWARE_REVIEW_POLICY: choose key, all or none.')}
+$reviewEnabled=(Value 'COURSEWARE_CONTENT_REVIEW_DISABLED' 'false') -ne 'true' -and $policy -ne 'none'
+if($mode -eq 'live' -and $reviewEnabled -and !$reviewKey){$problems.Add('EVAL_LLM_API_KEY: independent content reviewer is required by the selected policy.')}
 if($reviewKey) {
  Check-Endpoint 'EVAL_LLM_BASE_URL' $reviewBase
  if(!$reviewModel) { $problems.Add('EVAL_LLM_MODEL: missing for configured reviewer.') }
+ $generatorURL=(Value 'COURSEWARE_LLM_BASE_URL' $base).TrimEnd('/') -replace '/chat/completions$',''
+ $reviewURL=$reviewBase.TrimEnd('/') -replace '/chat/completions$',''
+ if($reviewEnabled -and $generatorURL -eq $reviewURL -and (Value 'COURSEWARE_LLM_MODEL' $model) -eq $reviewModel){$problems.Add('EVAL_LLM_MODEL: choose a reviewer different from the courseware generator.')}
  Write-Output 'Independent reviewer: fields present; online access not yet verified.'
 } else { Write-Output 'Independent reviewer: disabled until EVAL_LLM_API_KEY is filled.' }
 $visionKey=Value 'VISION_LLM_API_KEY'

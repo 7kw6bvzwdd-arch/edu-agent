@@ -29,6 +29,9 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 		{"buoyancy", "浮力", "八年级", "物理", "g取10 N/kg。区分浮力、重力及绳拉力；实验写明器材、安全、控制变量和排液体积。全部浸没后密度不变时浮力不随深度增大，数据标明计算或实测。"},
 		{"quadratic", "二次函数", "九年级", "数学", "学生已学一次函数。用y=x²-2x-3解释顶点、对称轴、交点及增减区间；图像和代数相互核对，给完整条件的例题和独立练习。"},
 		{"circuits", "串并联电路", "九年级", "物理", "围绕电流路径、通断和电流电压规律；理想电源、导线和电表假设明确。用低压学生电源，严禁短接电源；串联/并联图必须支持实际教学问题，答案放备注。"},
+		{"history", "辛亥革命的背景与影响", "八年级", "历史", "五页微课，区分1911年武昌起义和1912年中华民国临时政府成立；使用可核实的史实，不虚构史料原文，开放问题给出合理答案与依据。"},
+		{"chinese", "静夜思中的意象与情感", "五年级", "语文", "五页微课，作者李白，准确引用原文并区分原文与解释；让学生依据诗句理解思乡情感，不虚构作者经历或唯一开放题答案。"},
+		{"chemistry", "化学反应中的质量守恒", "九年级", "化学", "五页微课，区分质量与原子数；用配平的简单分子方程说明，不安排危险实验，题目条件完整、答案与推导放备注。"},
 	} {
 		if selected := os.Getenv("TEST_FULL_DECK_TOPIC"); selected != "" && selected != tc.key {
 			continue
@@ -48,6 +51,7 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			}
 			s.cfg.Storage = filepath.Join(dir, "artifacts")
 			s.cfg.Mode = "live"
+			s.cfg.CoursewareReviewPolicy = env("TEST_FULL_DECK_POLICY", "all")
 			s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")
 			s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 			s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = os.Getenv("EVAL_LLM_BASE_URL"), os.Getenv("EVAL_LLM_API_KEY"), os.Getenv("EVAL_LLM_MODEL")
@@ -142,6 +146,10 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			}
 			before := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
 			in := TaskInput{Type: "courseware", Topic: tc.topic, Subject: tc.subject, Grade: tc.grade, Textbook: "人教版", Detail: "default", LessonMinutes: 45, Theme: "ocean", PreviewFirst: true, UseKB: useKB, IdempotencyKey: newID(), Requirements: "教师讲授课件；依据实际已提供资料，未提供人教版原文时不得声称已核对教材章节。" + tc.requirements}
+			if os.Getenv("TEST_FULL_DECK_MICRO") == "1" {
+				in.Pages, in.LessonMinutes, in.Detail = 5, 15, "concise"
+				in.Requirements += "严格制作五页15分钟微课，包含情境、概念理解、解释、独立练习及回顾，避免无必要图表。"
+			}
 			id := resumeID
 			if id == "" {
 				id = worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
@@ -228,7 +236,7 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			locked := map[string]string{}
 			approve := func(v map[string]any, d Deck) {
 				for _, sl := range d.Slides {
-					if !pageCheckPassed(d.PageChecks[sl.ID], false) {
+					if !s.pageCheckPassed(d.PageChecks[sl.ID], false, sl) {
 						t.Fatal("page lacks actual dual-review success", sl.Order)
 					}
 					worksCall(t, s, "POST", route+"/slides/"+sl.ID+"/review", token, map[string]any{"revision": v["revision"], "hash": slideContentHash(d, sl), "approved": true}, 200)
@@ -239,7 +247,7 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			}
 			if resumeID != "" {
 				for _, sl := range d.Slides {
-					if pageCheckPassed(d.PageChecks[sl.ID], false) {
+					if s.pageCheckPassed(d.PageChecks[sl.ID], false, sl) {
 						locked[sl.ID] = slideContentHash(d, sl)
 					}
 				}
