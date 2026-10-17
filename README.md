@@ -1,15 +1,15 @@
 # 备课工坊
 
-Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，以初中数学、物理课件为主，交付真实可编辑的 PPTX。旧动画生成代码已删除，历史作品保留；HTML 一次函数与几何平移旋转切片已发布至本机8080。产品约定见 [SPEC.md](SPEC.md)。
+Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，支持各学科课件需求输入与真实可编辑 PPTX。全科内容正确性核验尚未完成。HTML 支持通用讲解、一次函数及几何变换，验收后可附属导出 MP4。产品约定见 [SPEC.md](SPEC.md)。
 
-## 当前状态 · 2026-10-16
+## 当前状态 · 2026-10-17
 
-- 各学科通用讲解与可选MP4已实现候选，保留分镜/代表幕/验收/修改/我的作品流程；发布与验收边界见 [本轮记录](docs/animation-general-video-20261016.md)。
+- 各学科通用讲解与可选MP4已发布本机，保留分镜/代表幕/验收/修改/我的作品流程；历史验收边界见 [动画记录](docs/animation-general-video-20261016.md)。本轮代码和发布整顿状态见 [整改记录](docs/remediation-20261017.md)。
 
 - 首页支持真实流式需求对话，资料和设置按需展开；教师可继续讨论或直接制作三页预览，不增加摘要确认关卡。制作时预留20积分，教师审核后继续，完整交付时结算一次。
 - 课件工作台支持对象画布、原地文字编辑、图形与图片操作、撤销重做、版本保存及实际 PPTX 预览。已部署范围与工作区候选可能不同，以[实施状态](docs/implementation-status.md)及对应发布记录为准。
 - 内容模型审核可通过 `COURSEWARE_CONTENT_REVIEW_DISABLED` 显式停用；停用记为 disabled，不能当作核验通过。程序校验、实际截图检查和教师确认继续保留。数学、物理内容质量及四课最终课堂验收尚未关闭。
-- HTML 动画已接入真实模型、逐句语音、方案/代表幕/成品审核和账务。新建默认为 HTML；旧 Manim/云视频生成、配置及专用构建已删除，仅保留历史读取。本机发布包含一次函数、矩形与直角三角形平移、旋转及面积保持，动画作品保留在“我的作品”，见[几何切片](docs/animation-geometry-20261016.md)。MP4 导出、内嵌字体及人工课堂验收尚未完成。见[实施记录](docs/animation-workflow-20261015.md)和[全仓 ponytail 审查](docs/ponytail-audit-20261015.md)。
+- HTML 动画已接入真实模型、逐句语音、方案/代表幕/成品审核和账务。新建默认为 HTML；旧 Manim/云视频生成、配置及专用构建已删除，仅保留历史读取。通用讲解、一次函数、矩形与直角三角形变换可进入“我的作品”，已验收版本支持 MP4。内嵌字体、人工课堂验收及学科知识自动核验仍未完成。
 
 后续工作按[当前优先级清单](docs/backlog-priorities-20261014.md)推进。以下日期记录和早期验收保留作历史参考，不代表所有候选已部署或当前入口可用。
 
@@ -29,18 +29,24 @@ Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，以初�
 
 ```powershell
 # 在 D:/tools/harness/edu-agent 中
-powershell -ExecutionPolicy Bypass -File scripts/start.ps1
+# 先在完成验收的提交上创建本地tag，再构建；构建不读取工作区未提交源码。
+git tag -a edu-20261017-baseline -m "Published-scope baseline"
+python scripts/build-release.py --tag edu-20261017-baseline
+python scripts/verify-release.py --release work/releases/edu-20261017-baseline --expect-tag edu-20261017-baseline
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -ReleasePath work/releases/edu-20261017-baseline
 # 停止由脚本启动的进程；保留数据库和数据
 powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 ```
 
-脚本要求 Docker Desktop 已启动，以及 Node 22+、Python 3.13+、Go 1.26+。本机 Go 在 `work/toolchain/go/bin`，脚本优先使用它。其他机器需自行安装 Go。首次安装复制 `.env.example` 为 `.env`，修改JWT密钥与初始密码。
+构建要求 Node 24+、Python 3.13+、Go 1.26+。本机 Go 在 `work/toolchain/go/bin`，构建脚本可通过 `GO_EXE` 指定；启动直接使用已构建二进制。运行还需要桌面 PowerPoint（真实课件截图）、Chrome/Edge（动画导出）及已配置的 PostgreSQL；本地数据库模式需要 Docker Desktop，云数据库模式沿用专用 SSH 隧道。首次安装复制 `.env.example` 为 `.env`，修改 JWT 密钥与初始密码。
 
-若本机存在 `work/backend-deployment.json` 或 `work/renderer-deployment.json`，启动脚本使用记录的部署源码目录，避免重启时混入尚未发布的工作区候选；新检出且没有这些本机记录时使用仓库源码。提交代码本身不会更新运行服务。
+启动必须显式指定 tag 构建目录；脚本核对 manifest 的每个文件哈希与二进制版本，再从该目录加载前端、后端、渲染及动画脚本，不读取旧部署快照。当前仍在运行的旧服务不因提交代码自动切换；旧快照在迁移及回滚验收完成前保留。
+
+回滚使用已保留的上一个 tag 构建目录，先核对活动任务并停止当前进程，再运行同一启动命令指定旧 ReleasePath。脚本拒绝端口占用和不完整产物，不自动杀死现有服务。数据库及 storage 是共享持久数据；此流程只回滚程序，含不兼容数据库迁移时需另行恢复方案。
 
 数据库用 `docker compose up -d --wait db` 启动，宿主机端口55432。默认Python解析/PPT服务作为本机进程运行；也可用 `docker compose --profile render up -d --build renderer`，不要同时占用8000端口。
 
-Go作为宿主机上的可信调度器调用Docker CLI，生成脚本只能进入单任务沙箱容器。没有把Docker socket挂入生成代码容器。当前没有“一条Compose命令包含所有服务”的部署方式。
+Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编码 MP4。模型只能提供受约束 JSON，不执行模型生成的 JavaScript；导出子进程采用环境白名单，页面外网请求被阻止。这不是容器或操作系统权限沙箱；独立低权限导出身份仍待落实。Docker 当前用于本地 PostgreSQL 和可选 Python 渲染服务。
 
 ## 已有功能
 
@@ -105,7 +111,7 @@ Embedding独立配置地址、密钥、模型。当前pgvector索引固定1536�
 
 ### HTML 动画与历史作品
 
-新建动画使用 HTML：DeepSeek 生成受控作者 JSON，程序绘制画面，Seed Audio 合成语音。方案确认、代表幕审核、成品验收和每幕一次免费修改见 `docs/animation-workflow-20261015.md`。一次函数参数变化已有工作台；源码新增矩形与直角三角形的平移、旋转及面积保持，未更新正式进程。MP4 导出尚未实现。
+新建动画使用 HTML：DeepSeek 生成受控作者 JSON，程序绘制画面，Seed Audio 合成语音。通用讲解、一次函数与几何变换已接通工作台；已验收 HTML 可附属导出 1280×720、24fps、H.264/AAC MP4，复用原音频和字幕，不新增模型或 TTS 调用。流程和限制见 `docs/animation-general-video-20261016.md`。
 
 Manim、Ark、MiniMax、DashScope 的旧动画生成代码、专用 Docker 镜像构建和配置已移除。`VIDEO_*`、`ARK_VIDEO_*`、`ANIMATION_IMAGE` 不再生效。课件使用的 Ark 文本模型不受影响。历史 MP4、分镜、关键帧及账务记录保留，按原成员权限查看、播放、下载和删除；不能重新生成、验收或补扣积分。旧验收记录保留在历史文档中，不代表当前可用功能。
 
@@ -135,7 +141,9 @@ node scripts/browser-onboarding.cjs
 .venv/Scripts/python.exe scripts/smoke.py
 ```
 
-浏览器脚本使用本机Edge，验证实际HTTP界面并扣除本地教师样例积分；动画脚本在admin账户执行样例任务并扣本地模拟积分。反复运行时可用模拟支付补充余额。
+`browser-needs-dialogue.cjs` 和 `browser-animation-workflow.cjs` 使用真实 Vue 构建和显式 API fixtures，不调用模型或写入业务数据库，浏览器可通过 `TEST_BROWSER_PATH` 指定。其他实际 HTTP 浏览器脚本只可指向隔离样例服务。
+
+CI 配置包含 Linux/Windows Go 检查、Python 真实 PPTX、前端构建、Node 课堂断言、两组浏览器 fixtures、固定样例真实 MP4 编码/解码和 MP4 下载鉴权。Linux HTTP 套件显式覆盖认证、隔离、额度、动画状态；完整课件截图审核另须在装有桌面 PowerPoint 的 Windows 环境执行，普通 Windows runner 不代表 Office 验收通过。远端 CI 尚未运行，不能以本地通过代替。
 
 已验证：认证/权限/成员私有性、RLS、跨企业文档和任务隔离、并发支付幂等、取消/成功竞争、确认门槛、真实PPTX、免费重导出、单页改写、异步文档失败/重试、SSRF私网拦截、桌面/移动端、真实MP4及中文帧。测试报告在 `work/`。CI定义已写入，但未在GitHub远端运行。
 

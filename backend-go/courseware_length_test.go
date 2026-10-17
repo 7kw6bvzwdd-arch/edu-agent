@@ -130,18 +130,9 @@ func TestCoursewareBatchedLengthRecoveryHTTP(t *testing.T) {
 			if !reflect.DeepEqual(locked, result[:3]) {
 				t.Fatal("approved first three slides changed")
 			}
-			if mode == "persistent-truncated" {
-				if task["status"] != "expand_pending" || task["stage"] != "auto_recovering" || task["charge_state"] != "reserved" || len(result) != 3 || calls > 6 {
-					t.Fatal("truncation lost saved preview, requires manual retry, or exceeds local call limit", task["status"], task["stage"], calls)
-				}
-				// Recoverable truncation now waits on the automatic queue. Explicit
-				// cancellation must still stop it and release the same reservation.
-				worksCall(t, s, "POST", route+"/cancel", token, nil, 200)
-				task = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
-			}
 			if mode == "persistent-truncated" || mode == "permanent-http" || mode == "cancel-between-batches" {
 				want := "failed"
-				if mode == "cancel-between-batches" || mode == "persistent-truncated" {
+				if mode == "cancel-between-batches" {
 					want = "cancelled"
 				}
 				if task["status"] != want || task["charge_state"] != "released" || len(result) != 3 || calls > 6 {

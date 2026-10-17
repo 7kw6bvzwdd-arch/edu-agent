@@ -122,8 +122,8 @@ func validateTeachingMedia(sl Slide) error {
 			return fail(400, "不支持该函数绘图方式")
 		}
 		finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) <= 1000 }
-		if !valid(g.Title, 60, true) || len(g.Series) < 1 || len(g.Series) > 4 || !finite(g.XMin) || !finite(g.XMax) || !finite(g.YMin) || !finite(g.YMax) || g.XMin > 0 || g.XMax < 0 || g.YMin > 0 || g.YMax < 0 || g.XMax-g.XMin < 1 || g.YMax-g.YMin < 1 {
-			return fail(400, "函数图像需有1–4条曲线、明确标题及包含原点的有限数值坐标范围（允许0作为边界，跨度至少1，绝对值不超过1000）")
+		if !valid(g.Title, 60, true) || len(g.Series) < 1 || len(g.Series) > 4 || !finite(g.XMin) || !finite(g.XMax) || !finite(g.YMin) || !finite(g.YMax) || g.XMin >= 0 || g.XMax <= 0 || g.YMin >= 0 || g.YMax <= 0 || g.XMax-g.XMin < 1 || g.YMax-g.YMin < 1 {
+			return fail(400, "函数图像需有1–4条直线、明确标题及包含原点的有限数值坐标范围（跨度至少1，绝对值不超过1000）")
 		}
 		if sl.Scientific != nil || sl.Chart != nil || sl.Table != nil || sl.Figure != nil || sl.Picture != nil || sl.Diagram != "" {
 			return fail(400, "函数坐标图请独立展示，不与其他媒体混排")

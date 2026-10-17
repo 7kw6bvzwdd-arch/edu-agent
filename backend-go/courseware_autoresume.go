@@ -79,9 +79,6 @@ func (s *Server) resumeCoursewareAutomatically(ctx context.Context, a Actor, id,
 	if e != nil {
 		return false, e
 	}
-	// Supplier-call budgets do not cover an unavailable database/renderer.
-	// Stop persistent recovery rounds too; the caller releases once and keeps
-	// the checkpoint. An explicit later resume starts a new charge cycle.
 	if d.Generation != nil && d.Generation.PageAttempts[d.Generation.RepairPage] >= 3 {
 		return false, nil // Existing failure path preserves the draft and releases its reservation.
 	}

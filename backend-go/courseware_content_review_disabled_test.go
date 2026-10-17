@@ -124,19 +124,15 @@ func TestPausedContentReviewResumesSavedPageHTTP(t *testing.T) {
 	if !strings.Contains(done.Notice, "内容模型审核已停用") {
 		t.Fatal("teacher must see content reviewer disabled")
 	}
-	report := s.assessTeaching(context.Background(), a, id, "courseware", done, nil)
-	if report["status"] != "partial" || report["content_review"] != "disabled" {
-		t.Fatal("disabled review presented as fully reviewed", report)
-	}
-	s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = "", "", ""
-	health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-	if health["courseware_content_review_enabled"] != false || health["courseware_quality_configured"] != true {
-		t.Fatal("disabled mode still blocks generation", health)
-	}
-	newInput := in
-	newInput.IdempotencyKey = newID()
-	freshID := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, newInput, 202))["id"].(string)
-	worksCall(t, s, "POST", "/api/tasks/"+freshID+"/cancel", token, nil, 200)
+ report := s.assessTeaching(context.Background(), a, id, "courseware", done, nil)
+ if report["status"] != "partial" || report["content_review"] != "disabled" { t.Fatal("disabled review presented as fully reviewed", report) }
+ s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = "", "", ""
+ health := worksObject(t, worksCall(t,s,"GET","/api/health","",nil,200))
+ if health["courseware_content_review_enabled"] != false || health["courseware_quality_configured"] != true { t.Fatal("disabled mode still blocks generation", health) }
+ newInput := in
+ newInput.IdempotencyKey = newID()
+ freshID := worksObject(t, worksCall(t,s,"POST","/api/tasks",token,newInput,202))["id"].(string)
+ worksCall(t,s,"POST","/api/tasks/"+freshID+"/cancel",token,nil,200)
 
 	s.cfg.CoursewareContentReviewDisabled = false
 	meta := v["slide_reviews"].([]any)[0].(map[string]any)

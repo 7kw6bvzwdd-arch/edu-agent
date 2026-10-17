@@ -74,24 +74,6 @@ func TestMaterialSelectionUsesOriginalPagesAndStyleScope(t *testing.T) {
 	}
 }
 
-func TestMaterialChapterHierarchyExcludesCatalogueAndFigureNumbers(t *testing.T) {
-	pages := []Page{
-		{1, "目 录\n第二十六章 反比例函数\n26.1 反比例函数\n2"},
-		{2, "第二十七章 相似\n27.1 图形的相似\n24\n27.2 相似三角形\n29\n27.3 位似\n47"},
-		{3, "第二十六章 反比例函数\n正文"},
-		{4, "[页边文字未提取]\n26.1反比例函数\n26.1.1 反比例函数\n正文"},
-		{5, "26.1.2 反比例函数的图象和性质\n正文"},
-		{6, "26.1-3).图示\n9.8N的物体\n2.5\n正文"},
-		{7, "26.2实际问题与反比例函数\n正文"},
-		{8, "第二十七章 相似\n正文"},
-	}
-	got := materialChapters(pages)
-	want := []MaterialChapter{{"第二十六章 反比例函数", 3, 7}, {"26.1反比例函数", 4, 6}, {"26.1.1 反比例函数", 4, 4}, {"26.1.2 反比例函数的图象和性质", 5, 6}, {"26.2实际问题与反比例函数", 7, 7}, {"第二十七章 相似", 8, 8}}
-	if string(asJSON(got)) != string(asJSON(want)) {
-		t.Fatalf("chapter ranges differ: got=%+v want=%+v", got, want)
-	}
-}
-
 func TestTeachingMaterialsAndReferencesIsolationHTTP(t *testing.T) {
 	s := worksServer(t)
 	teacher := worksLogin(t, s, "teacher")

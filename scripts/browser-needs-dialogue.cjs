@@ -8,7 +8,8 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  const animationScript=JSON.parse(await fs.readFile(path.join(root,'fixtures/animation-v2-linear-k.json'),'utf8'));let animationTask=null;
  const task={id:'conversation-fixture',type:'courseware',status:'pending',mode:'live',revision:1,cost:20,input:{topic:'二次函数',subject:'数学',grade:'九年级',preview_first:true},result:null,events:[],sources:[],slide_reviews:[]};
  let animationOnly=false;
- browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9303','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
+ browser=spawn(process.env.TEST_BROWSER_PATH||(process.platform==='win32'?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':'google-chrome'),['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9303','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
+ browser.on('error',error=>{console.error('Cannot launch test browser:',error.message);socket?.close();server?.close();process.exitCode=1});
  let page;for(let i=0;i<50;i++){try{page=(await fetch('http://127.0.0.1:9303/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(100)}assert.ok(page);
  socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});let serial=0;const pending=new Map();
  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++serial,timer=setTimeout(()=>reject(Error('CDP timeout '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});

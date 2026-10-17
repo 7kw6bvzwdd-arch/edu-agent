@@ -1,86 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
-
-func (s *Server) materialPageImage(w http.ResponseWriter, r *http.Request, a Actor) error {
-	page, err := strconv.Atoi(r.PathValue("page"))
-	if err != nil || page < 1 || page > 300 {
-		return fail(400, "请选择有效的教材文件页码")
-	}
-	tx, err := s.tx(r.Context(), a.TenantID)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	var name, path string
-	var count int
-	if err = tx.QueryRow(r.Context(), "SELECT name,upload_path,jsonb_array_length(pages) FROM documents WHERE id=$1 AND status='ready'", r.PathValue("id")).Scan(&name, &path, &count); err != nil {
-		return err
-	}
-	tx.Rollback(r.Context()) // Release the connection before reading/rendering the original file.
-	if !strings.EqualFold(filepath.Ext(name), ".pdf") || path == "" || page > count {
-		return fail(400, "这份资料没有可查看的原始PDF页面")
-	}
-	data, err := s.readStoredFile(r.Context(), path)
-	if err != nil {
-		return fail(404, "原始教材文件暂不可用")
-	}
-	if len(data) > documentUploadLimit {
-		return fail(400, "原始教材文件超过100MB")
-	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "original.pdf")
-	if err != nil {
-		return err
-	}
-	if _, err = part.Write(data); err != nil {
-		return err
-	}
-	if err = writer.Close(); err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(r.Context(), "POST", s.cfg.RenderURL+"/document/page-image?page="+strconv.Itoa(page), &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	res, err := s.http.Do(req)
-	if err != nil {
-		return fail(503, "教材画面暂不可用，请稍后重试")
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return fail(422, "教材页面无法读取，请检查文件及页码")
-	}
-	var image struct {
-		Page    int    `json:"page"`
-		DataURL string `json:"data_url"`
-	}
-	if err = json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&image); err != nil {
-		return fail(503, "教材画面读取失败")
-	}
-	if image.Page != page || !strings.HasPrefix(image.DataURL, "data:image/png;base64,") {
-		return fail(503, "教材画面读取失败")
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	respond(w, 200, map[string]any{"file_page": page, "data_url": image.DataURL, "original_hash": fmt.Sprintf("%x", sha256.Sum256(data)), "name": name})
-	return nil
-}
 
 type CurriculumTag struct {
 	Subject string `json:"subject"`
@@ -93,61 +21,24 @@ type MaterialChapter struct {
 	End   int    `json:"end"`
 }
 
-var chapterHeading = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+(?:章|节|单元|课)\s*[\p{Han}].*|[0-9]{1,3}\.[0-9]{1,2}(?:\.[0-9]{1,2})?\s*[\p{Han}].*)$`)
-var chapterNumber = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+`)
-var printedPageNumber = regexp.MustCompile(`^[0-9]{1,3}$`)
-
-func materialCatalogue(text string) bool {
-	headings, pageNumbers := 0, 0
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if compact := strings.Join(strings.Fields(line), ""); compact == "目录" || compact == "目次" {
-			return true
-		}
-		if chapterHeading.MatchString(line) {
-			headings++
-		}
-		if printedPageNumber.MatchString(line) {
-			pageNumbers++
-		}
-	}
-	// Continuation catalogue pages may lack the word 目录. Require both repeated
-	// headings and separate printed-page entries; ordinary lesson pages don't.
-	return headings >= 3 && pageNumbers >= 3
-}
+var chapterHeading = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节单元课]|[0-9]+\.[0-9]+[ .、\s])`)
 
 func materialChapters(pages []Page) []MaterialChapter {
 	out := []MaterialChapter{}
-	levels := []int{}
-	seen := map[string]bool{}
 	for _, p := range pages {
-		if materialCatalogue(p.Text) {
-			continue
-		}
 		for _, line := range strings.Split(p.Text, "\n") {
 			line = strings.TrimSpace(line)
 			if len([]rune(line)) > 80 || !chapterHeading.MatchString(line) {
 				continue
 			}
-			key := strings.Join(strings.Fields(line), "")
-			if seen[key] || strings.Contains(line, "未识别") {
-				continue
-			}
-			seen[key] = true
-			level := 0
-			if number := chapterNumber.FindString(line); number != "" {
-				level = strings.Count(number, ".")
-			}
-			out = append(out, MaterialChapter{line, p.Page, pages[len(pages)-1].Page})
-			levels = append(levels, level)
-		}
-	}
-	for i := range out {
-		for j := i + 1; j < len(out); j++ {
-			if levels[j] <= levels[i] {
-				out[i].End = max(out[i].Start, out[j].Start-1)
+			if len(out) > 0 && out[len(out)-1].Title == line {
 				break
 			}
+			if len(out) > 0 {
+				out[len(out)-1].End = max(out[len(out)-1].Start, p.Page-1)
+			}
+			out = append(out, MaterialChapter{line, p.Page, pages[len(pages)-1].Page})
+			break
 		}
 	}
 	return out
@@ -230,7 +121,6 @@ func selectedCurriculum(pages []Page, start, end int) ([]Page, error) {
 // Input snapshots are resolved server-side; clients cannot invent verified textbook evidence.
 func (s *Server) resolveTeachingMaterials(ctx context.Context, a Actor, in *TaskInput) error {
 	in.Curriculum = nil
-	in.MaterialSnapshot = nil
 	in.Reference = nil
 	if len([]rune(in.Chapter)) > 100 {
 		return fail(400, "章节名称过长")
@@ -246,8 +136,7 @@ func (s *Server) resolveTeachingMaterials(ctx context.Context, a Actor, in *Task
 	if in.MaterialID != "" {
 		var pages []Page
 		var tag CurriculumTag
-		var name string
-		if err = tx.QueryRow(ctx, "SELECT name,pages,curriculum FROM documents WHERE id=$1 AND status='ready'", in.MaterialID).Scan(&name, &pages, &tag); err != nil {
+		if err = tx.QueryRow(ctx, "SELECT pages,curriculum FROM documents WHERE id=$1 AND status='ready'", in.MaterialID).Scan(&pages, &tag); err != nil {
 			return err
 		}
 		if tag.Subject != "" && ((in.Subject != "" && tag.Subject != in.Subject) || (in.Grade != "" && tag.Grade != in.Grade) || (in.Textbook != "" && tag.Edition != in.Textbook && !strings.HasPrefix(tag.Edition, in.Textbook+" "))) {
@@ -260,7 +149,6 @@ func (s *Server) resolveTeachingMaterials(ctx context.Context, a Actor, in *Task
 		if tag.Edition != "" {
 			in.Textbook = tag.Edition
 		}
-		in.MaterialSnapshot = &TextbookSnapshot{DocumentID: in.MaterialID, Name: name, Edition: tag.Edition, Chapter: in.Chapter, DocumentHash: textbookDocumentHash(pages)}
 	}
 	if in.ReferenceID != "" {
 		var profile ReferenceProfile
@@ -329,31 +217,13 @@ func (s *Server) materialPreview(w http.ResponseWriter, r *http.Request, a Actor
 	if err := s.resolveTeachingMaterials(r.Context(), a, &in); err != nil {
 		return err
 	}
-	warnings := []map[string]any{}
-	for _, p := range in.Curriculum {
-		if kind := textbookPageKind(p.Text); kind != "extracted_page" {
-			warnings = append(warnings, map[string]any{"file_page": p.Page, "kind": kind})
-		}
-	}
-	respond(w, 200, map[string]any{"pages": in.Curriculum, "reference": in.Reference, "material_snapshot": in.MaterialSnapshot, "page_warnings": warnings})
+	respond(w, 200, map[string]any{"pages": in.Curriculum, "reference": in.Reference})
 	return nil
 }
 
 func appendTeachingSources(in TaskInput, sources []Source) []Source {
-	// Keyword/vector recall of the selected document must not bypass page guards.
-	sources = append([]Source(nil), sources...)
-	for i, src := range sources {
-		if in.MaterialID != "" && src.DocumentID == in.MaterialID && len(in.Curriculum) > 0 {
-			sources[i].Textbook = in.MaterialSnapshot
-			sources[i].EvidenceKind = textbookPageKind(src.Content)
-			fmt.Sscanf(src.Location, "第%d页", &sources[i].FilePage)
-		}
-	}
 	pages := in.Curriculum
 	name := in.Textbook + " · " + in.Chapter
-	if in.MaterialSnapshot != nil {
-		name = in.MaterialSnapshot.Name + " · " + in.Chapter
-	}
 	documentID := in.MaterialID
 	if len(pages) == 0 && in.Reference != nil && in.ReferenceMode == "content" {
 		pages = in.Reference.Pages
@@ -364,13 +234,7 @@ func appendTeachingSources(in TaskInput, sources []Source) []Source {
 		if strings.TrimSpace(p.Text) == "" {
 			continue
 		}
-		source := Source{ID: fmt.Sprintf("S%d", len(sources)+1), Title: name, DocumentID: documentID, Content: p.Text, Location: fmt.Sprintf("文件第%d页", p.Page), Kind: "teacher_selected", Reliability: "教师指定原文，知识内容仍需核验", Hash: fmt.Sprintf("%x", sha256.Sum256([]byte(p.Text))), RetrievedAt: time.Now().UTC().Format(time.RFC3339)}
-		if len(in.Curriculum) > 0 {
-			source.Textbook = in.MaterialSnapshot
-			source.FilePage = p.Page
-			source.EvidenceKind = textbookPageKind(p.Text)
-		}
-		sources = append(sources, source)
+		sources = append(sources, Source{ID: fmt.Sprintf("S%d", len(sources)+1), Title: name, DocumentID: documentID, Content: p.Text, Location: fmt.Sprintf("文件第%d页", p.Page), Kind: "teacher_selected", Reliability: "教师指定原文，知识内容仍需核验", Hash: fmt.Sprintf("%x", sha256.Sum256([]byte(p.Text))), RetrievedAt: time.Now().UTC().Format(time.RFC3339)})
 	}
 	return sources
 }

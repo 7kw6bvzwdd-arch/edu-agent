@@ -1,4 +1,4 @@
-param([string]$Pattern='TestWorkflow', [string]$Label='workflow', [string]$Source='work/home-tools/backend-go')
+param([string]$Pattern='TestWorkflow', [string]$Label='workflow', [string]$Source='backend-go')
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 $database='edu_verify_20261009_'+([guid]::NewGuid().ToString('N').Substring(0,12))

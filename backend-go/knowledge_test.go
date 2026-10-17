@@ -55,18 +55,11 @@ func TestKnowledgeLargeDocumentForwarding(t *testing.T) {
 }
 
 func TestKnowledgeOversizedUpload(t *testing.T) {
-	// A large sparse file can remain delete-pending briefly on Windows. Keep
-	// it outside a TempDir so cleanup need not immediately remove its parent.
-	f, err := os.CreateTemp("", "edu-oversized-upload-*.pdf")
+	f, err := os.CreateTemp(t.TempDir(), "upload-*.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		f.Close()
-		if err := os.Remove(f.Name()); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer f.Close()
 	if err = f.Truncate((100 << 20) + 1); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +77,10 @@ func TestKnowledgeOversizedUpload(t *testing.T) {
 		}
 		writer.CloseWithError(err)
 	}()
-	defer func() { reader.Close(); <-done }()
+	defer func() {
+		reader.Close()
+		<-done // The upload goroutine must release its file before TempDir cleanup on Windows.
+	}()
 	r := httptest.NewRequest("POST", "/api/documents", reader)
 	r.Header.Set("Content-Type", m.FormDataContentType())
 	s := &Server{cfg: Config{Storage: t.TempDir()}}

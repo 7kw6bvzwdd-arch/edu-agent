@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,16 +79,21 @@ func TestCoursewareGLMSpeedLive(t *testing.T) {
 	}
 	in.Pages = len(plan.Pages)
 	d, err := s.stagedCoursewarePlan(ctx, a, id, in, nil, Deck{Plan: plan})
-	for retry:=0;retry<2&&err!=nil&&ctx.Err()==nil;retry++{
-	 var unavailable pageReviewUnavailable
-	 if !errors.As(err,&unavailable){break}
-	 t.Log("temporary review unavailable; automatically rechecking saved pages without restarting the deck")
-	 d,err=s.stagedCoursewarePlan(ctx,a,id,in,nil,d)
+	for retry := 0; retry < 2 && err != nil && ctx.Err() == nil; retry++ {
+		var unavailable pageReviewUnavailable
+		if !errors.As(err, &unavailable) {
+			break
+		}
+		t.Log("temporary review unavailable; automatically rechecking saved pages without restarting the deck")
+		d, err = s.stagedCoursewarePlan(ctx, a, id, in, nil, d)
 	}
 	os.MkdirAll("../work/courseware-speed", 0700)
 	os.WriteFile("../work/courseware-speed/live-result.json", asJSON(map[string]any{"model": s.cfg.CoursewareLLMModel, "duration_seconds": time.Since(started).Seconds(), "metrics": json.RawMessage(coursewareTimingReport(ctx)), "deck": d}), 0600)
 	if err != nil {
- var unavailable pageReviewUnavailable;if errors.As(err,&unavailable){t.Logf("review unavailable cause: %v",unavailable.Cause)}
+		var unavailable pageReviewUnavailable
+		if errors.As(err, &unavailable) {
+			t.Logf("review unavailable cause: %v", unavailable.Cause)
+		}
 		t.Fatal(err)
 	}
 	if len(d.Slides) != 3 {

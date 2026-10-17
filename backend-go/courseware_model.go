@@ -198,10 +198,6 @@ func coursewareSourceError(d Deck, sources []Source) error {
 			return fmt.Errorf("模型返回了不存在的来源编号")
 		}
 	}
-	if err := teachingClaimEvidenceError(d, sources); err != nil {
-		return err
-	}
-	bindTeachingEvidenceOrigins(d, sources)
 	return nil
 }
 
@@ -262,6 +258,10 @@ func (s *Server) planRepairEvent(ctx context.Context, a Actor, id, message strin
 }
 
 func (s *Server) coursewareEvent(ctx context.Context, a Actor, id, stage, message string) {
+	// Standalone previews have no persisted task for event storage.
+	if len(id) == 0 {
+		return
+	}
 	tx, err := s.tx(ctx, a.TenantID)
 	if err != nil {
 		return

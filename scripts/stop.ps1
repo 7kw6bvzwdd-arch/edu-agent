@@ -5,6 +5,7 @@ $watchPidFile=Join-Path $projectRoot 'work/cloud/watch-pid.json'
 if(Test-Path -LiteralPath $watchPidFile){
  $savedWatch=Get-Content -LiteralPath $watchPidFile | ConvertFrom-Json
  $watchScript=Join-Path $PSScriptRoot 'watch-cloud.ps1'
+ if($savedWatch.script){$watchScript=$savedWatch.script}
  $watch=Get-CimInstance Win32_Process -Filter "ProcessId = $($savedWatch.pid)" -ErrorAction SilentlyContinue
  if($watch -and $watch.Name -eq 'powershell.exe' -and $watch.CommandLine -and $watch.CommandLine.Contains($watchScript)){
   $watchProcess=Get-Process -Id $savedWatch.pid -ErrorAction SilentlyContinue

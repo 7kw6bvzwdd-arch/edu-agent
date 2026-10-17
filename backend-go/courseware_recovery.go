@@ -74,7 +74,16 @@ func reusableCourseware(d Deck, sources []Source) bool {
 	if validateDeck(d) != nil {
 		return false
 	}
-	return coursewareSourceError(d, sources) == nil
+	known := map[string]bool{}
+	for _, source := range sources {
+		known["["+source.ID+"]"] = true
+	}
+	for _, ref := range citation.FindAllString(d.Lesson+string(asJSON(d.Slides)), -1) {
+		if !known[ref] {
+			return false
+		}
+	}
+	return true
 }
 
 // Legacy continuation links remain readable; new continuations reuse the work.

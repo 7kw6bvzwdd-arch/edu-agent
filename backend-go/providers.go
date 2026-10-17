@@ -15,8 +15,6 @@ import (
 	"time"
 )
 
-type exerciseCompactRetryKey struct{}
-
 func chatEndpoint(address string) (string, error) {
 	u, err := urlpkg.Parse(strings.TrimSpace(address))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -131,7 +129,7 @@ func (s *Server) chat(ctx context.Context, a Actor, task, model, operation, prom
 }
 
 func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, model, operation, prompt string, outputLimit ...int) (content string, err error) {
-	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" || operation == "courseware.exercise.review" {
+	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" {
 		if err = s.reserveCoursewareProviderCall(ctx, a, task); err != nil {
 			return "", err
 		}
@@ -179,10 +177,6 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 		if model == "deepseek-flash" && strings.HasSuffix(operation, ".review") {
 			// Flash defaults to thinking; reserve the bounded review budget for the JSON answer.
 			payload["thinking"] = map[string]string{"type": "disabled"}
-			if operation == "courseware.exercise.review" && ctx.Value(exerciseCompactRetryKey{}) != true {
-				// Only the blind exercise solver needs reasoning; keep other audits fast.
-				payload["thinking"] = map[string]string{"type": "enabled"}
-			}
 		}
 	}
 	endpoint, e := chatEndpoint(url)
@@ -274,8 +268,11 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 	for _, src := range sources {
 		known["["+src.ID+"]"] = src
 	}
-	if err := coursewareSourceError(d, sources); err != nil {
-		return d, err
+	combined := d.Lesson + string(asJSON(d.Slides))
+	for _, ref := range citation.FindAllString(combined, -1) {
+		if _, ok := known[ref]; !ok {
+			return d, fmt.Errorf("模型返回了不存在的来源编号")
+		}
 	}
 	// A retrieved source is not proof of every factual statement. Human review remains explicit.
 	d.NeedsReview = true
@@ -316,8 +313,10 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 			if err := validateDeck(repaired); err != nil {
 				return d, err
 			}
-			if err := coursewareSourceError(repaired, sources); err != nil {
-				return d, fail(422, err.Error())
+			for _, ref := range citation.FindAllString(repaired.Lesson+string(asJSON(repaired.Slides)), -1) {
+				if _, ok := known[ref]; !ok {
+					return d, fail(422, "修复后引用了不存在的来源编号")
+				}
 			}
 			remaining, err := s.coursewarePreflight(ctx, &repaired, in.Pages)
 			if err != nil {

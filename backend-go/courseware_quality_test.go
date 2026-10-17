@@ -29,15 +29,6 @@ func TestCoursewareDraftQualityChecks(t *testing.T) {
 	}
 }
 
-func TestValidTablePageIsNotRegeneratedForBulletCount(t *testing.T) {
-	d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "ocean"})
-	d.Slides[4].Bullets = []string{"只改深度，V排和液体不变，观察F示", "下移前后示数不变，说明什么？", "部分浸入时，深度和V排同时变；如何区分？"}
-	d.Slides[4].Table = &TeachingTable{Headers: []string{"深度", "F示/N"}, Rows: [][]string{{"5cm", "3"}, {"10cm", "3"}}}
-	if issues := coursewareQualityIssues(d, 8); len(issues) != 0 {
-		t.Fatal("valid short questions would regenerate a reviewed page", issues)
-	}
-}
-
 func TestCoursewarePreflightAndSingleRepair(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")

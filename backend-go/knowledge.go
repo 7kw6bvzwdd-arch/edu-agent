@@ -36,7 +36,7 @@ func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request, a Actor) 
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(d.upload_path<>'') AS original_available,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
+	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
 	if e != nil {
 		return e
 	}
@@ -567,9 +567,6 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 		if len(out) > 8 {
 			out = out[:8]
 		}
-		if s.cfg.Mode == "live" {
-			out = append(coreTeachingSources(q), out...)
-		}
 	}
 	if web && s.cfg.Mode == "live" {
 		if s.cfg.SearchKey == "" {
@@ -681,16 +678,10 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 		key := hex.EncodeToString(h[:])
 		if !seen[key] {
 			seen[key] = true
-			x.EvidenceKind = textbookPageKind(x.Content)
-			if x.EvidenceKind == "extracted_page" {
-				x.EvidenceKind = "extracted_text"
-			}
 			x.ID = "S" + strconv.Itoa(len(unique)+1)
 			x.Hash = key
 			x.RetrievedAt = time.Now().UTC().Format(time.RFC3339)
-			if x.Reliability == "" {
-				x.Reliability = "待核验来源"
-			}
+			x.Reliability = "待核验来源"
 			if u, err := url.Parse(x.URL); err == nil {
 				host := strings.ToLower(u.Hostname())
 				if host == "pep.com.cn" || strings.HasSuffix(host, ".pep.com.cn") || strings.HasSuffix(host, ".edu.cn") || strings.HasSuffix(host, ".gov.cn") {

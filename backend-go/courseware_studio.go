@@ -215,7 +215,7 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		}
 	}
 	if err := coursewareSourceError(body.Result, st.Sources); err != nil {
-		return fail(400, err.Error())
+		return err
 	}
 	assignSlideIDs(&body.Result)
 	if err := validateDeckMinimum(body.Result, 3); err != nil {

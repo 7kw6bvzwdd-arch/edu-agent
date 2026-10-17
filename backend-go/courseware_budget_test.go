@@ -43,12 +43,6 @@ func TestCoursewareProviderBudgetPersistsAcrossRecoveryHTTP(t *testing.T) {
 	if !errors.As(err, &exhausted) || coursewareCanResume(pageReviewUnavailable{err}) {
 		t.Fatal("budget exhaustion loops forever", err)
 	}
-	if _, err = s.requestTeachingReview(context.Background(), a, id, "http://127.0.0.1:1", "unused", "unused", "专项教学复核", 3500, draft, 1); !errors.As(err, &exhausted) {
-		t.Fatal("focused teaching review bypassed persisted provider budget", err)
-	}
-	if _, err = s.solveVisibleTeachingExercise(context.Background(), a, id, "http://127.0.0.1:1", "unused", "unused", in, draft); !errors.As(err, &exhausted) {
-		t.Fatal("blind solution bypassed persisted provider budget", err)
-	}
 	if _, err = s.coursewarePageRequest(context.Background(), a, id, in, nil, "", 1); !errors.As(err, &exhausted) || coursewareCanResume(err) {
 		t.Fatal("page request hid exhausted budget", err)
 	}

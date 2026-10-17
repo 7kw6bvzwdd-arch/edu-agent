@@ -47,12 +47,8 @@ CREATE TABLE IF NOT EXISTS tasks (
  created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(tenant_id,id),UNIQUE(tenant_id,member_id,idempotency_key),
  FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id),
- CHECK(charge_state IN ('unreserved','reserved','settled','released'))
+ CHECK(charge_state IN ('reserved','settled','released'))
 );
-ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_charge_state_check;
-ALTER TABLE tasks ADD CONSTRAINT tasks_charge_state_check CHECK(charge_state IN ('unreserved','reserved','settled','released'));
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation jsonb NOT NULL DEFAULT '{}';
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS html_path text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS tasks_queue ON tasks(status,created_at);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS display_title text NOT NULL DEFAULT '';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS provider_job_id text NOT NULL DEFAULT '';
@@ -133,14 +129,11 @@ CREATE TABLE IF NOT EXISTS eval_runs (
  error text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),
  FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id)
 );
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export jsonb NOT NULL DEFAULT '{}';
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export_lease_until timestamptz;
 CREATE TABLE IF NOT EXISTS artifact_revisions (
  tenant_id bigint NOT NULL,task_id text NOT NULL,revision integer NOT NULL,
  result jsonb NOT NULL,pptx_path text NOT NULL,mp4_path text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(tenant_id,task_id,revision),FOREIGN KEY(tenant_id,task_id) REFERENCES tasks(tenant_id,id)
 );
-ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS html_path text NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS courseware_feedback (
  tenant_id bigint NOT NULL,task_id text NOT NULL,slide_id text NOT NULL,content_hash text NOT NULL,
  vote integer NOT NULL DEFAULT 0 CHECK(vote IN (-1,0,1)),reason text NOT NULL DEFAULT '',
@@ -192,3 +185,12 @@ DO $$ BEGIN
  END IF;
 END $$;
 GRANT edu_runtime TO edu_app;
+
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_charge_state_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_charge_state_check CHECK(charge_state IN ('unreserved','reserved','settled','released'));
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS html_path text NOT NULL DEFAULT '';
+ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS html_path text NOT NULL DEFAULT '';
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS animation_export_lease_until timestamptz;

@@ -255,7 +255,7 @@ func (s *Server) sendCoursewareMessage(w http.ResponseWriter, r *http.Request, a
 				return err
 			}
 			sl := parsed.Slides[0]
-			preserveTeacherSlideFields(&sl, st.Deck.Slides[index])
+			sl.ID, sl.Picture = st.Deck.Slides[index].ID, st.Deck.Slides[index].Picture
 			sl.Notes += "\n对话修改内容须教师重新审核。"
 			candidate.Slides = append([]Slide{}, st.Deck.Slides...)
 			candidate.Slides[index] = sl

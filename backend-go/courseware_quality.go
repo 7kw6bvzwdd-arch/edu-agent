@@ -141,27 +141,6 @@ func exerciseCoordinateDisclosureIssues(d Deck) []PageQualityIssue {
 	return issues
 }
 
-// Only the observed explicit count/continuous-segment contradiction is handled
-// here. Other domains and general mathematical modeling remain model-reviewed.
-func teachingDiscreteCountIssues(d Deck) []PageQualityIssue {
-	issues := []PageQualityIssue{}
-	for _, sl := range d.Slides {
-		text := strings.ReplaceAll(strings.Join(teachingSlideTextFields(sl), "。"), " ", "")
-		if !strings.Contains(text, "x是使用次数") && !strings.Contains(text, "x表示使用次数") {
-			continue
-		}
-		for _, sentence := range strings.FieldsFunc(text, func(r rune) bool { return r == '。' || r == '\n' || r == '；' }) {
-			if strings.Contains(sentence, "错误") || strings.Contains(sentence, "吗") || strings.Contains(sentence, "？") || strings.Contains(sentence, "离散") {
-				continue
-			}
-			if regexp.MustCompile(`图[象像]是[^。]{0,100}(?:一条|的)?线段`).MatchString(sentence) {
-				issues = append(issues, PageQualityIssue{Object: sentence, Reviewer: "content", Category: "knowledge", Certainty: "confirmed", Severity: "error", Evidence: "本页明确x是使用次数，只能取非负整数；把实际图象断言为连续线段会包含不可取的非整数次数。", Repair: "保留题设和解析式，明确整数取值，图象表述改为对应的离散点；如果介绍连续延拓，须明确区分实际情境和延拓模型。"})
-			}
-		}
-	}
-	return issues
-}
-
 // These checks catch thin or repetitive slide structure, not factual correctness.
 func coursewareQualityIssues(d Deck, teachingPages int) []string {
 	issues := []string{}

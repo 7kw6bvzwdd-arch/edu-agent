@@ -1,5 +1,5 @@
-name: local-contracts
-on: [push, pull_request]
+name: release-contracts
+on: [push, pull_request, workflow_dispatch]
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -40,15 +40,121 @@ jobs:
           sudo apt-get install -y fonts-noto-cjk poppler-utils
           command -v pdftoppm
       - run: python -m pytest -q render-service-py
-      - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &
-      - run: |
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
-          cd backend-go
-          go test -v ./...
+      - name: Release tag and integrity contracts
+        run: |
+          python scripts/test-release.py
+          python scripts/test-release-integrity.py
+      - name: Go portable tests (no database or Office prerequisite)
+        working-directory: backend-go
+        run: |
+          go test -count=1 ./...
           go vet ./...
+      - run: python -m uvicorn app:app --app-dir render-service-py --port 8000 > /tmp/edu-render.log 2>&1 &
+      # Explicit HTTP boundary suite. Full courseware screenshot acceptance requires
+      # installed desktop PowerPoint and is a separate local release gate.
+      - name: HTTP authentication, isolation, quota and animation state contracts
+        run: |
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/health
+          cd backend-go
+          go test -count=1 -timeout 15m -v -run '^(TestHTTPMemberQuotaAndIsolation|TestRegisterCreatesIsolatedSpaceAndRecovery|TestActiveSessionRefreshHTTP|TestAccountSettingsHTTP|TestCloudHealthHTTP|TestMemberPackageAndConcurrentReservations|TestHTMLAnimationWorkflowHTTP|TestHTMLGeometryWorkflowHTTP|TestHTMLGeneralLessonWorkflowHTTP|TestHTMLAnimationRecoveryHTTP|TestHTMLAnimationCancelledWorkerHTTP|TestAnimationExportRecoveryHTTP)$' ./...
         env:
           TEST_DATABASE_URL: postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable
           TEST_RUNTIME_DATABASE_URL: postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable
           TEST_RENDER_URL: http://127.0.0.1:8000
       - run: npm ci && npm run build
         working-directory: frontend-vue
+      - name: Browser and classroom fixture contracts (no provider calls)
+        run: |
+          export TEST_BROWSER_PATH="$(command -v google-chrome)"
+          test -n "$TEST_BROWSER_PATH"
+          node scripts/test-classroom.cjs
+          mkdir -p work/lesson-video work/anim-workflow
+          cd backend-go
+          go run . --anim-package ../fixtures/animation-v2-linear-k.json ../work/lesson-video/fixture.html tone
+          cd ..
+          cp work/lesson-video/fixture.html work/anim-workflow/http-fixture.html
+          node scripts/browser-needs-dialogue.cjs
+          node scripts/browser-animation-workflow.cjs
+      - name: Install locked video dependencies
+        working-directory: animation-video
+        run: npm ci --no-audit --no-fund
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+      - name: Actual MP4 export and browser decoding (explicit test audio)
+        timeout-minutes: 20
+        run: |
+          export TEST_BROWSER_PATH="$(command -v google-chrome)"
+          export ANIMATION_CHROME_PATH="$TEST_BROWSER_PATH"
+          npm test --prefix animation-video
+          node animation-video/playback.test.mjs work/lesson-video/fixture.mp4
+      - name: Actual MP4 HTTP download authorization and quota contract
+        timeout-minutes: 20
+        run: |
+          export ANIMATION_CHROME_PATH="$(command -v google-chrome)"
+          export ANIMATION_EXPORT_SCRIPT="$GITHUB_WORKSPACE/animation-video/export.mjs"
+          export ANIMATION_EXPORT_TEST_SOURCE="$GITHUB_WORKSPACE/work/lesson-video/fixture.html"
+          cd backend-go
+          go test -count=1 -timeout 18m -v -run '^TestAnimationExportActualMP4HTTP$' ./...
+        env:
+          TEST_DATABASE_URL: postgres://edu:edu-local-only@127.0.0.1:55432/edu_test?sslmode=disable
+          TEST_RUNTIME_DATABASE_URL: postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu_test?sslmode=disable
+      - name: Retain fixture acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-acceptance-linux
+          if-no-files-found: ignore
+          path: |
+            work/needs-dialogue/browser/checks.json
+            work/anim-workflow/browser/report.json
+            work/lesson-video/fixture.mp4.json
+            work/lesson-video/playback-report.json
+  windows:
+    needs: checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: backend-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Windows Go and release CLI contracts (no Office acceptance claim)
+        shell: pwsh
+        run: |
+          python scripts/test-release.py
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          python scripts/test-release-integrity.py
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          go test -C backend-go -count=1 ./...
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          go vet -C backend-go ./...
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $errors=$null
+          foreach($file in Get-ChildItem scripts/*.ps1){
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$null,[ref]$errors) | Out-Null
+            if($errors.Count){throw ($errors | Out-String)}
+          }
+      - name: Build all release components from the pushed tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/build-release.py --tag $env:RELEASE_TAG --output work/releases/ci-release
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          python scripts/verify-release.py --release work/releases/ci-release --expect-tag $env:RELEASE_TAG
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: tagged-windows-release
+          path: work/releases/ci-release

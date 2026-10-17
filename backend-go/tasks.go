@@ -15,7 +15,6 @@ import (
 
 type TaskInput struct {
 	AnimationPicture *TeachingPicture  `json:"animation_picture,omitempty"`
-	MaterialSnapshot *TextbookSnapshot `json:"material_snapshot,omitempty"`
 	Chapter          string            `json:"chapter,omitempty"`
 	MaterialID       string            `json:"material_id,omitempty"`
 	MaterialStart    int               `json:"material_start,omitempty"`
@@ -51,7 +50,6 @@ type Slide struct {
 	CanvasObjects   []CanvasObject          `json:"canvas_objects,omitempty"`
 	CanvasOrder     []string                `json:"canvas_order,omitempty"`
 	CanvasPositions map[string]CanvasOffset `json:"canvas_positions,omitempty"`
-	Evidence        []TeachingClaimEvidence `json:"evidence,omitempty"`
 	Answer          string                  `json:"answer,omitempty"`
 	Scientific      *ScientificDiagram      `json:"scientific,omitempty"`
 	Order           int                     `json:"order,omitempty"`
@@ -88,23 +86,20 @@ type Deck struct {
 	Script           string                      `json:"script,omitempty"`
 }
 type Source struct {
-	Textbook      *TextbookSnapshot `json:"textbook,omitempty"`
-	FilePage      int               `json:"file_page,omitempty"`
-	EvidenceKind  string            `json:"evidence_kind,omitempty"`
-	Origin        string            `json:"origin,omitempty"`
-	EvidenceGroup string            `json:"evidence_group,omitempty"`
-	Reliability   string            `json:"reliability,omitempty"`
-	Filter        *PassageFilter    `json:"filter,omitempty"`
-	Hash          string            `json:"hash"`
-	RetrievedAt   string            `json:"retrieved_at"`
-	ID            string            `json:"id"`
-	DocumentID    string            `json:"document_id"`
-	Title         string            `json:"title"`
-	Content       string            `json:"content"`
-	Location      string            `json:"location"`
-	URL           string            `json:"url,omitempty"`
-	Kind          string            `json:"kind"`
-	Score         float64           `json:"score"`
+	Origin        string         `json:"origin,omitempty"`
+	EvidenceGroup string         `json:"evidence_group,omitempty"`
+	Reliability   string         `json:"reliability,omitempty"`
+	Filter        *PassageFilter `json:"filter,omitempty"`
+	Hash          string         `json:"hash"`
+	RetrievedAt   string         `json:"retrieved_at"`
+	ID            string         `json:"id"`
+	DocumentID    string         `json:"document_id"`
+	Title         string         `json:"title"`
+	Content       string         `json:"content"`
+	Location      string         `json:"location"`
+	URL           string         `json:"url,omitempty"`
+	Kind          string         `json:"kind"`
+	Score         float64        `json:"score"`
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) error {
@@ -520,11 +515,6 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if e := validateDeck(in.Result); e != nil {
 		return e
 	}
-	if kind == "courseware" {
-		if err := coursewareSourceError(in.Result, sources); err != nil {
-			return fail(400, err.Error())
-		}
-	}
 	if kind == "courseware" && original.PreviewFirst {
 		if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
 			return err
@@ -720,21 +710,15 @@ func (s *Server) workOne(ctx context.Context) error {
 	tenants := []int64{}
 	for rows.Next() {
 		var id int64
-		if e = rows.Scan(&id); e != nil {
-			rows.Close()
-			return e
-		}
+		rows.Scan(&id)
 		tenants = append(tenants, id)
 	}
 	rows.Close()
-	if e = rows.Err(); e != nil {
-		return e
-	}
 	for _, tid := range tenants {
-		if worked, err := s.workHTMLAnimation(ctx, tid); err != nil || worked {
+		if worked, err := s.workHTMLAnimation(ctx, tid); worked || err != nil {
 			return err
 		}
-		if worked, err := s.workAnimationExport(ctx, tid); err != nil || worked {
+		if worked, err := s.workAnimationExport(ctx, tid); worked || err != nil {
 			return err
 		}
 		tx, e := s.tx(ctx, tid)
@@ -751,9 +735,8 @@ func (s *Server) workOne(ctx context.Context) error {
 			recoveryCtx := context.WithValue(ctx, generationCycleKey{}, int(v["charge_cycle"].(int32)))
 			recoveryCtx = context.WithValue(recoveryCtx, generationAttemptKey{}, int(v["attempt"].(int32)))
 			var input TaskInput
-			// Unreadable input cannot be resumed safely; it falls through to release.
-			inputErr := json.Unmarshal(asJSON(v["input"]), &input)
-			if inputErr == nil && v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
+			json.Unmarshal(asJSON(v["input"]), &input)
+			if v["type"] == "courseware" && v["mode"] == s.cfg.Mode {
 				resumed, recoveryErr := s.resumeCoursewareAutomatically(recoveryCtx, Actor{TenantID: tid, MemberID: v["member_id"].(int64)}, v["id"].(string), v["status"].(string), input, context.DeadlineExceeded)
 				if recoveryErr != nil {
 					return recoveryErr
@@ -860,23 +843,18 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 	for _, sl := range d.Slides {
 		if len(sl.CanvasPositions) > 0 || len(sl.CanvasObjects) > 0 || len(sl.CanvasOrder) > 0 {
-			// A hung health probe must not consume the render deadline.
-			healthCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			req, err := http.NewRequestWithContext(healthCtx, "GET", s.cfg.RenderURL+"/health", nil)
+			req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.RenderURL+"/health", nil)
 			if err != nil {
-				cancel()
 				return nil, err
 			}
 			res, err := s.http.Do(req)
 			if err != nil {
-				cancel()
 				return nil, fail(503, "对象排版服务暂不可用，当前修改保留")
 			}
 			var health map[string]any
 			err = json.NewDecoder(res.Body).Decode(&health)
 			res.Body.Close()
-			cancel()
-			if res.StatusCode != http.StatusOK || err != nil || health["courseware_canvas_version"] != "canvas-v3" {
+			if err != nil || health["courseware_canvas_version"] != "canvas-v3" {
 				return nil, fail(503, "对象排版服务尚未更新，当前修改保留")
 			}
 			break
@@ -920,8 +898,7 @@ func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 			return nil, err
 		}
 	}
-	export := coursewareEvidenceForExport(d)
-	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", &export, "")
+	return s.postBytes(ctx, s.cfg.RenderURL+"/render/pptx", d, "")
 }
 
 func (s *Server) checkWorkPermission(ctx context.Context, a Actor, kind string) error {

@@ -259,7 +259,7 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 		if e = tx.QueryRow(ctx, "SELECT type,input FROM tasks WHERE id=$1", id).Scan(&taskType, &input); e != nil {
 			return e
 		}
-		if taskType == "courseware" || taskType == "revision" {
+		if taskType == "courseware" {
 			var mode string
 			var planned Deck
 			if e = tx.QueryRow(ctx, "SELECT mode,result FROM tasks WHERE id=$1", id).Scan(&mode, &planned); e != nil {
@@ -285,15 +285,6 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 			return fail(410, "旧版动画不再结算；HTML动画通过独立验收流程交付")
 		}
 		if taskType == "revision" {
-			var old Deck
-			if e = tx.QueryRow(ctx, "SELECT result FROM tasks WHERE id=$1 AND member_id=$2", input.ParentID, member).Scan(&old); e != nil {
-				return e
-			}
-			if final, ok := result.(Deck); ok {
-				if e = invalidateChangedChecks(ctx, tx, input.ParentID, final, old); e != nil {
-					return e
-				}
-			}
 			changed, e := tx.Exec(ctx, "UPDATE tasks SET result=$1,pptx_path=$2,revision=revision+1,updated_at=now() WHERE id=$3 AND member_id=$4 AND revision=$5 AND status='succeeded' AND deleted_at IS NULL", asJSON(result), path, input.ParentID, member, input.ParentRevision)
 			if e != nil {
 				return e

@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// Entirely live generation and configured review. Teacher approvals below are
+// Entirely live generation and independent review. Teacher approvals below are
 // test actions in an isolated database, never real teacher quality acceptance.
 func TestCoursewareFullQualityLive(t *testing.T) {
 	if os.Getenv("TEST_FULL_DECK_LIVE") != "1" {
@@ -30,7 +30,7 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 		{"quadratic", "二次函数", "九年级", "数学", "学生已学一次函数。用y=x²-2x-3解释顶点、对称轴、交点及增减区间；图像和代数相互核对，给完整条件的例题和独立练习。"},
 		{"circuits", "串并联电路", "九年级", "物理", "围绕电流路径、通断和电流电压规律；理想电源、导线和电表假设明确。用低压学生电源，严禁短接电源；串联/并联图必须支持实际教学问题，答案放备注。"},
 	} {
-		if selected := os.Getenv("TEST_FULL_DECK_TOPIC"); selected != "" && !strings.Contains(","+selected+",", ","+tc.key+",") {
+		if selected := os.Getenv("TEST_FULL_DECK_TOPIC"); selected != "" && selected != tc.key {
 			continue
 		}
 		t.Run(tc.key, func(t *testing.T) {
@@ -48,13 +48,12 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			}
 			s.cfg.Storage = filepath.Join(dir, "artifacts")
 			s.cfg.Mode = "live"
-			s.cfg.CoursewareContentReviewDisabled = os.Getenv("COURSEWARE_CONTENT_REVIEW_DISABLED") == "true"
 			s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")
 			s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 			s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = os.Getenv("EVAL_LLM_BASE_URL"), os.Getenv("EVAL_LLM_API_KEY"), os.Getenv("EVAL_LLM_MODEL")
 			s.cfg.VisionURL, s.cfg.VisionKey, s.cfg.VisionModel = os.Getenv("VISION_LLM_BASE_URL"), os.Getenv("VISION_LLM_API_KEY"), os.Getenv("VISION_LLM_MODEL")
 			if !s.agentConfigured("courseware") || !s.coursewareQualityConfigured() || s.cfg.RenderURL == "" {
-				t.Fatal("actual generation, configured review and renderer required")
+				t.Fatal("actual generation, dual review and renderer required")
 			}
 			// Keep exact renderer inputs, including rejected/locally repaired versions.
 			target, err := url.Parse(s.cfg.RenderURL)
@@ -87,42 +86,26 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 				transport = http.DefaultTransport
 			}
 			var replies atomic.Int32
-			trace := func(base http.RoundTripper) http.RoundTripper {
-				return coursewareTransportFunc(func(r *http.Request) (*http.Response, error) {
-					res, e := base.RoundTrip(r)
-					if e != nil && strings.HasSuffix(r.URL.Path, "/chat/completions") {
-						t.Log("model transport failed (request/credentials omitted)")
-					}
-					if res != nil && strings.HasSuffix(r.URL.Path, "/chat/completions") && (res.StatusCode < 200 || res.StatusCode >= 300) {
-						t.Logf("model HTTP failure: %d (response body omitted)", res.StatusCode)
-					}
-					if e != nil || res.StatusCode < 200 || res.StatusCode >= 300 || !strings.HasSuffix(r.URL.Path, "/chat/completions") {
-						return res, e
-					}
-					b, e := io.ReadAll(res.Body)
-					res.Body.Close()
-					res.Body = io.NopCloser(bytes.NewReader(b))
-					if e != nil {
-						return res, e
-					}
-					var envelope struct {
-						Choices json.RawMessage `json:"choices"`
-						Usage   json.RawMessage `json:"usage"`
-					}
-					if json.Unmarshal(b, &envelope) == nil {
-						os.WriteFile(filepath.Join(dir, fmt.Sprintf("model-%03d.json", replies.Add(1))), asJSON(envelope), 0600)
-					}
-					return res, nil
-				})
-			}
-			s.http.Transport = trace(transport)
-			if s.reviewHTTP != nil {
-				base := s.reviewHTTP.Transport
-				if base == nil {
-					base = http.DefaultTransport
+			s.http.Transport = coursewareTransportFunc(func(r *http.Request) (*http.Response, error) {
+				res, e := transport.RoundTrip(r)
+				if e != nil || res.StatusCode < 200 || res.StatusCode >= 300 || !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+					return res, e
 				}
-				s.reviewHTTP.Transport = trace(base)
-			}
+				b, e := io.ReadAll(res.Body)
+				res.Body.Close()
+				res.Body = io.NopCloser(bytes.NewReader(b))
+				if e != nil {
+					return res, e
+				}
+				var envelope struct {
+					Choices json.RawMessage `json:"choices"`
+					Usage   json.RawMessage `json:"usage"`
+				}
+				if json.Unmarshal(b, &envelope) == nil {
+					os.WriteFile(filepath.Join(dir, fmt.Sprintf("model-%03d.json", replies.Add(1))), asJSON(envelope), 0600)
+				}
+				return res, nil
+			})
 			// Optional verified, actually readable first-party passages. No fabricated
 			// textbook excerpts; when absent this is explicitly an unsupported draft.
 			if resumeID == "" {
@@ -174,75 +157,6 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 					t.Fatal("resume created a duplicate work")
 				}
 			}
-			if fixture := os.Getenv("TEST_FULL_DECK_PLAN_FIXTURE"); fixture != "" && resumeID == "" {
-				// Explicit regression replay: original conflicting proposal is
-				// retained, so page generation/review must honor the conventions.
-				b, e := os.ReadFile(fixture)
-				var plan TeachingPlan
-				if e != nil {
-					t.Fatal(e)
-				}
-				if e = json.Unmarshal(b, &plan); e != nil {
-					t.Fatal(e)
-				}
-				if e = validateTeachingPlan(plan); e != nil {
-					t.Fatal(e)
-				}
-				tx, e := s.tx(context.Background(), a.TenantID)
-				if e != nil {
-					t.Fatal(e)
-				}
-				_, e = tx.Exec(context.Background(), "UPDATE tasks SET result=$1 WHERE id=$2", asJSON(Deck{Plan: &plan, Generation: &CoursewareCheckpoint{Phase: "preview"}}), id)
-				if e != nil {
-					tx.Rollback(context.Background())
-					t.Fatal(e)
-				}
-				if e = tx.Commit(context.Background()); e != nil {
-					t.Fatal(e)
-				}
-			}
-			// Replay a previously captured checkpoint only in this isolated database.
-			// Keep saved page hashes/checks, then recheck unfinished pages through
-			// the real queue; do not rerun the already completed preview.
-			replayed := false
-			if fixture := os.Getenv("TEST_FULL_DECK_CHECKPOINT_FIXTURE"); fixture != "" && resumeID == "" {
-				b, e := os.ReadFile(fixture)
-				var record struct {
-					Task []struct {
-						Input   TaskInput
-						Result  Deck
-						Sources []Source
-					}
-				}
-				if e != nil {
-					t.Fatal(e)
-				}
-				if e = json.Unmarshal(b, &record); e != nil || len(record.Task) != 1 {
-					t.Fatal("invalid checkpoint fixture", e)
-				}
-				d := record.Task[0].Result
-				if d.Plan == nil || len(d.Slides) < 3 {
-					t.Fatal("checkpoint missing preview or plan")
-				}
-				if e = validateTeachingPlan(*d.Plan); e != nil {
-					t.Fatal(e)
-				}
-				in = record.Task[0].Input
-				in.IdempotencyKey = newID()
-				tx, e := s.tx(context.Background(), a.TenantID)
-				if e != nil {
-					t.Fatal(e)
-				}
-				_, e = tx.Exec(context.Background(), "UPDATE tasks SET status='expand_pending',stage='expand_pending',input=$2,result=$3,sources=$4 WHERE id=$1", id, asJSON(in), asJSON(d), asJSON(record.Task[0].Sources))
-				if e != nil {
-					tx.Rollback(context.Background())
-					t.Fatal(e)
-				}
-				if e = tx.Commit(context.Background()); e != nil {
-					t.Fatal(e)
-				}
-				replayed = true
-			}
 			route := "/api/tasks/" + id
 			started := time.Now()
 			defer func() {
@@ -268,18 +182,15 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 					return
 				}
 				_, _, model := s.agentModel("courseware")
-				if e = os.WriteFile(filepath.Join(dir, "report.json"), asJSON(map[string]any{"model": model, "content_review_enabled": !s.cfg.CoursewareContentReviewDisabled, "from_zero": resumeID == "" && !replayed, "checkpoint_replay": replayed, "seconds": time.Since(started).Seconds(), "task": rows, "events": events, "usage": usage, "test_teacher_approval": true, "human_quality_accepted": false, "render_calls": renders.Load()}), 0600); e != nil {
+				if e = os.WriteFile(filepath.Join(dir, "report.json"), asJSON(map[string]any{"model": model, "seconds": time.Since(started).Seconds(), "task": rows, "events": events, "usage": usage, "test_teacher_approval": true, "human_quality_accepted": false, "render_calls": renders.Load()}), 0600); e != nil {
 					t.Error(e)
 				}
 			}()
 			defer func() { worksCall(t, s, "POST", route+"/cancel", token, nil, 200) }()
-			// Cover the product's 15-minute preview, up-to-40-minute expansion
-			// and 9-minute final render; a 25-minute whole-flow deadline used to
-			// cancel a fully reviewed deck just as final delivery started.
-			ctx, cancel := context.WithTimeout(context.Background(), 65*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 			defer cancel()
 			advance := func(want string) map[string]any {
-				for round := 0; round < 20 && ctx.Err() == nil; round++ {
+				for round := 0; round < 4; round++ {
 					if err := s.workOne(ctx); err != nil {
 						t.Fatal(err)
 					}
@@ -304,21 +215,21 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 				return nil
 			}
 			var preview map[string]any
-			if resumeID == "" && !replayed {
+			if resumeID == "" {
 				preview = advance("awaiting_preview")
 			} else {
 				preview = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 			}
 			var d Deck
 			json.Unmarshal(asJSON(preview["result"]), &d)
-			if (resumeID == "" && !replayed && len(d.Slides) != 3) || len(d.Slides) < 3 || d.Plan == nil {
+			if (resumeID == "" && len(d.Slides) != 3) || len(d.Slides) < 3 || d.Plan == nil {
 				t.Fatal("missing genuinely generated representative preview")
 			}
 			locked := map[string]string{}
 			approve := func(v map[string]any, d Deck) {
 				for _, sl := range d.Slides {
-					if !s.pageCheckPassed(d.PageChecks[sl.ID], false) {
-						t.Fatal("page lacks the configured review checks", sl.Order)
+					if !pageCheckPassed(d.PageChecks[sl.ID], false) {
+						t.Fatal("page lacks actual dual-review success", sl.Order)
 					}
 					worksCall(t, s, "POST", route+"/slides/"+sl.ID+"/review", token, map[string]any{"revision": v["revision"], "hash": slideContentHash(d, sl), "approved": true}, 200)
 				}
@@ -326,14 +237,14 @@ func TestCoursewareFullQualityLive(t *testing.T) {
 			for _, sl := range d.Slides[:3] {
 				locked[sl.ID] = slideContentHash(d, sl)
 			}
-			if resumeID != "" || replayed {
+			if resumeID != "" {
 				for _, sl := range d.Slides {
-					if s.pageCheckPassed(d.PageChecks[sl.ID], false) {
+					if pageCheckPassed(d.PageChecks[sl.ID], false) {
 						locked[sl.ID] = slideContentHash(d, sl)
 					}
 				}
 			}
-			if resumeID == "" && !replayed {
+			if resumeID == "" {
 				approve(preview, d)
 				worksCall(t, s, "POST", route+"/expand", token, map[string]any{"revision": preview["revision"]}, 202)
 			}

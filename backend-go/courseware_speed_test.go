@@ -101,9 +101,6 @@ func TestCoursewarePromptRetainsEvidenceOnce(t *testing.T) {
 func TestGraphDetailPreservesActualPixelsAndCalculations(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 100, 100))
 	source.Set(50, 50, color.RGBA{R: 17, G: 45, B: 90, A: 255})
-	// The second graph legend in actual 1280x720 Office exports is near 85%
-	// page height; the old 82% crop made it disappear only in the detail image.
-	source.Set(50, 85, color.RGBA{R: 200, G: 30, B: 40, A: 255})
 	var buf bytes.Buffer
 	png.Encode(&buf, source)
 	d := Deck{Slides: []Slide{{Layout: "steps", Graph: &FunctionGraph{Series: []FunctionSeries{{K: 2, B: 1, MarkX: []float64{0, 1}}, {Kind: "quadratic", A: 1, B: 2, C: 3, MarkX: []float64{2}}, {Kind: "inverse", K: 6, MarkX: []float64{3}}}}}}}
@@ -123,10 +120,6 @@ func TestGraphDetailPreservesActualPixelsAndCalculations(t *testing.T) {
 	r, g, b, _ = detail.At(90, 40).RGBA()
 	if r != 17*257 || g != 45*257 || b != 90*257 {
 		t.Fatal("evidence-first crop lost actual graph pixels")
-	}
-	r, g, b, _ = detail.At(90, 110).RGBA()
-	if r != 200*257 || g != 30*257 || b != 40*257 {
-		t.Fatal("graph detail omitted the lower legend visible on the full page")
 	}
 	facts := teachingRenderEvidence(d)
 	for _, point := range []string{"(0,1)", "(1,3)", "(2,11)", "(3,2)"} {
@@ -259,18 +252,6 @@ func TestCoursewareLookaheadRepairAndCancellationHTTP(t *testing.T) {
 						}
 					}
 					raw = string(asJSON(d))
-				} else if req.Model == "review" {
-					if prompt, ok := req.Messages[len(req.Messages)-1].Content.(string); ok {
-						if strings.Contains(prompt, "你是独立解题员") {
-							raw = `{"solution":"调度测试模拟：给定条件、计算与教师答案一致；教学准确性由独立真实模型回归验证。"}`
-						} else if strings.Contains(prompt, "你是教学风险复核员") {
-							checks := []map[string]any{}
-							for i := 0; i < strings.Count(prompt, "\n复核项"); i++ {
-								checks = append(checks, map[string]any{"index": i + 1, "evidence": "调度测试模拟：本项条件和数量关系有效，用于验证预取、修复和取消的时间顺序。", "issues": []PageQualityIssue{}})
-							}
-							raw = string(asJSON(map[string]any{"checks": checks}))
-						}
-					}
 				} else if req.Model == "vision" {
 					if visualCalls.Add(1) == 1 {
 						select {

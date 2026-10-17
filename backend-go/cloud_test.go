@@ -25,6 +25,9 @@ func TestCloudHealthHTTP(t *testing.T) {
 	if w.Code != 200 || !ok || deps["postgresql"] != "ok" || deps["minio"] != "local" || deps["redis"] != "disabled" || deps["milvus"] != "disabled" {
 		t.Fatalf("health must distinguish checked dependencies: %d %s", w.Code, w.Body.String())
 	}
+	if v["release_tag"] != releaseTag || v["release_commit"] != releaseCommit {
+		t.Fatal("health must identify the running release")
+	}
 }
 
 func cloudTestConfig(t *testing.T) Config {

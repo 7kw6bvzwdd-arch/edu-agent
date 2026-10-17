@@ -1,6 +1,6 @@
-param([switch]$NoWatch)
+param([switch]$NoWatch,[string]$ProjectRoot=(Split-Path -Parent $PSScriptRoot))
 $ErrorActionPreference='Stop'
-$root=Split-Path -Parent $PSScriptRoot
+$root=[IO.Path]::GetFullPath($ProjectRoot)
 $settings=@{}
 Get-Content -LiteralPath (Join-Path $root '.env') | ForEach-Object {if($_ -match '^([^#=]+)=(.*)$'){$settings[$matches[1].Trim()]=$matches[2].Trim()}}
 if(!$settings['CLOUD_SSH_HOST']){return}
@@ -15,9 +15,9 @@ function Start-TunnelWatch {
   $watch=Get-CimInstance Win32_Process -Filter "ProcessId = $($watchSaved.pid)" -ErrorAction SilentlyContinue
   if($watch -and $watch.Name -eq 'powershell.exe' -and $watch.CommandLine -and $watch.CommandLine.Contains($watchScript)){return}
  }
- $watchArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$watchScript+'"'))
+ $watchArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$watchScript+'"'),'-ProjectRoot',('"'+$root+'"'))
  $watch=Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList $watchArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dir 'watch.out.log') -RedirectStandardError (Join-Path $dir 'watch.err.log')
- @{pid=$watch.Id} | ConvertTo-Json | Set-Content -LiteralPath $watchPidFile
+ @{pid=$watch.Id;script=$watchScript} | ConvertTo-Json | Set-Content -LiteralPath $watchPidFile
 }
 if(Test-Path -LiteralPath $pidFile){
  $saved=Get-Content -LiteralPath $pidFile | ConvertFrom-Json

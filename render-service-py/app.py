@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 from teaching_plots import add_plot
-from fastapi import FastAPI, HTTPException, UploadFile, Request, Query
+from fastapi import FastAPI, HTTPException, UploadFile, Request
 from fastapi.responses import Response, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
@@ -122,10 +122,10 @@ class FunctionSeries(BaseModel):
 class FunctionGraph(BaseModel):
     renderer:Literal['native','matplotlib']='native'
     title:str=Field(min_length=1,max_length=60)
-    x_min:FiniteFloat=Field(ge=-1000,le=0)
-    x_max:FiniteFloat=Field(ge=0,le=1000)
-    y_min:FiniteFloat=Field(ge=-1000,le=0)
-    y_max:FiniteFloat=Field(ge=0,le=1000)
+    x_min:FiniteFloat=Field(ge=-1000,lt=0)
+    x_max:FiniteFloat=Field(gt=0,le=1000)
+    y_min:FiniteFloat=Field(ge=-1000,lt=0)
+    y_max:FiniteFloat=Field(gt=0,le=1000)
     series:list[FunctionSeries]=Field(min_length=1,max_length=4)
 
     @model_validator(mode='after')
@@ -457,6 +457,7 @@ def inline_font_content(text):
         plain=re.sub(r'\\+(?:mathbf|mathrm|mathit|textbf|textit|text)\{([^{}]*)\}',lambda m:m[1],text)
         if plain==text:return text
         text=plain
+
 
 def keep_number_unit(text):
     # Preserve stored content; keep the value and unit together in display text.
@@ -1238,7 +1239,7 @@ def render(deck,start_index=0,total_pages=None):
 
 
 @app.get('/health')
-def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v2','courseware_plot_version':'matplotlib-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1','pdf_extraction_version':'math-layout-v2'}
+def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v3','courseware_plot_version':'matplotlib-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1'}
 
 @app.post('/render/object-map')
 async def object_map(request:Request,page:int=1):
@@ -1291,8 +1292,11 @@ async def extract(file:UploadFile):
         if suffix in ('.txt','.md'):
             pages=[{'page':1,'text':data.decode('utf-8-sig')}]
         elif suffix=='.pdf':
-            from pdf_extract import extract_pdf
-            pages=extract_pdf(data)
+            from pypdf import PdfReader
+            reader=PdfReader(io.BytesIO(data))
+            if reader.is_encrypted:raise ValueError('暂不支持加密PDF')
+            if len(reader.pages)>300:raise ValueError('文档超过300页')
+            pages=[{'page':i+1,'text':p.extract_text() or ''} for i,p in enumerate(reader.pages)]
         elif suffix=='.docx':
             from docx import Document
             d=Document(io.BytesIO(data));texts=[p.text for p in d.paragraphs]
@@ -1315,22 +1319,6 @@ async def reference_extract(file:UploadFile):
     if len(data)>20*1024*1024:raise HTTPException(413,'参考课件超过20MB')
     try:return inspect_reference(data,Path(file.filename or '').suffix.lower())
     except Exception:raise HTTPException(422,'参考课件无法读取画面；请使用未加密的PDF/PPTX，最多80页，并检查画面解析服务')
-
-
-@app.post('/document/page-image')
-async def document_page_image(file:UploadFile,page:int=Query(ge=1,le=300)):
-    data=await file.read(100*1024*1024+1)
-    if len(data)>100*1024*1024:raise HTTPException(413,'文件超过100MB')
-    try:
-        import pymupdf
-        if Path(file.filename or '').suffix.lower()!='.pdf':raise ValueError()
-        with pymupdf.open(stream=data,filetype='pdf') as doc:
-            if doc.is_encrypted or len(doc)>300 or page>len(doc):raise ValueError()
-            original=doc[page-1]
-            scale=1600/max(original.rect.width,original.rect.height)
-            png=original.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False).tobytes('png')
-            return {'page':page,'data_url':'data:image/png;base64,'+base64.b64encode(png).decode()}
-    except Exception:raise HTTPException(422,'原始PDF页面无法读取，请检查页码或文件')
 
 class FormulaRequest(BaseModel):
     formula:str=Field(min_length=1,max_length=250)
