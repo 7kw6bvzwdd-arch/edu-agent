@@ -70,8 +70,10 @@ func TestRemediationProcessRecoveryHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	started := make(chan struct{}, 16)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.Copy(io.Discard, r.Body)
+		started <- struct{}{}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
@@ -107,6 +109,13 @@ func TestRemediationProcessRecoveryHTTP(t *testing.T) {
 		cmd := process
 		finished := done
 		go func() { finished <- cmd.Wait() }()
+		for range 2 {
+			select {
+			case <-started:
+			case <-time.After(45 * time.Second):
+				t.Fatal("restarted process did not reach both fixture requests")
+			}
+		}
 	}
 	defer func() {
 		if process != nil && process.Process != nil {

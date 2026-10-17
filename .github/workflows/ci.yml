@@ -64,7 +64,17 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
           curl -fsS http://127.0.0.1:8000/health
           cd backend-go
-          go test -count=1 -timeout 15m -v -run '^(TestHTTPMemberQuotaAndIsolation|TestRegisterCreatesIsolatedSpaceAndRecovery|TestActiveSessionRefreshHTTP|TestAccountSettingsHTTP|TestCloudHealthHTTP|TestMemberPackageAndConcurrentReservations|TestHTMLAnimationWorkflowHTTP|TestHTMLGeometryWorkflowHTTP|TestHTMLGeneralLessonWorkflowHTTP|TestHTMLAnimationRecoveryHTTP|TestHTMLAnimationCancelledWorkerHTTP|TestAnimationExportRecoveryHTTP|TestRemediationTeacherWaitPersistsHTTP|TestRemediationExpiredLeaseHTTP|TestRemediationLoginRateLimitHTTP|TestRemediationLiveSimulationHTTP|TestRemediationAuthStoragePrivilegesHTTP|TestRemediationCredentialFunctionPrivilegesHTTP|TestRemediationCredentialNullProofHTTP|TestRemediationReviewPolicyHTTP|TestRemediationWorkersShutdownAndRenewalHTTP|TestRemediationObservabilityAndStreamHTTP|TestRemediationAnimationQueueAgingHTTP|TestRemediationProcessRecoveryHTTP)$' ./...
+          go test -c -o /tmp/edu-http.test .
+          for test_name in TestHTTPMemberQuotaAndIsolation TestRegisterCreatesIsolatedSpaceAndRecovery TestActiveSessionRefreshHTTP TestAccountSettingsHTTP TestCloudHealthHTTP TestMemberPackageAndConcurrentReservations TestHTMLAnimationWorkflowHTTP TestHTMLGeometryWorkflowHTTP TestHTMLGeneralLessonWorkflowHTTP TestHTMLAnimationRecoveryHTTP TestHTMLAnimationCancelledWorkerHTTP TestAnimationExportRecoveryHTTP TestRemediationTeacherWaitPersistsHTTP TestRemediationExpiredLeaseHTTP TestRemediationLoginRateLimitHTTP TestRemediationLiveSimulationHTTP TestRemediationAuthStoragePrivilegesHTTP TestRemediationCredentialFunctionPrivilegesHTTP TestRemediationCredentialNullProofHTTP TestRemediationReviewPolicyHTTP TestRemediationWorkersShutdownAndRenewalHTTP TestRemediationObservabilityAndStreamHTTP TestRemediationAnimationQueueAgingHTTP TestRemediationProcessRecoveryHTTP; do
+            database=edu_verify_20261009_$(openssl rand -hex 6)
+            docker exec edu-ci-postgres createdb -U edu "$database"
+            set +e
+            TEST_DATABASE_URL="${DATABASE_URL/edu_test/$database}" TEST_RUNTIME_DATABASE_URL="${RUNTIME_DATABASE_URL/edu_test/$database}" /tmp/edu-http.test -test.count=1 -test.timeout=15m -test.v -test.run="^${test_name}$"
+            result=$?
+            set -e
+            docker exec edu-ci-postgres dropdb -U edu --force "$database"
+            if [ "$result" -ne 0 ]; then exit "$result"; fi
+          done
         env:
           TEST_RENDER_URL: http://127.0.0.1:8000
       - run: npm ci && npm run format:check && npm run build
