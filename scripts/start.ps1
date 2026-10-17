@@ -34,8 +34,16 @@ if($env:ANIMATION_EXPORT_SCRIPT){
  Push-Location (Join-Path $release 'animation-video')
  try {
   $env:PUPPETEER_SKIP_DOWNLOAD='true'
-  npm ci --no-audit --no-fund
-  if($LASTEXITCODE -ne 0){throw 'Animation video dependency installation failed.'}
+  npm ls --omit=dev --depth=0 --silent *> $null
+  $videoReady=$LASTEXITCODE -eq 0
+  if($videoReady){
+   node --input-type=module -e "import('@hyperframes/engine').then(async()=>{const {createRequire}=await import('node:module');const r=createRequire(process.cwd()+'/package.json');const {execFileSync}=await import('node:child_process');for(const f of [r('ffmpeg-static'),r('ffprobe-static').path])execFileSync(f,['-version'],{stdio:'ignore',timeout:10000})}).catch(()=>process.exit(1))"
+   $videoReady=$LASTEXITCODE -eq 0
+  }
+  if(!$videoReady){
+   npm ci --no-audit --no-fund
+   if($LASTEXITCODE -ne 0){throw 'Animation video dependency installation failed.'}
+  }
  }finally{Pop-Location}
 }
 New-Item -ItemType Directory -Force work | Out-Null
@@ -53,7 +61,7 @@ for ($attempt=0;$attempt -lt 40;$attempt++) { try { $status=Invoke-RestMethod 'h
 if (!$healthy) { throw 'Backend did not become healthy. Check work/backend.err.log.' }
 @{render=$render.Id;backend=$backend.Id;release=$release;tag=$manifest.tag;commit=$manifest.commit;shutdown_file=$env:SHUTDOWN_REQUEST_FILE} | ConvertTo-Json | Set-Content -LiteralPath 'work/service-pids.json'
 @{release=$release;tag=$manifest.tag;commit=$manifest.commit;started_at=(Get-Date -Format o)} | ConvertTo-Json | Set-Content -LiteralPath 'work/active-release.json'
-Write-Host "Started http://127.0.0.1:8080 from tag $($manifest.tag), commit $($manifest.commit)."
+Write-Host "Started http://127.0.0.1:8080 from release $($manifest.tag), commit $($manifest.commit)."
 }catch{
  foreach($process in @($backend,$render)){if($process){taskkill.exe /PID $process.Id /T /F | Out-Null}}
  throw
