@@ -4,7 +4,7 @@ Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，支持�
 
 ## 当前状态 · 2026-10-17
 
-本轮14项整改进入统一发布验收；当前运行版本以 `/api/health` 和 `work/active-release.json` 为准。实现、证据和发布边界见 [整改记录](docs/remediation-20261017.md)。
+本轮14项整改已发布本机8080/8000，运行提交d9e8787。停写备份恢复及数据库密码轮换已完成，旧待审/额度/文件保留。当前身份以 /api/health 和 work/active-release.json 为准；远端CI通过版本与后续本地修复的区别见 [整改记录](docs/remediation-20261017.md)。日常修改只本地提交和验收，不自动推送GitHub，不新增tag。
 
 - 各学科通用讲解与可选MP4已发布本机，保留分镜/代表幕/验收/修改/我的作品流程；历史验收边界见 [动画记录](docs/animation-general-video-20261016.md)。本轮代码和发布整顿状态见 [整改记录](docs/remediation-20261017.md)。
 
@@ -31,20 +31,21 @@ Go + Vue + PostgreSQL/pgvector + Python 的教育智能体本地原型，支持�
 
 ```powershell
 # 在 D:/tools/harness/edu-agent 中
-# 先在完成验收的提交上创建本地tag，再构建；构建不读取工作区未提交源码。
-git tag -a edu-20261017-remediation-v1 -m "Published-scope baseline"
-python scripts/build-release.py --tag edu-20261017-remediation-v1
-python scripts/verify-release.py --release work/releases/edu-20261017-remediation-v1 --expect-tag edu-20261017-remediation-v1
-powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -ReleasePath work/releases/edu-20261017-remediation-v1
+# 使用已验收提交的完整哈希构建；不需要新增tag或推送GitHub。
+$commit=git rev-parse HEAD
+$releaseId='commit-'+$commit.Substring(0,12)
+python scripts/build-release.py --commit $commit
+python scripts/verify-release.py --release "work/releases/$releaseId" --expect-tag $releaseId
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -ReleasePath "work/releases/$releaseId"
 # 停止由脚本启动的进程；保留数据库和数据
 powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 ```
 
 构建要求 Node 24+、Python 3.13+、Go 1.26+。本机 Go 在 `work/toolchain/go/bin`，构建脚本可通过 `GO_EXE` 指定；启动直接使用已构建二进制。运行还需要桌面 PowerPoint（真实课件截图）、Chrome/Edge（动画导出）及已配置的 PostgreSQL；本地数据库模式需要 Docker Desktop，云数据库模式沿用专用 SSH 隧道。首次安装复制 `.env.example` 为 `.env`，修改 JWT 密钥与初始密码。
 
-启动必须显式指定 tag 构建目录；脚本核对 manifest 的每个文件哈希与二进制版本，再从该目录加载前端、后端、渲染及动画脚本，不读取旧部署快照。当前仍在运行的旧服务不因提交代码自动切换；旧快照在迁移及回滚验收完成前保留。
+启动必须显式指定固定提交或已有tag的构建目录；脚本核对 manifest 的每个文件哈希与二进制版本，再从该目录加载前端、后端、渲染及动画脚本，不读取旧部署快照。已安装的视频依赖通过锁定版本及FFmpeg/FFprobe执行检查后复用。按用户约定，日常修改默认只本地提交与验收，不自动推送GitHub，不新增或移动tag。
 
-回滚使用已保留的上一个 tag 构建目录，先核对活动任务并停止当前进程，再运行同一启动命令指定旧 ReleasePath。脚本拒绝端口占用和不完整产物，不自动杀死现有服务。数据库及 storage 是共享持久数据；此流程只回滚程序，含不兼容数据库迁移时需另行恢复方案。
+回滚使用已保留且兼容数据库权限的上一个构建目录，先核对活动任务并停止当前进程，再运行同一启动命令指定旧 ReleasePath。脚本拒绝端口占用和不完整产物，不自动杀死现有服务。数据库及 storage 是共享持久数据；此流程只回滚程序，含不兼容数据库迁移时需另行恢复方案，禁止直接启动会恢复旧认证权限的基线。
 
 数据库用 `docker compose up -d --wait db` 启动，宿主机端口55432。默认Python解析/PPT服务作为本机进程运行；也可用 `docker compose --profile render up -d --build renderer`，不要同时占用8000端口。
 
@@ -145,13 +146,13 @@ node scripts/browser-onboarding.cjs
 
 `browser-needs-dialogue.cjs` 和 `browser-animation-workflow.cjs` 使用真实 Vue 构建和显式 API fixtures，不调用模型或写入业务数据库，浏览器可通过 `TEST_BROWSER_PATH` 指定。其他实际 HTTP 浏览器脚本只可指向隔离样例服务。
 
-CI 配置包含 Linux/Windows Go 检查、Python 真实 PPTX、前端构建、Node 课堂断言、两组浏览器 fixtures、固定样例真实 MP4 编码/解码和 MP4 下载鉴权。Linux HTTP 套件显式覆盖认证、隔离、额度、动画状态；完整课件截图审核另须在装有桌面 PowerPoint 的 Windows 环境执行，普通 Windows runner 不代表 Office 验收通过。远端 CI 尚未运行，不能以本地通过代替。
+CI 包含 Linux/Windows Go 检查、Python 真实 PPTX、前端构建、Node 课堂断言、两组浏览器 fixtures、固定样例真实 MP4 编码/解码和 MP4 下载鉴权。Linux HTTP 套件覆盖认证、隔离、额度、动画状态与真实进程恢复；完整课件截图审核另须在装有桌面 PowerPoint 的 Windows 环境执行，普通 Windows runner 不代表 Office 验收通过。远端执行结果与发布身份记录在整改文档；本地后续修改默认不自动推送或触发CI。
 
-已验证：认证/权限/成员私有性、RLS、跨企业文档和任务隔离、并发支付幂等、取消/成功竞争、确认门槛、真实PPTX、免费重导出、单页改写、异步文档失败/重试、SSRF私网拦截、桌面/移动端、真实MP4及中文帧。测试报告在 `work/`。CI定义已写入，但未在GitHub远端运行。
+已验证：认证/权限/成员私有性、RLS、跨企业文档和任务隔离、并发支付幂等、取消/成功竞争、确认门槛、真实PPTX、免费重导出、单页改写、异步文档失败/重试、SSRF私网拦截、桌面/移动端、真实MP4及中文帧。测试报告在 `work/`；远端CI已实际运行，最终状态见[整改记录](docs/remediation-20261017.md)。
 
 ## 已知限制与历史验收
 
-当前主要未完成项是教学内容可靠性、最终四课从零及教师课堂验收、教材复杂公式与版次核对、跨环境兼容、独立部署与备份恢复，以及动画产品闭环。详细状态见[优先级清单](docs/backlog-priorities-20261014.md)。下方保留早期限制和验收记录，已由后续实施记录覆盖的部分不作为当前功能清单。
+当前仍需教师完成课堂内容验收，并持续检查教材复杂公式与版次、更多课题及Office环境的兼容。分级核验、动画闭环、备份恢复的已实现范围及实际验收见[整改记录](docs/remediation-20261017.md)。下方保留早期限制和验收记录，已由后续实施记录覆盖的部分不作为当前功能清单。
 
 动画坐标格式修复（2026-10-07）：在模型输出边界无损兼容单锚点外层数组遗漏、明确x/y对象和有限数字字符串；不补坐标、不截断第三维、不猜测扁平多点。初稿、分镜修复及视觉修复共用解析，保留边界、时长、引用和几何验证。结构与语义问题最多共用一次额外模型修复；不会因此重试收费云视频创建。详情与真实本地MP4回归证据见 [动画质量链路](docs/animation-quality-v1.md)。
 
