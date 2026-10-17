@@ -16,6 +16,7 @@ if(!$env:DATABASE_URL -or !$env:RUNTIME_DATABASE_URL){throw 'Set explicit DATABA
 $env:FRONTEND_DIST=Join-Path $release 'frontend-vue/dist'
 $env:RENDER_SERVICE_URL='http://127.0.0.1:8000'
 $env:LISTEN_ADDR='127.0.0.1:8080'
+$env:COURSEWARE_PREVIEW_SCRIPT=Join-Path $release 'scripts/render-courseware-preview.ps1'
 if(!$env:STORAGE_DIR){$env:STORAGE_DIR=Join-Path $projectRoot 'storage'}
 elseif(![IO.Path]::IsPathRooted($env:STORAGE_DIR)){$env:STORAGE_DIR=[IO.Path]::GetFullPath((Join-Path (Join-Path $projectRoot 'backend-go') $env:STORAGE_DIR))}
 if($env:ANIMATION_EXPORT_SCRIPT){$env:ANIMATION_EXPORT_SCRIPT=Join-Path $release 'animation-video/export.mjs'}
@@ -55,7 +56,8 @@ $render=Start-Process -FilePath $pythonExe -ArgumentList '-m','uvicorn','app:app
 $ready=$false
 for($i=0;$i -lt 40;$i++){try{Invoke-RestMethod 'http://127.0.0.1:8000/health' -TimeoutSec 2 | Out-Null;$ready=$true;break}catch{};Start-Sleep -Milliseconds 250}
 if(!$ready){throw 'Renderer did not become healthy.'}
-$backend=Start-Process -FilePath $binary -WorkingDirectory (Join-Path $release 'backend-go') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $projectRoot 'work/backend.out.log') -RedirectStandardError (Join-Path $projectRoot 'work/backend.err.log')
+# Historical database rows contain ../storage paths relative to this stable directory.
+$backend=Start-Process -FilePath $binary -WorkingDirectory (Join-Path $projectRoot 'backend-go') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $projectRoot 'work/backend.out.log') -RedirectStandardError (Join-Path $projectRoot 'work/backend.err.log')
 $healthy=$false
 for ($attempt=0;$attempt -lt 40;$attempt++) { try { $status=Invoke-RestMethod 'http://127.0.0.1:8080/api/health' -TimeoutSec 2; if ($status.status -eq 'ok' -and $status.release_tag -eq $manifest.tag -and $status.release_commit -eq $manifest.commit) { $healthy=$true; break } } catch {} ; Start-Sleep -Milliseconds 250 }
 if (!$healthy) { throw 'Backend did not become healthy. Check work/backend.err.log.' }

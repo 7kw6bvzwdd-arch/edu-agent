@@ -101,7 +101,7 @@ func (s *Server) snapshotCourseware(ctx context.Context, path string, samplePage
 	if ctx.Err() != nil || runtime.GOOS != "windows" {
 		return false
 	}
-	script, err := filepath.Abs("../scripts/render-courseware-preview.ps1")
+	script, err := filepath.Abs(env("COURSEWARE_PREVIEW_SCRIPT", "../scripts/render-courseware-preview.ps1"))
 	if err != nil {
 		return false
 	}
