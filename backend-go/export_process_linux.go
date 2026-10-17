@@ -16,7 +16,10 @@ func restrictExportProcess(cmd *exec.Cmd) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("setpriv is required for restricted video export")
 	}
-	cmd.Args = append([]string{setpriv, "--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all", "--bounding-set=-all", "--"}, cmd.Args...)
+	// Dropping the bounding set requires CAP_SETPCAP, which ordinary service
+	// accounts do not have. no-new-privs prevents file capabilities/setuid from
+	// granting privileges; clear inheritable and ambient sets before exec.
+	cmd.Args = append([]string{setpriv, "--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all", "--"}, cmd.Args...)
 	cmd.Path = setpriv
 	return func() {}, nil
 }
