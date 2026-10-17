@@ -19,7 +19,7 @@
 | 11 认证最小权限 | 固定search_path SECURITY DEFINER证明校验；撤销runtime对密码/恢复码及sessions直读；禁schema CREATE；显式随机密码provision | 最小权限、NULL证明、全新隔离PG容器从无edu_app初始化通过；凭据轮换状态另记 |
 | 12 运维 | slog JSON/request ID/panic恢复/SSE；DB/storage/MinIO prefix校验备份、随机隔离恢复；每日03:30计划 | 两次实际恢复通过，最新476对象；当前计划需用户已登录，备份不自动清理；跨存储一致时点须停写 |
 | 13 前端 | hash保存页面/task；按企业成员sessionStorage恢复会话、草稿及设置；中断回复标记；迟到响应身份保护；恢复focus-visible；格式化并拆出账单、会话持久化、审核资料组件 | 首页20项/动画49项浏览器通过。App与Studio仍较大，已拆独立职责，未宣称全部组件重构 |
-| 14 文档与导出 | 文档改为宿主机受控HTML+Chrome+FFmpeg；临时cwd/环境白名单；Windows拒绝提权，Linux拒绝root并清capabilities | 真实MP4 HTTP鉴权/重复导出不扣费/删除失效通过183.02秒；不是独立账户或文件系统沙箱 |
+| 14 文档与导出 | 文档改为宿主机受控HTML+Chrome+FFmpeg；临时cwd/环境白名单；Windows拒绝提权，Linux拒绝root，清继承/ambient capabilities并启用no-new-privs | 真实MP4 HTTP鉴权/重复导出不扣费/删除失效通过183.02秒；不是独立账户或文件系统沙箱 |
 
 ## 本地证据
 
@@ -33,9 +33,25 @@
 - work/needs-dialogue/browser/checks.json、work/anim-workflow/browser/report.json：浏览器fixture。
 - work/backups/20261017T072007Z-2e6d53/restore-drill.json：数据库/storage/MinIO恢复。
 
+## 真实整课测速
+
+生成使用DeepSeek deepseek-flash，内容审核使用独立GLM，截图审核使用视觉模型；三种策略均独立生成同一历史课题“辛亥革命的背景与影响”五页，实际交付PPTX。
+
+| 策略 | 整课秒数 | 模型调用 | 内容审核调用 | 页面生成调用 |
+|---|---:|---:|---:|---:|
+| none | 169.17 | 12 | 0 | 5 |
+| key | 253.27 | 24 | 5 | 8 |
+| all | 203.41 | 19 | 5 | 6 |
+
+历史五页均涉及重点史实，key同样核验五页；各次修复次数不同，单次对照不能证明key一定更快。默认key按风险选择审核范围，不承诺固定提速比例。语文“静夜思中的意象与情感”五页key约182.95秒，化学“化学反应中的质量守恒”五页key约176秒，两者真实生成/审核/交付均通过。教师审核由测试自动操作，不表示教师已认可课堂质量。
+
+证据：work/release-verification/live-matrix.json、full-deck-policy-benchmark.json及work/courseware-full-quality各科report.json和complete.pptx；五个隔离测试库均清理，未占用正式成员额度。
+
 ## 发布进度
 
-当前尚待统一候选tag构建、隔离启动/回滚、正式停写备份、数据库凭据轮换与服务切换。切换后追加版本身份和只读检查，不以文件存在代替发布验收。
+候选 edu-20261017-remediation-v1（4fa285e）已完成同tag构建、88文件SHA256及二进制身份核对；隔离启动、登录、真实PPTX及baseline隔离回滚通过。正式服务仍待最终候选CI通过后停写备份、凭据轮换和切换。
+
+远端CI已真实暴露并修正三类问题：每项HTTP测试独立随机数据库以免共享队列干扰；恢复测试等待实际模型fixture请求，避免读到旧状态误判；Linux普通用户无法修改bounding set，改为清继承/ambient能力并禁止提权，真实Node子进程检查有效/允许/继承/ambient能力均为零及NoNewPrivs=1。继续以远端完整结果为发布关卡，不跳过失败用例。
 
 ## 质量边界
 

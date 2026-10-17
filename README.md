@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 
 数据库用 `docker compose up -d --wait db` 启动，宿主机端口55432。默认Python解析/PPT服务作为本机进程运行；也可用 `docker compose --profile render up -d --build renderer`，不要同时占用8000端口。
 
-Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编码 MP4。模型只提供受约束 JSON，不执行模型生成的 JavaScript；导出使用环境白名单及临时工作目录，页面外网请求被阻止。Windows 要求服务以非管理员身份运行，Linux 拒绝 root 并用 setpriv 清除能力、禁止提权；这不是独立账户或文件系统沙箱。Docker 用于本地 PostgreSQL 和可选 Python 渲染服务。
+Go 在宿主机调度受控 HTML 播放器，由 Chrome/Edge 截帧、FFmpeg 编码 MP4。模型只提供受约束 JSON，不执行模型生成的 JavaScript；导出使用环境白名单及临时工作目录，页面外网请求被阻止。Windows 要求服务以非管理员身份运行，Linux 拒绝 root，用 setpriv 清除继承与 ambient 能力并启用 no-new-privs，阻止执行文件获得新权限；这不是独立账户或文件系统沙箱。Docker 用于本地 PostgreSQL 和可选 Python 渲染服务。
 
 ## 已有功能
 
