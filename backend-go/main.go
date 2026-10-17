@@ -34,13 +34,11 @@ type Config struct {
 	MilvusURL, MilvusToken, MilvusDatabase, MilvusCollection                string
 	TTS                                                                     ttsConfig
 
-	VisionURL, VisionKey, VisionModel                                                                                                                                                                                                 string
-	ReviewURL, ReviewKey, ReviewModel                                                                                                                                                                                                 string
-	VideoProvider                                                                                                                                                                                                                     string
-	CoursewareLLMURL, CoursewareLLMKey, CoursewareLLMModel                                                                                                                                                                            string
-	AnimationLLMURL, AnimationLLMKey, AnimationLLMModel                                                                                                                                                                               string
-	VideoURL, VideoKey, VideoModel, VideoDuration                                                                                                                                                                                     string
-	DatabaseURL, RuntimeURL, Secret, Mode, SeedPassword, Storage, RenderURL, LLMURL, LLMKey, LLMModel, EvalModel, EmbeddingModel, EmbeddingURL, EmbeddingKey, SearchKey, SearchURL, RerankURL, RerankModel, RerankKey, AnimationImage string
+	VisionURL, VisionKey, VisionModel                                                                                                                                                                                 string
+	ReviewURL, ReviewKey, ReviewModel                                                                                                                                                                                 string
+	CoursewareLLMURL, CoursewareLLMKey, CoursewareLLMModel                                                                                                                                                            string
+	AnimationLLMURL, AnimationLLMKey, AnimationLLMModel                                                                                                                                                               string
+	DatabaseURL, RuntimeURL, Secret, Mode, SeedPassword, Storage, RenderURL, LLMURL, LLMKey, LLMModel, EvalModel, EmbeddingModel, EmbeddingURL, EmbeddingKey, SearchKey, SearchURL, RerankURL, RerankModel, RerankKey string
 }
 type Server struct {
 	cloud cloudServices
@@ -116,21 +114,6 @@ func api(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	}
 }
 func NewServer(ctx context.Context, c Config) (*Server, error) {
-	if c.VideoProvider == "" {
-		c.VideoProvider = "ark"
-	}
-	if c.VideoURL == "" && c.VideoProvider == "minimax" {
-		c.VideoURL = "https://api.minimax.cn"
-	}
-	if c.VideoURL == "" && c.VideoProvider == "ark" {
-		c.VideoURL = c.LLMURL
-	}
-	if c.VideoKey == "" && c.VideoProvider == "ark" {
-		c.VideoKey = c.LLMKey
-	}
-	if c.VideoDuration == "" {
-		c.VideoDuration = "5"
-	}
 	if c.Mode != "sample" && c.Mode != "live" {
 		return nil, errors.New("APP_MODE must be sample or live")
 	}
@@ -419,12 +402,8 @@ func (s *Server) routes() {
 				return nil
 			}
 		}
-		duration, err := strconv.Atoi(s.cfg.VideoDuration)
-		if err != nil || duration < 2 || duration > 15 {
-			duration = 5
-		}
 		_, _, coursewareModel := s.agentModel("courseware")
-		respond(w, 200, map[string]any{"status": "ok", "courseware_brief_version": "conversation-stream-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "pipeline-v1", "courseware_review_roles_version": "roles-v1", "courseware_teaching_review_version": "risk-checks-v1", "courseware_textbook_evidence_version": "claim-quotes-v1", "courseware_material_images_version": "page-images-v1", "document_reparse_version": "reparse-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled, "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "animation_quality_version": "scene-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": false, "animation_video_configured": false, "animation_service_status": "rebuilding", "animation_tts_configured": s.cfg.TTS.configured(), "animation_service_message": animationRebuildMessage, "animation_video_duration": duration, "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
+		respond(w, 200, map[string]any{"status": "ok", "courseware_brief_version": "conversation-stream-v1", "workspace_needs_version": "clarify-v1", "workspace_context_version": "rolling-summary-v1", "courseware_subjects_version": "all-subjects-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "pipeline-v1", "courseware_review_roles_version": "roles-v1", "courseware_teaching_review_version": "risk-checks-v1", "courseware_textbook_evidence_version": "claim-quotes-v1", "courseware_material_images_version": "page-images-v1", "document_reparse_version": "reparse-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled, "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "courseware_workflow_optimization_version": "bounded-drafts-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.htmlAnimationConfigured(), "animation_html_version": "workflow-v1", "animation_archetypes": []string{"func.params@1", "geo.transform@1", "lesson.explain@1"}, "animation_geometry_version": "geometry-v1", "animation_video_configured": animationVideoConfigured(), "animation_service_status": map[bool]string{true: "html_ready", false: "unconfigured"}[s.htmlAnimationConfigured()], "animation_tts_configured": s.cfg.TTS.configured(), "animation_service_message": map[bool]string{true: "各学科通用讲解与数学专用演示，沿用方案、代表幕与成品审核", false: "HTML动画需要配置真实模型和语音接口"}[s.htmlAnimationConfigured()], "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
 		return nil
 	}))
 	s.mux.HandleFunc("POST /api/auth/login", api(s.login))
@@ -433,6 +412,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/refresh", s.auth("", s.refreshSession))
 	s.mux.HandleFunc("POST /api/account/recovery-code", s.auth("", s.issueRecoveryCode))
 	s.mux.HandleFunc("POST /api/courseware/brief", s.auth("courseware.generate", s.coursewareBrief))
+	s.mux.HandleFunc("POST /api/workspace/brief", s.auth("", s.coursewareBrief))
 	s.mux.HandleFunc("GET /api/courseware/materials", s.auth("courseware.generate", s.coursewareMaterials))
 	s.mux.HandleFunc("GET /api/courseware/materials/{id}/pages/{page}/image", s.auth("courseware.generate", s.materialPageImage))
 	s.mux.HandleFunc("POST /api/courseware/formula", s.auth("courseware.generate", s.coursewareFormula))
@@ -513,6 +493,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/tasks/{id}/events", s.auth("", s.events))
 	s.mux.HandleFunc("GET /api/tasks/{id}/download/{format}", s.auth("", s.download))
 	s.mux.HandleFunc("POST /api/tasks/{id}/review", s.auth("eval.run", s.reviewAgain))
+	s.mux.HandleFunc("GET /api/tasks/{id}/animation", s.auth("", s.animationState))
+	s.mux.HandleFunc("GET /api/tasks/{id}/animation/file", s.auth("", s.animationFile))
+	s.mux.HandleFunc("POST /api/tasks/{id}/animation/{action}", s.auth("", s.animationAction))
 	s.mux.HandleFunc("POST /api/tasks/{id}/accept-animation", s.auth("animation.render", s.acceptAnimation))
 	s.mux.HandleFunc("GET /api/tasks/{id}/frames/{frame}", s.auth("", s.animationFrame))
 	s.mux.HandleFunc("POST /api/tasks/{id}/edit", s.auth("courseware.generate", s.editTask))
@@ -561,7 +544,7 @@ func main() {
 	if secret == "" {
 		log.Fatal("Set JWT_SECRET (32+ characters); see .env.example")
 	}
-	c := Config{RuntimeURL: env("RUNTIME_DATABASE_URL", "postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu?sslmode=disable"), DatabaseURL: env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), Secret: secret, Mode: env("APP_MODE", "sample"), SeedPassword: os.Getenv("SEED_PASSWORD"), Storage: env("STORAGE_DIR", "../storage"), RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000"), LLMURL: env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL"), EvalModel: os.Getenv("LLM_EVAL_MODEL"), EmbeddingModel: os.Getenv("EMBEDDING_MODEL"), EmbeddingURL: env("EMBEDDING_BASE_URL", env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")), EmbeddingKey: env("EMBEDDING_API_KEY", os.Getenv("LLM_API_KEY")), RerankURL: os.Getenv("RERANK_URL"), RerankModel: os.Getenv("RERANK_MODEL"), RerankKey: os.Getenv("RERANK_API_KEY"), SearchKey: os.Getenv("SEARCH_API_KEY"), SearchURL: env("SEARCH_API_URL", "https://api.tavily.com/search"), AnimationImage: env("ANIMATION_IMAGE", "edu-manim:local")}
+	c := Config{RuntimeURL: env("RUNTIME_DATABASE_URL", "postgres://edu_app:edu-runtime-local-only@127.0.0.1:55432/edu?sslmode=disable"), DatabaseURL: env("DATABASE_URL", "postgres://edu:edu-local-only@127.0.0.1:55432/edu?sslmode=disable"), Secret: secret, Mode: env("APP_MODE", "sample"), SeedPassword: os.Getenv("SEED_PASSWORD"), Storage: env("STORAGE_DIR", "../storage"), RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000"), LLMURL: env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), LLMKey: os.Getenv("LLM_API_KEY"), LLMModel: os.Getenv("LLM_MODEL"), EvalModel: os.Getenv("LLM_EVAL_MODEL"), EmbeddingModel: os.Getenv("EMBEDDING_MODEL"), EmbeddingURL: env("EMBEDDING_BASE_URL", env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")), EmbeddingKey: env("EMBEDDING_API_KEY", os.Getenv("LLM_API_KEY")), RerankURL: os.Getenv("RERANK_URL"), RerankModel: os.Getenv("RERANK_MODEL"), RerankKey: os.Getenv("RERANK_API_KEY"), SearchKey: os.Getenv("SEARCH_API_KEY"), SearchURL: env("SEARCH_API_URL", "https://api.tavily.com/search")}
 	c.MinIOEndpoint, c.MinIOAccessKey, c.MinIOSecretKey = os.Getenv("MINIO_ENDPOINT"), os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY")
 	c.MinIOBucket, c.MinIOPrefix = env("MINIO_BUCKET", "edu-agent"), env("MINIO_PREFIX", "files/")
 	c.RedisAddr, c.RedisUsername, c.RedisPassword = os.Getenv("REDIS_ADDR"), os.Getenv("REDIS_USERNAME"), os.Getenv("REDIS_PASSWORD")
@@ -574,8 +557,6 @@ func main() {
 	c.CoursewareContentReviewDisabled = env("COURSEWARE_CONTENT_REVIEW_DISABLED", "false") == "true"
 	c.VisionURL, c.VisionKey, c.VisionModel = os.Getenv("VISION_LLM_BASE_URL"), os.Getenv("VISION_LLM_API_KEY"), os.Getenv("VISION_LLM_MODEL")
 	c.TTS = ttsConfigFromEnv()
-	c.VideoProvider = env("VIDEO_PROVIDER", "ark")
-	c.VideoURL, c.VideoKey, c.VideoModel, c.VideoDuration = env("VIDEO_BASE_URL", os.Getenv("ARK_VIDEO_BASE_URL")), env("VIDEO_API_KEY", os.Getenv("ARK_VIDEO_API_KEY")), env("VIDEO_MODEL", os.Getenv("ARK_VIDEO_MODEL")), env("VIDEO_DURATION", env("ARK_VIDEO_DURATION", "5"))
 	s, e := NewServer(ctx, c)
 	if e != nil {
 		log.Fatal(e)

@@ -1,0 +1,90 @@
+/* Courseware follows the animation review: a preview surface and one action card. */
+.app-shell .courseware-studio{max-width:1280px;margin:0 auto;border:0;background:transparent;box-shadow:none}
+.app-shell .courseware-studio .studio-header{padding:0;background:transparent;border:0;min-height:44px;align-items:flex-start}
+.app-shell .courseware-studio .studio-document-icon{display:none}
+.app-shell .courseware-studio .studio-header h2{font-size:24px;line-height:1.45;white-space:normal;max-width:none}
+.app-shell .courseware-studio .studio-work-next{font-size:13px;line-height:1.8;color:var(--ink-3);margin:8px 0 0}
+.app-shell .courseware-studio .studio-saved-note{font-size:12px;line-height:1.8;color:var(--ink-3);margin:2px 0 22px}
+.app-shell .courseware-studio .studio-phase-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;padding:0;margin:0 0 22px;border-bottom:1px solid var(--line)}
+.app-shell .studio-phase-list li{display:flex;align-items:center;gap:10px;padding:0 8px 16px;color:var(--ink-3);font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.app-shell .studio-phase-list li>span{display:grid;place-items:center;width:24px;height:24px;flex:none;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);font-size:11px}
+.app-shell .studio-phase-list li.current{font-weight:600;color:var(--am-800);border-bottom-color:var(--am-600)}
+.app-shell .studio-phase-list li.current>span{color:white;background:var(--am-700);border-color:var(--am-700)}
+.app-shell .studio-phase-list li.complete>span{color:var(--am-700);background:var(--surface-3)}
+.app-shell .studio-phase-list svg{width:15px;height:15px}
+.app-shell .courseware-studio .studio-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto 1fr;gap:0 20px;min-height:0;overflow:visible;align-items:start}
+.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)){grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:1fr}
+.app-shell .courseware-studio .studio-page-rail{grid-column:1;grid-row:1;position:static;top:auto;height:auto;max-height:none;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:14px 14px 0 0;overflow:hidden}
+.app-shell .courseware-studio .studio-pages-heading{padding:14px 18px 10px;font-size:13px}
+.app-shell .courseware-studio .studio-page-thumbnails{display:flex;gap:12px;padding:0 18px 14px;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
+.app-shell .courseware-studio .studio-page-thumbnail{width:88px;flex:0 0 88px}
+.app-shell .courseware-studio .studio-canvas{grid-column:1;grid-row:2;background:var(--surface);padding:16px 18px 18px;border:1px solid var(--line);border-radius:0 0 14px 14px;overflow:visible;min-height:0;max-height:none}
+.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)) .studio-canvas{grid-column:1;grid-row:1;border-radius:14px}
+.app-shell .courseware-studio .studio-conversation{grid-column:2;grid-row:1 / span 2;position:sticky;top:60px;height:auto;max-height:none;min-height:0;border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:20px;overflow:visible;box-shadow:0 2px 3px -2px #2a145833}
+.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)) .studio-conversation{grid-column:2}
+.app-shell .studio-adjust-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.app-shell .studio-adjust-heading h2{font-size:15px;font-weight:650;margin:0;color:var(--ink)}
+.app-shell .studio-adjust-heading small{font-size:11px;color:var(--ink-3);white-space:nowrap}
+.app-shell .courseware-studio .studio-chat-panel{padding:0;background:transparent;min-height:0;max-height:none;display:block;flex:none}
+.app-shell .courseware-studio .chat-composer{border:0;border-radius:0;padding:0;margin:0;background:transparent;box-shadow:none}
+.app-shell .courseware-studio .chat-mode{gap:5px;margin:0 0 14px}
+.app-shell .courseware-studio .chat-mode button{padding:5px 8px;min-height:30px;font-size:11px;box-shadow:none}
+.app-shell .studio-adjust-label{display:block;margin:12px 0 0;font-size:12px;font-weight:600;line-height:1.8;color:var(--ink-2)}
+.app-shell .courseware-studio .chat-composer textarea{width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:10px 12px;margin:8px 0 12px;min-height:100px;height:100px;resize:vertical;font-size:12px;font-weight:400;line-height:1.8;background:var(--surface);box-shadow:none}
+.app-shell .courseware-studio .chat-composer textarea:focus{border-color:var(--am-400)}
+.app-shell .courseware-studio .chat-send-row{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.app-shell .courseware-studio .chat-send-row button{width:100%;min-height:40px;font-size:12px}
+.app-shell .courseware-studio .chat-send-row span{font-size:10px;line-height:1.7}
+.app-shell .studio-discussion-history{margin-top:16px;font-size:11px;color:var(--ink-3)}
+.app-shell .studio-discussion-history summary{cursor:pointer;line-height:1.8;min-height:28px}
+.app-shell .courseware-studio .conversation-log{margin-top:10px;max-height:300px;min-height:0;overflow:auto}
+.app-shell .courseware-studio .studio-review-panel{padding:18px 0 0;margin-top:16px;border-top:1px solid var(--line);overflow:visible;max-height:none;min-height:0}
+.app-shell .studio-reference-details{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
+.app-shell .studio-reference-details>summary{cursor:pointer;min-height:28px;line-height:1.8}
+.app-shell .studio-reference-details .studio-review-panel{padding-top:10px;margin-top:0;border-top:0}
+.app-shell .courseware-studio .inspector-edit-actions .approved{color:var(--am-700);background:var(--surface-3);border-color:var(--am-200)}
+.app-shell .courseware-studio .studio-inspector-title{font-size:14px;margin:10px 0 6px}
+.app-shell .courseware-studio .inspector-review-help{font-size:11px;line-height:1.8;margin-bottom:12px}
+.app-shell .courseware-studio .inspector-edit-actions{margin-top:16px}
+.app-shell .courseware-studio .studio-completion{position:static;display:flex;flex-direction:column;align-items:stretch;padding:16px 0 0;margin:18px 0 0;border-top:1px solid var(--line);box-shadow:none;background:transparent;gap:10px}
+.app-shell .courseware-studio .studio-completion>div{min-width:0;flex:none}
+.app-shell .courseware-studio .studio-completion b{font-size:13px}
+.app-shell .courseware-studio .studio-completion p{font-size:11px;line-height:1.8;margin:6px 0 0}
+.app-shell .courseware-studio .studio-completion button{width:100%;min-height:40px;font-size:12px;line-height:1.8;white-space:normal}
+.app-shell .courseware-studio .studio-completion .consent{max-width:none;font-size:11px;line-height:1.8}
+.app-shell .courseware-studio .studio-completion>button:last-child:not(.primary):not(.studio-approve-all){color:var(--err);border-color:var(--err-line);margin-top:6px;box-shadow:none}
+.app-shell .courseware-studio .studio-slide{margin:0}
+.app-shell .courseware-studio .studio-slide-picture{width:100%}
+.app-shell .courseware-studio .studio-content-settings{margin-top:14px;font-size:12px;color:var(--ink-3)}
+.app-shell .courseware-studio .studio-content-settings>summary{cursor:pointer;line-height:1.8;min-height:28px}
+.app-shell .home-tool-result .courseware-studio{padding:14px;border-radius:0}
+.app-shell .home-tool-result .courseware-studio .studio-header h2{font-size:18px}
+.app-shell .home-tool-result .courseware-studio .studio-work-next{font-size:12px}
+.app-shell .home-tool-result .courseware-studio .studio-saved-note{margin-bottom:14px}
+.app-shell .home-tool-result .courseware-studio .studio-phase-list{margin-bottom:16px}
+.app-shell .home-tool-result .courseware-studio .studio-conversation{position:static;top:auto}
+@media(max-width:1100px){
+ .app-shell .courseware-studio .studio-body,.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)){grid-template-columns:minmax(0,1fr) 280px;gap:0 16px}
+ .app-shell .courseware-studio .studio-conversation{padding:16px}
+ .app-shell .studio-phase-list li{gap:7px;padding-inline:4px;font-size:12px}
+ .app-shell .home-tool-result .courseware-studio .studio-body{grid-template-columns:minmax(0,1fr)}
+ .app-shell .home-tool-result .courseware-studio .studio-conversation{grid-column:1;grid-row:3;margin-top:16px}
+}
+@media(max-width:850px){
+ .app-shell .courseware-studio .studio-body,.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)){display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+ .app-shell .courseware-studio .studio-conversation,.app-shell .courseware-studio .studio-body:not(:has(.studio-page-rail)) .studio-conversation{grid-column:1;grid-row:3;position:static;margin-top:16px;height:auto;max-height:none}
+ .app-shell .courseware-studio .studio-page-rail{order:initial}
+ .app-shell .courseware-studio .studio-header h2{font-size:20px}
+ .app-shell .courseware-studio .studio-header{gap:8px}
+ .app-shell .courseware-studio .studio-slide-picture{width:100%}
+}
+@media(max-width:560px){
+ .app-shell .courseware-studio .studio-phase-list{margin-top:16px;margin-bottom:16px}
+ .app-shell .studio-phase-list li{flex-direction:column;gap:7px;font-size:11px;padding-bottom:12px;white-space:nowrap}
+ .app-shell .courseware-studio .studio-saved-note{font-size:11px;margin-bottom:12px}
+ .app-shell .courseware-studio .studio-canvas{padding:12px}
+ .app-shell .courseware-studio .studio-page-thumbnails{padding-inline:12px}
+ .app-shell .home-tool-result .courseware-studio{padding:10px}
+ .app-shell .courseware-studio .studio-slide-top{gap:8px}
+ .app-shell .courseware-studio .studio-completion button{min-height:44px}
+}

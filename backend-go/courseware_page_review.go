@@ -239,6 +239,13 @@ func parsePageReview(raw string, scope ...string) ([]PageQualityIssue, error) {
 			return nil, fmt.Errorf("显示差异缺少输入字段与实际显示值")
 		}
 		issue.Reviewer = scope[0] // Origin is assigned by the server, not the model.
+		if scope[0] == "visual" && issue.Certainty == "confirmed" && issue.Severity == "error" {
+			for _, clue := range []string{"可能", "估读", "看起来约", "风险", "疑似", "无法确认"} {
+				if strings.Contains(issue.Observed, clue) {
+					return nil, fmt.Errorf("画面审核把估读或潜在风险标为确定错误，请对同图复核实际可见缺陷")
+				}
+			}
+		}
 		if issue.Certainty == "uncertain" {
 			issue.Severity = "suggestion"
 		}
@@ -431,7 +438,7 @@ func (s *Server) reviewTeachingPage(ctx context.Context, a Actor, id string, in 
 	if url == "" || key == "" || model == "" {
 		return nil, "unavailable", nil
 	}
-	prompt := `你是文字与教学内容审核员，审核教师讲授的一页数学/物理课件。输出JSON {issues:[{object:"具体公式、图表或文字对象",category:"knowledge/conditions/answer/pedagogy/source/consistency之一",certainty:"confirmed或uncertain",evidence:"实际问题及依据",severity:"error或suggestion",repair:"可执行修复目标"}]}。无问题为空数组。
+	prompt := `你是文字与教学内容审核员，根据实际学科与学习阶段审核教师讲授的一页课件；语文关注原文与解读依据、外语关注表达与语境、历史关注史料与时序、其他学科关注本学科任务；不因缺少理科实验、公式或计算题而报错。输出JSON {issues:[{object:"具体公式、图表或文字对象",category:"knowledge/conditions/answer/pedagogy/source/consistency之一",certainty:"confirmed或uncertain",evidence:"实际问题及依据",severity:"error或suggestion",repair:"可执行修复目标"}]}。无问题为空数组。
 职责：knowledge核对知识与公式适用范围；conditions核对题设及实验安全/可行性；answer核对计算、推导、单位与答案；pedagogy核对教学目标、图表意义和讲授逻辑；source核对引用；consistency核对正文、图表参数和备注的语义一致性。来源的origin/evidence_group仅标同网站或近似转载候选，不能当正确性认证；同组多个编号不算独立交叉核验。逐个结论核对实际原文，不以标题、机构名或来源数量证明正确，不合并互相冲突的条件。你没有实际截图，不判断裁切、遮挡、字号、色块面积、坐标点的屏幕位置或美观；这些由画面审核负责。程序计算用于核对数值与题意，不代表已查看画面。
 confirmed必须有明确错误依据；无法确定的疑虑用uncertain及suggestion，不得编造错误。修复只涉及当前页出错对象，保留正确公式、参数、例题和教师备注。
 notes和answer同样是待审教学内容，必须核对其中的数值解释、单位换算和纠错依据，不能只看上屏公式或最终答案。“常见错误”“易错点”不意味着该段不用验算：可以展示错误做法，但对该做法的结果、误差方向和倍率解释必须正确，并有纠正。长度、面积、体积的单位倍率分别是一维、平方、立方；例如1 cm=10⁻² m，而1 cm³=10⁻⁶ m³。独立重新计算换算因子与误差倍率，不能把体积按长度或只按千倍换算；最终答案正确但教师纠错解释错误仍为answer confirmed error，修复该解释，保留正确答案。

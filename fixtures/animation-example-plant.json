@@ -1,0 +1,272 @@
+{
+  "version": "anim-v2",
+  "title": "从根到叶认识植物",
+  "archetype": "lesson.explain@1",
+  "representative": "structure",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "从根到叶认识植物",
+      "intent": "辨认根茎叶",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "从根到叶认识植物",
+          "items": [
+            "先找根、茎、叶的位置",
+            "引线对应结构名称",
+            "简化图示不代表所有植物"
+          ],
+          "kind": "plant"
+        }
+      ],
+      "narration": [
+        {
+          "id": "intro-n0",
+          "display": "同学们，今天我们来观察一株植物，认识它的根、茎和叶。",
+          "speech": "同学们，今天我们来观察一株植物，认识它的根、茎和叶。"
+        },
+        {
+          "id": "intro-n1",
+          "display": "请沿着标注找到三个部位。图示经过简化，并不代表所有植物的完整结构。",
+          "speech": "请沿着标注找到三个部位。图示经过简化，并不代表所有植物的完整结构。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "intro-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "structure",
+      "title": "根与茎分别做什么",
+      "intent": "理解主要功能",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "根与茎分别做什么",
+          "items": [
+            "根通常固定植物",
+            "根可吸收水分和无机盐",
+            "茎起支持与运输作用"
+          ],
+          "kind": "plant"
+        }
+      ],
+      "narration": [
+        {
+          "id": "structure-n0",
+          "display": "根通常有固定植物的作用，还可以吸收水分和无机盐。",
+          "speech": "根通常有固定植物的作用，还可以吸收水分和无机盐。"
+        },
+        {
+          "id": "structure-n1",
+          "display": "茎支持着叶等器官，并参与物质运输。观察时要把位置与功能联系起来。",
+          "speech": "茎支持着叶等器官，并参与物质运输。观察时要把位置与功能联系起来。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "structure-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "structure-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "structure-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "observe",
+      "title": "观察叶片与它的作用",
+      "intent": "认识叶与光合作用的联系",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "观察叶片与它的作用",
+          "items": [
+            "叶常是光合作用的主要器官",
+            "绿色植物可利用光制造有机物",
+            "图中的叶形不是唯一叶形"
+          ],
+          "kind": "plant"
+        }
+      ],
+      "narration": [
+        {
+          "id": "observe-n0",
+          "display": "对许多绿色植物来说，叶是进行光合作用的主要器官，能够利用光制造有机物。",
+          "speech": "对许多绿色植物来说，叶是进行光合作用的主要器官，能够利用光制造有机物。"
+        },
+        {
+          "id": "observe-n1",
+          "display": "不同植物的叶片形态有差异，这幅图只帮助我们认识基本部位和主要功能。",
+          "speech": "不同植物的叶片形态有差异，这幅图只帮助我们认识基本部位和主要功能。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "observe-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "observe-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "observe-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "title": "结构怎样相互配合",
+      "intent": "联系功能",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "结构怎样相互配合",
+          "items": [
+            "根、茎、叶各有主要功能",
+            "它们共同参与植物的生活",
+            "观察身边植物并辨认结构"
+          ],
+          "kind": "plant"
+        }
+      ],
+      "narration": [
+        {
+          "id": "summary-n0",
+          "display": "请指着图，分别说明根、茎、叶的主要功能，想想它们怎样相互配合。",
+          "speech": "请指着图，分别说明根、茎、叶的主要功能，想想它们怎样相互配合。"
+        },
+        {
+          "id": "summary-n1",
+          "display": "课后观察常见植物，试着辨认根、茎、叶；不能直接观察到的部分，可以查阅可靠资料。",
+          "speech": "课后观察常见植物，试着辨认根、茎、叶；不能直接观察到的部分，可以查阅可靠资料。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "summary-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    }
+  ]
+}

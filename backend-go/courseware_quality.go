@@ -208,10 +208,10 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 	if len(layouts) == 1 && len(d.Slides) >= 8 {
 		issues = append(issues, "整套课件版式重复，请核对教学任务是否采用合适表达，不为凑版式拆页")
 	}
-	if examples == 0 {
+	if d.Plan == nil && examples == 0 {
 		issues = append(issues, "缺少例题解析页面")
 	}
-	if exercises == 0 {
+	if d.Plan == nil && exercises == 0 {
 		issues = append(issues, "缺少课堂练习页面")
 	}
 	// Layout continuations must not add new teaching requirements.

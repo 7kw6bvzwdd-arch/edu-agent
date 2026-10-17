@@ -14,11 +14,15 @@ import (
 
 type providerCallError struct {
 	Status    int
+	Code      string
 	Temporary bool
 	Timeout   bool
 }
 
 func (e providerCallError) Error() string {
+	if e.Code == "SetLimitExceeded" {
+		return "模型服务达到预设用量上限（SetLimitExceeded），请管理员检查火山方舟控制台的模型/接入点用量限制；这不是成员制作积分不足。需求已保留，解除限制后再发送。"
+	}
 	if e.Timeout {
 		return "模型响应超时，本次请求未能在等待时限内完成"
 	}

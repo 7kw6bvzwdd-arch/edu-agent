@@ -8,13 +8,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type TaskInput struct {
+	AnimationPicture *TeachingPicture  `json:"animation_picture,omitempty"`
 	MaterialSnapshot *TextbookSnapshot `json:"material_snapshot,omitempty"`
 	Chapter          string            `json:"chapter,omitempty"`
 	MaterialID       string            `json:"material_id,omitempty"`
@@ -62,7 +62,7 @@ type Slide struct {
 	Focus           string                  `json:"focus,omitempty"`
 	Table           *TeachingTable          `json:"table,omitempty"`
 	Figure          *TeachingFigure         `json:"figure,omitempty"`
-	Scene           *AnimationScene         `json:"scene,omitempty"`
+	Scene           json.RawMessage         `json:"scene,omitempty"`
 	Layout          string                  `json:"layout,omitempty"`
 	Section         string                  `json:"section,omitempty"`
 	Title           string                  `json:"title"`
@@ -123,12 +123,15 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	cost := int64(20)
 	if in.Type == "animation" {
 		perm = "animation.render"
-		cost = 40
 	}
 	if !allowed(a, perm) {
 		return fail(403, "没有生成权限")
 	}
 	if in.Type == "animation" {
+		if in.AnimationEngine == "" || in.AnimationEngine == "html" {
+			in.AnimationEngine = "html"
+			return s.createHTMLAnimation(w, r, a, in)
+		}
 		return animationUnavailable()
 	}
 	if in.Topic == "" || len([]rune(in.Topic)) > 100 || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 128 {
@@ -141,19 +144,19 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 		return err
 	}
 	maxPages := 20
+	if in.Type == "courseware" && in.Detail == "" && in.Pages == 0 {
+		in.Detail = "auto"
+	}
+	if len([]rune(in.Subject)) > 40 || len([]rune(in.Grade)) > 40 {
+		return fail(400, "学科与学习阶段各不超过40字")
+	}
 	if in.Type == "courseware" && in.Detail != "" {
-		if in.Detail != "concise" && in.Detail != "default" && in.Detail != "detailed" {
-			return fail(400, "请选择精简、默认或详细")
-		}
-		if in.Subject != "数学" && in.Subject != "物理" {
-			return fail(400, "当前支持数学与物理课件")
+		if in.Detail != "auto" && in.Detail != "concise" && in.Detail != "default" && in.Detail != "detailed" {
+			return fail(400, "请选择按需安排、精简、适中或详细")
 		}
 		in.Pages = map[string]int{"concise": 10, "default": 15, "detailed": 22}[in.Detail]
 		maxPages = 100
-		if in.LessonMinutes == 0 {
-			in.LessonMinutes = 45
-		}
-		if in.LessonMinutes < 10 || in.LessonMinutes > 180 {
+		if in.LessonMinutes != 0 && (in.LessonMinutes < 10 || in.LessonMinutes > 180) {
 			return fail(400, "课时请填写10至180分钟")
 		}
 		if len([]rune(in.StudentLevel)) > 400 {
@@ -166,28 +169,11 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 			return fail(400, "参考方式无效")
 		}
 	}
-	if in.Type == "animation" {
-		maxPages = 12
-	}
-	if in.Pages < 8 || in.Pages > maxPages {
+	if in.Detail != "auto" && (in.Pages < 8 || in.Pages > maxPages) {
 		in.Pages = 8
 	}
 	if !validTheme(in.Theme) {
 		in.Theme = "forest"
-	}
-	if in.Type == "animation" {
-		if in.AnimationEngine == "" {
-			in.AnimationEngine = "manim"
-		}
-		if in.AnimationEngine != "manim" && in.AnimationEngine != "ark" {
-			return fail(400, "animation_engine仅支持manim或ark")
-		}
-		if in.AnimationEngine == "ark" && s.cfg.Mode != "live" {
-			return fail(503, "云视频仅支持live模式；sample模式不会调用真实视频服务，请选择manim样例")
-		}
-		if in.AnimationEngine == "ark" && !s.videoConfigured() {
-			return fail(503, videoConfigMessage)
-		}
 	}
 	if s.cfg.Mode == "live" && !s.agentConfigured(in.Type) {
 		return fail(503, "当前制作智能体模型未配置，请设置对应COURSEWARE_LLM或ANIMATION_LLM配置，或默认LLM配置")
@@ -204,14 +190,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	}
 	defer tx.Rollback(r.Context())
 	if in.SourceTaskID != "" {
-		if in.Type != "animation" {
-			return fail(400, "动画只能复用本人已完成课件的资料")
-		}
-		var source string
-		e = tx.QueryRow(r.Context(), "SELECT id FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL AND type='courseware' AND status='succeeded' FOR SHARE", in.SourceTaskID, a.MemberID).Scan(&source)
-		if e != nil {
-			return e
-		}
+		return fail(400, "只有动画可复用课件资料")
 	}
 	var balance, res int64
 	var plan string
@@ -237,13 +216,6 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	}
 	if balance-res < cost {
 		return fail(402, "成员可用积分不足，禁止生成")
-	}
-	if in.Type == "animation" {
-		checkCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		if e := exec.CommandContext(checkCtx, "docker", "image", "inspect", s.cfg.AnimationImage).Run(); e != nil {
-			return fail(503, "动画镜像尚未准备好，请先构建edu-manim:local")
-		}
 	}
 	id := newID()
 	_, e = tx.Exec(r.Context(), "UPDATE members SET reserved=reserved+$1 WHERE id=$2", cost, a.MemberID)
@@ -293,12 +265,12 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, a Actor) erro
 	if e = s.limitInterrupted(r.Context(), tx, a.MemberID); e != nil {
 		return e
 	}
-	v, e := queryMaps(r.Context(), tx, `SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,error,cost,mode,revision,created_at,updated_at,restored_at,capacity_hold
+	v, e := queryMaps(r.Context(), tx, `SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,error,cost,mode,revision,created_at,updated_at,restored_at,capacity_hold,(type='animation' AND html_path<>'') AS has_delivery
 		FROM tasks t WHERE member_id=$1 AND deleted_at IS NULL
 		AND ($2='' OR type=$2) AND ($3='' OR status=$3)
 		AND ($4='' OR strpos(lower(concat_ws(' ',display_title,input->>'topic',input->>'subject',input->>'grade',result->>'title')),lower($4))>0)
-		AND ($7<>'works' OR status NOT IN ('failed','cancelled') OR restored_at IS NOT NULL OR capacity_hold)
-		AND ($7<>'interrupted' OR (status IN ('failed','cancelled') AND restored_at IS NULL AND NOT capacity_hold))
+		AND ($7<>'works' OR status NOT IN ('failed','cancelled') OR restored_at IS NOT NULL OR capacity_hold OR (type='animation' AND html_path<>''))
+		AND ($7<>'interrupted' OR (status IN ('failed','cancelled') AND restored_at IS NULL AND NOT capacity_hold AND NOT (type='animation' AND html_path<>'')))
 		AND ($7 NOT IN ('works','interrupted') OR NOT (t.type='courseware' AND t.status IN ('failed','cancelled') AND EXISTS (
 			SELECT 1 FROM tasks child WHERE child.tenant_id=t.tenant_id AND child.member_id=t.member_id
 			AND child.type='courseware' AND child.idempotency_key='retry-'||t.id
@@ -319,7 +291,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, a Actor) error 
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	v, e := queryMaps(r.Context(), tx, "SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,result,sources,error,mode,cost,charge_state,revision,created_at,updated_at,restored_at FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID)
+	v, e := queryMaps(r.Context(), tx, "SELECT id,COALESCE(NULLIF(display_title,''),input->>'topic','') AS display_title,type,status,stage,input,result,sources,error,mode,cost,charge_state,revision,created_at,updated_at,restored_at,courseware_provider_calls,automatic_failures FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID)
 	if e != nil {
 		return e
 	}
@@ -331,7 +303,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, a Actor) error 
 		return e
 	}
 	v[0]["events"] = ev
-	if v[0]["status"] == "failed" {
+	if v[0]["status"] == "failed" && v[0]["type"] != "animation" {
 		v[0]["error"] = "制作暂未完成，已有页面已保存，预留已释放。可以稍后继续制作，完成页不会重新生成。"
 		for _, row := range ev {
 			if row["stage"] == "failed" {
@@ -561,9 +533,6 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 			return err
 		}
 	}
-	if kind == "animation" && len(in.Result.Slides) > 12 {
-		return fail(400, "动画分镜应为8–12页")
-	}
 	if status != "awaiting_confirmation" {
 		return fail(409, "任务已确认或已经结束")
 	}
@@ -574,20 +543,11 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 		return fail(400, "资料不足，请明确确认继续生成待核验课件")
 	}
 	in.Result.NeedsReview = old.NeedsReview || in.Result.NeedsReview
-	if kind == "animation" {
-		in.Result.Notice = old.Notice
-	}
 	in.Result.Evaluation = nil
 	in.Result.Script = ""
 	in.Result.Generation = nil
 	in.Result.AnimationQuality = nil
-	if kind == "animation" {
-		seconds, _ := strconv.ParseFloat(s.cfg.VideoDuration, 64)
-		if err := validateAnimationPlan(in.Result, sources, seconds, original.AnimationEngine == "ark"); err != nil {
-			return err
-		}
-		in.Result.AnimationQuality = &AnimationQuality{Version: "scene-v1", Status: "plan_checked", Checks: []string{"教师确认后的分镜已重新检查；旧评审不代表修改后的内容"}}
-	} else if _, err := s.renderCourseware(r.Context(), &in.Result); err != nil {
+	if _, err := s.renderCourseware(r.Context(), &in.Result); err != nil {
 		return err
 	}
 	if kind == "courseware" && original.PreviewFirst {
@@ -609,6 +569,9 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	return nil
 }
 func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a Actor) error {
+	if handled, err := s.cancelHTMLIfApplicable(w, r, a); handled || err != nil {
+		return err
+	}
 	tx, e := s.tx(r.Context(), a.TenantID)
 	if e != nil {
 		return e
@@ -626,6 +589,14 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a Actor) err
 	return nil
 }
 func (s *Server) download(w http.ResponseWriter, r *http.Request, a Actor) error {
+	if r.PathValue("format") == "mp4" {
+		if handled, e := s.animationMP4File(w, r, a); handled {
+			return e
+		}
+	}
+	if r.PathValue("format") == "html" {
+		return s.animationFile(w, r, a)
+	}
 	tx, e := s.tx(r.Context(), a.TenantID)
 	if e != nil {
 		return e
@@ -760,6 +731,12 @@ func (s *Server) workOne(ctx context.Context) error {
 		return e
 	}
 	for _, tid := range tenants {
+		if worked, err := s.workHTMLAnimation(ctx, tid); err != nil || worked {
+			return err
+		}
+		if worked, err := s.workAnimationExport(ctx, tid); err != nil || worked {
+			return err
+		}
 		tx, e := s.tx(ctx, tid)
 		if e != nil {
 			return e
@@ -821,9 +798,6 @@ func (s *Server) workOne(ctx context.Context) error {
 		if kind == "courseware" && in.PreviewFirst && stage == "expanding" {
 			workLimit = coursewareExpansionLimit(in.Pages)
 		}
-		if stage == "rendering" && kind == "animation" && in.AnimationEngine == "ark" {
-			workLimit = s.videoWaitLimit() + 2*time.Minute
-		}
 		_, e = tx.Exec(ctx, "UPDATE tasks SET status=$1,stage=$1,next_attempt_at=NULL,lease_until=now()+$3*interval '1 second',attempt=attempt+1,updated_at=now() WHERE id=$2", stage, id, int((workLimit + time.Minute).Seconds()))
 		if e == nil {
 			e = event(ctx, tx, tid, id, stage, map[string]string{"researching": "正在检索和组织教学方案", "rendering": "正在生成真实文件", "expanding": "前三页已确认，正在生成剩余课件，保留已审核内容"}[stage])
@@ -878,7 +852,7 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 		return s.processRevision(ctx, a, id, in, d)
 	}
 	if kind == "animation" {
-		return s.runAnimationAgent(ctx, a, id, stage, in, d)
+		return animationUnavailable()
 	}
 	return s.runCoursewareAgent(ctx, a, id, stage, in, d)
 }

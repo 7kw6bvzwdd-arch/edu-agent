@@ -19,6 +19,7 @@ type AnimTimeline struct {
 	Warnings []string        `json:"warnings,omitempty"`
 }
 type AnimSceneSpan struct {
+	Subtitles []AnimSpan `json:"subtitles,omitempty"`
 	ID        string     `json:"id"`
 	Start     int        `json:"start"`
 	End       int        `json:"end"`
@@ -95,6 +96,12 @@ func buildAnimTimeline(sc AnimScript, audioMS map[string]int) (AnimTimeline, []s
 			}
 			if a.Op == "tween" {
 				key := a.Object + "." + a.Param
+				for _, o := range s.Objects {
+					if o.ID == a.Object && animIsShape(o.Type) {
+						key = a.Object + ".transform"
+						break
+					}
+				}
 				if prev, ok := lastTween[key]; ok && sp.Start < prev.End {
 					p = append(p, fmt.Sprintf("幕%s动作%s与%s在%s上时间重叠或先后顺序与声明顺序不一致", s.ID, a.ID, prev.ID, key))
 				}

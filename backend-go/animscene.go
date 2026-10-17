@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"regexp"
 	"strconv"
@@ -15,6 +16,8 @@ import (
 )
 
 const animScriptVersion = "anim-v2"
+
+var animSubjects = []string{"语文", "数学", "英语", "物理", "化学", "生物", "历史", "地理", "道德与法治", "信息科技", "其他"}
 
 type AnimScript struct {
 	Version        string      `json:"version"`
@@ -37,9 +40,11 @@ type AnimScene struct {
 type AnimObject struct {
 	ID     string             `json:"id"`
 	Type   string             `json:"type"`
+	Kind   string             `json:"kind,omitempty"`
 	Slot   string             `json:"slot"`
 	Axes   string             `json:"axes,omitempty"`
 	Line   string             `json:"line,omitempty"`
+	Shape  string             `json:"shape,omitempty"`
 	Text   string             `json:"text,omitempty"`
 	Items  []string           `json:"items,omitempty"`
 	Params map[string]float64 `json:"params,omitempty"`
@@ -78,9 +83,9 @@ type AnimHold struct {
 
 var (
 	animIDPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-	animObjectSlots = map[string]string{"axes": "main", "line": "main", "point": "main", "equation": "side", "text": "side", "panel": "side"}
-	animParams      = map[string][]string{"axes": {"xmin", "xmax", "ymin", "ymax"}, "line": {"k", "b"}, "point": {"x"}}
-	animTweenable   = map[string][]string{"line": {"k", "b"}, "point": {"x"}}
+	animObjectSlots = map[string]string{"axes": "main", "line": "main", "point": "main", "equation": "side", "text": "side", "panel": "side", "rectangle": "main", "right_triangle": "main", "measure": "side", "card": "main", "timeline": "main", "relationship": "main", "comparison": "main", "illustration": "main"}
+	animParams      = map[string][]string{"axes": {"xmin", "xmax", "ymin", "ymax"}, "line": {"k", "b"}, "point": {"x"}, "rectangle": {"width", "height", "tx", "ty", "angle", "cx", "cy"}, "right_triangle": {"width", "height", "tx", "ty", "angle", "cx", "cy"}}
+	animTweenable   = map[string][]string{"line": {"k", "b"}, "point": {"x"}, "rectangle": {"tx", "ty", "angle"}, "right_triangle": {"tx", "ty", "angle"}}
 	animDefaultMS   = map[string]int{"show": 600, "hide": 400, "emphasize": 1200, "tween": 1500}
 	animHoldTypes   = map[string]bool{"read": true, "observe": true, "ask": true, "await": true, "transition": true}
 	// TTS reads these literally or not at all; formulas must be written out in words.
@@ -105,6 +110,9 @@ func decodeAnimScript(b []byte) (AnimScript, []string) {
 		}
 		return sc, []string{"作者数据不是有效JSON：" + msg}
 	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		return sc, []string{"作者数据只允许一个JSON对象，末尾不能有额外内容"}
+	}
 	return sc, validateAnimScript(sc)
 }
 
@@ -116,8 +124,8 @@ func validateAnimScript(sc AnimScript) []string {
 	if sc.Version != animScriptVersion {
 		add("version必须为%s", animScriptVersion)
 	}
-	if sc.Archetype != "func.params@1" {
-		add("archetype必须锁定版本，首版仅支持func.params@1")
+	if sc.Archetype != "func.params@1" && sc.Archetype != "geo.transform@1" && sc.Archetype != "lesson.explain@1" {
+		add("archetype须为func.params@1、geo.transform@1或lesson.explain@1")
 	}
 	if !animRunes(sc.Title, 24) {
 		add("标题须为1–24字")
@@ -161,13 +169,44 @@ func validateAnimScript(sc AnimScript) []string {
 			if !animIDPattern.MatchString(o.ID) || objects[o.ID].ID != "" {
 				add("%s：对象ID无效或重复", oat)
 			}
+			if o.Type == "illustration" {
+				if !animContains([]string{"water_cycle", "water_states", "plant", "uploaded"}, o.Kind) {
+					add("%s：请选择已支持的示意图或教师配图", oat)
+				}
+			} else if o.Kind != "" {
+				add("%s：只有插图组件接受kind", oat)
+			}
 			slot, known := animObjectSlots[o.Type]
 			if !known {
 				add("%s：不支持的组件类型%q", oat, o.Type)
 				continue
 			}
+			if sc.Archetype == "lesson.explain@1" {
+				if !animContains([]string{"card", "timeline", "relationship", "comparison", "illustration"}, o.Type) {
+					add("%s：通用讲解须使用受控讲解组件", oat)
+				}
+				if !animRunes(o.Text, 24) || len(o.Items) < 1 || len(o.Items) > 4 {
+					add("%s：讲解组件须有1–24字标题和1–4条内容", oat)
+				}
+				for _, item := range o.Items {
+					if !animRunes(item, 28) {
+						add("%s：讲解内容每条须为1–28字", oat)
+					}
+				}
+				if o.Axes != "" || o.Line != "" || o.Shape != "" {
+					add("%s：讲解组件不得引用学科对象", oat)
+				}
+			} else if animContains([]string{"card", "timeline", "relationship", "comparison", "illustration"}, o.Type) {
+				add("%s：讲解组件只属于通用讲解原型", oat)
+			}
 			if o.Slot != slot {
 				add("%s：%s组件只能放在%s槽位", oat, o.Type, slot)
+			}
+			if (sc.Archetype == "func.params@1" && (animIsShape(o.Type) || o.Type == "measure")) || (sc.Archetype == "geo.transform@1" && (o.Type == "line" || o.Type == "point" || o.Type == "equation")) {
+				add("%s：组件不属于当前原型", oat)
+			}
+			if o.Shape != "" && o.Type != "measure" {
+				add("%s：只有measure组件接受shape引用", oat)
 			}
 			allowed := animParams[o.Type]
 			for k := range o.Params {
@@ -190,11 +229,15 @@ func validateAnimScript(sc AnimScript) []string {
 				if axesRange == nil {
 					axesRange = r
 				} else if fmt.Sprint(axesRange) != fmt.Sprint(r) {
-					add("%s：func.params@1锁定坐标比例，各幕坐标范围须一致", oat)
+					add("%s：原型锁定坐标比例，各幕坐标范围须一致", oat)
 				}
-			case "line":
+			case "line", "rectangle", "right_triangle":
 				if a, ok := objects[o.Axes]; !ok || a.Type != "axes" {
 					add("%s：须引用本幕已声明的坐标系", oat)
+				}
+			case "measure":
+				if shape, ok := objects[o.Shape]; !ok || !animIsShape(shape.Type) {
+					add("%s：须引用本幕已声明的几何图形", oat)
 				}
 			case "point", "equation":
 				if l, ok := objects[o.Line]; !ok || l.Type != "line" {
@@ -217,10 +260,22 @@ func validateAnimScript(sc AnimScript) []string {
 					}
 				}
 			}
-			if o.Type != "text" && o.Type != "point" && o.Text != "" || o.Type != "panel" && len(o.Items) > 0 {
+			if sc.Archetype != "lesson.explain@1" && (o.Type != "text" && o.Type != "point" && o.Text != "" || o.Type != "panel" && len(o.Items) > 0) {
 				add("%s：%s组件不接受text/items", oat, o.Type)
 			}
 			objects[o.ID] = o
+		}
+		if sc.Archetype == "lesson.explain@1" {
+			if len(s.Objects) < 1 || len(s.Objects) > 3 {
+				add("%s：每幕须有1–3个讲解组件，避免画面拥挤", at)
+			}
+			if s.ID == sc.Representative {
+				for _, a := range s.Actions {
+					if (a.Op == "show" || a.Op == "emphasize") && objects[a.Object].ID != "" && a.At.Sentence != "" {
+						representativeOK = true
+					}
+				}
+			}
 		}
 		if axesCount > 1 {
 			add("%s：每幕最多一个坐标系", at)
@@ -240,7 +295,7 @@ func validateAnimScript(sc AnimScript) []string {
 				add("%s：不支持的动作%q", aat, a.Op)
 			}
 			if a.Op == "tween" {
-				if a.To == nil || !animContains(animTweenable[o.Type], a.Param) {
+				if a.To == nil || math.IsNaN(*a.To) || math.IsInf(*a.To, 0) || !animContains(animTweenable[o.Type], a.Param) {
 					add("%s：参数插值须给出该组件可变参数及目标值", aat)
 				}
 			} else if a.Param != "" || a.To != nil {
@@ -278,7 +333,16 @@ func validateAnimScript(sc AnimScript) []string {
 		for _, l := range lines {
 			p = append(p, animLineProblems(at, l, axesRange)...)
 		}
-		p = append(p, animNarrationProblems(at, s, lines)...)
+		if sc.Archetype != "lesson.explain@1" {
+			p = append(p, animNarrationProblems(at, s, lines)...)
+		}
+		if sc.Archetype == "geo.transform@1" {
+			problems, moving := animGeometryProblems(s)
+			p = append(p, problems...)
+			if s.ID == sc.Representative && moving {
+				representativeOK = true
+			}
+		}
 		if s.ID == sc.Representative {
 			for _, l := range lines {
 				if len(l.tweens) > 0 {
@@ -288,7 +352,7 @@ func validateAnimScript(sc AnimScript) []string {
 		}
 	}
 	if !representativeOK {
-		add("代表幕须为已声明的幕，且包含直线参数的实际变化（不能用标题幕）")
+		add("代表幕须为已声明的教学幕，包含直线/几何变化或与讲解同步的内容呈现，不能只用标题幕")
 	}
 	return p
 }
@@ -437,13 +501,22 @@ func animNarrationProblems(at string, s AnimScene, lines []*animLine) []string {
 			if question || up == down {
 				continue
 			}
+			scoped := animDirectionSlope(field)
+			matched := false
 			for _, l := range lines {
 				for _, st := range l.states {
+					if scoped != nil && !animNear(st[0], *scoped) {
+						continue
+					}
+					matched = true
 					if up && st[0] <= 0 || down && st[0] >= 0 {
 						p = append(p, fmt.Sprintf("%s：旁白称直线%s，但直线%s出现k=%g", nat, map[bool]string{true: "上升", false: "下降"}[up], l.id, st[0]))
 						break
 					}
 				}
+			}
+			if scoped != nil && !matched {
+				p = append(p, fmt.Sprintf("%s：方向描述中的k=%g与本幕直线参数不一致", nat, *scoped))
 			}
 		}
 		for _, m := range animKFromTo.FindAllStringSubmatch(n.Display, -1) {
@@ -498,4 +571,20 @@ func animFormulaCoefficients(m []string) (k, b float64) {
 		}
 	}
 	return
+}
+
+var animSpokenK = regexp.MustCompile(`(?i)k\s*(?:=|等于)\s*([+-]?[0-9]+(?:\.[0-9]+)?)`)
+
+func animDirectionSlope(text string) *float64 {
+	// Explicit numeric subjects narrow a claim; unqualified claims still cover every line.
+	normalized := strings.NewReplacer("负", "-", "正", "", "点", ".", "十", "10", "一", "1", "二", "2", "三", "3", "四", "4", "五", "5", "六", "6", "七", "7", "八", "8", "九", "9", "零", "0", "−", "-").Replace(text)
+	matches := animSpokenK.FindAllStringSubmatch(normalized, -1)
+	if len(matches) != 1 {
+		return nil
+	}
+	v, e := strconv.ParseFloat(matches[0][1], 64)
+	if e != nil {
+		return nil
+	}
+	return &v
 }

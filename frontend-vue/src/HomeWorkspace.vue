@@ -2,7 +2,7 @@
 import {computed,ref,nextTick} from 'vue'
 import WorkspaceIcon from './WorkspaceIcon.vue'
 
-const props=defineProps({tasks:Array,available:Number,canCreate:Boolean,statusText:Function,loading:Boolean,toolsOnly:Boolean})
+const props=defineProps({tasks:Array,available:Number,canCreate:Boolean,statusText:Function,loading:Boolean,toolsOnly:Boolean,animationReady:Boolean})
 const emit=defineEmits(['start','navigate','open'])
 const home=ref(null)
 async function prepare(materials=false){
@@ -12,10 +12,10 @@ async function prepare(materials=false){
  target?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
  if(!materials)target?.focus({preventScroll:true})
 }
-const tools=[
- {id:'courseware',title:'课件工作台',description:'确认需求，审核三页预览，再完成课堂课件。',icon:'slides',note:'20积分 · 成功交付后结算'},
- {id:'animation',title:'教学动画',description:'新引擎重构中，暂不开放生成。历史作品保留。',icon:'animation',note:'暂时停用'},
-]
+const tools=computed(()=>[
+ {id:'courseware',title:'课件制作',description:'填写教学主题，审核三页预览，再完成课堂课件。',icon:'slides',note:'20积分 · 成功交付后结算'},
+ {id:'animation',title:'教学动画',description:props.animationReady?'各学科图文讲解配语音与字幕，先审分镜，再看代表幕；验收后可导出视频。':'描述教学目标，准备分镜方案。生成需配置动画模型与语音。',icon:'animation',note:props.animationReady?'方案不预留 · 验收后结算40积分':'等待服务配置'},
+])
 const recent=computed(()=>[...(props.tasks||[])].filter(t=>t.type==='courseware'||t.type==='animation').sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)).slice(0,3))
 const shortDate=value=>Number.isNaN(Date.parse(value))?'':new Date(value).toLocaleDateString('zh-CN',{month:'short',day:'numeric'})
 </script>
@@ -24,15 +24,15 @@ const shortDate=value=>Number.isNaN(Date.parse(value))?'':new Date(value).toLoca
  <div v-if="!toolsOnly" ref="home" class="home-workspace conversation-home" :aria-busy="loading">
   <header class="home-welcome">
    <h1>今天，想准备哪一堂课？</h1>
-   <p>从一个想法开始，和课件助手一起把课堂准备好。</p>
+   <p>从一个想法开始，和备课助手一起完成课件与教学动画。</p>
   </header>
   <div class="home-main-grid">
-   <section class="home-dialogue" aria-label="和课件助手一起备课">
+   <section class="home-dialogue" aria-label="和备课助手一起备课">
     <slot/>
    </section>
   </div>
   <section class="home-preparation" aria-labelledby="preparation-heading">
-   <div class="home-section-title"><h2 id="preparation-heading">开始备课</h2><span>需求聊清楚，课件更贴近你的课堂</span></div>
+   <div class="home-section-title"><h2 id="preparation-heading">开始备课</h2><span>所有制作工具，都可以在对话中调用</span></div>
    <div class="home-preparation-tools">
     <button type="button" class="home-prepare-courseware" data-home-action="courseware" :disabled="!canCreate" @click="prepare()"><span class="home-prepare-icon"><WorkspaceIcon name="slides"/></span><span><strong>课堂课件</strong><small>描述教学想法，先看三页真实预览</small></span><WorkspaceIcon name="arrow"/></button>
     <button type="button" data-home-action="materials" @click="prepare(true)"><span class="home-prepare-icon"><WorkspaceIcon name="library"/></span><span><strong>教材与参考</strong><small>按需添加资料，设置年级与课时</small></span><WorkspaceIcon name="arrow"/></button>

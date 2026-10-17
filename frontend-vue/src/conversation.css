@@ -1,0 +1,76 @@
+/* The first message turns the centered brief into a full-height tool conversation. */
+.app-shell .conversation-home{transition:max-width 420ms cubic-bezier(.16,1,.3,1),padding 420ms cubic-bezier(.16,1,.3,1)}
+.app-shell .conversation-home:has(.has-messages){max-width:none;height:calc(100dvh - 44px);min-height:540px;padding:12px 22px 16px;display:flex;flex-direction:column}
+.app-shell .conversation-home:has(.has-messages) .home-welcome{max-width:none;width:100%;margin:0 0 10px;flex:none}
+.app-shell .conversation-home:has(.has-messages) .home-welcome h1{font-size:16px}
+.app-shell .conversation-home:has(.has-messages) :is(.home-preparation,.home-recent){display:none}
+.app-shell .conversation-home:has(.has-messages) .home-main-grid{width:100%;max-width:none;min-height:0;flex:1;display:flex;transition:max-width 420ms cubic-bezier(.16,1,.3,1)}
+.app-shell .conversation-home:has(.has-messages) :is(.home-dialogue,.courseware-setup,.brief-panel,.brief-grid){display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;width:100%}
+.app-shell .conversation-home .has-messages .brief-conversation{flex:1;min-height:0;background:transparent;border-color:transparent;box-shadow:none;overflow:visible}
+.app-shell .conversation-home .has-messages .brief-messages{flex:1;height:auto;max-height:none;min-height:0;padding:10px max(8px,calc((100% - 1120px)/2)) 24px;overflow-y:auto;scrollbar-gutter:stable;scroll-behavior:smooth}
+.app-shell .conversation-home .has-messages .brief-composer{flex:none;width:min(100%,1040px);margin:0 auto;padding:8px 14px;background:var(--surface);border:1px solid var(--am-200);border-radius:14px;box-shadow:0 10px 28px -18px #4c1d9540;transition:box-shadow 400ms ease}
+.app-shell .conversation-home .has-messages .brief-composer textarea{height:36px;min-height:36px;max-height:100px;margin-top:2px;font-size:14px;line-height:1.6;resize:vertical}
+.app-shell .conversation-home .has-messages .brief-composer>label{font-size:11px}
+.app-shell .conversation-home .has-messages .home-tool-switch{margin-bottom:3px;gap:3px}
+.app-shell .conversation-home .has-messages .home-tool-switch button{min-height:28px;padding:3px 8px}
+.app-shell .conversation-home .has-messages .brief-actions small{font-size:10px;line-height:1.45}
+.app-shell .conversation-home .has-messages .brief-actions button{min-height:34px;padding:5px 12px}
+.app-shell .conversation-home .has-messages .brief-actions{margin-top:4px}
+.app-shell .conversation-home .has-messages .brief-summary{flex:none;width:min(100%,1040px);margin-inline:auto;padding:8px 4px 0}
+.app-shell .conversation-home .has-messages .brief-summary:has(details[open]){max-height:36dvh;overflow:auto;background:var(--surface)!important;padding:12px;border-radius:8px}
+.app-shell .conversation-home .has-messages .brief-bubble.assistant{background:transparent!important;padding:8px 0 20px}
+.app-shell .conversation-home .home-tool-switch{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 10px}
+.app-shell .conversation-home .home-tool-switch button{display:flex;align-items:center;gap:5px;min-height:32px;padding:5px 10px;border:1px solid transparent;background:transparent;border-radius:7px;font-size:12px;color:var(--ink-3);box-shadow:none}
+.app-shell .conversation-home .home-tool-switch button[aria-pressed=true]{background:var(--am-100);color:var(--am-700);border-color:var(--am-200)}
+.app-shell .home-tool-switch svg{width:15px;height:15px}
+.app-shell .home-tool-result{margin-top:20px;min-width:0;--review-body-height:560px;background:var(--surface);border:1px solid var(--am-200);border-radius:12px;overflow:hidden;color:var(--ink)}
+.app-shell .home-result-heading{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface-3)}
+.app-shell .home-result-heading>span{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--am-700);white-space:nowrap}
+.app-shell .home-result-heading svg{width:18px;height:18px}
+.app-shell .home-result-heading small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ink-3)}
+.app-shell .home-tool-pending{display:flex;gap:10px;align-items:center;padding:20px;font-size:13px}
+.app-shell .home-tool-result :is(.studio-page-rail,.studio-conversation){position:static;top:auto;height:auto;max-height:560px}
+.app-shell .home-tool-result .studio-body{grid-template-columns:112px minmax(0,1fr) 252px;min-height:460px}
+.app-shell .home-tool-result .studio-canvas{height:auto;max-height:none;overflow:visible;min-width:0;padding:16px}
+.app-shell .home-tool-result .studio-header h2{max-width:360px;font-size:15px}
+.app-shell .home-tool-result .studio-slide{margin:0;width:100%}
+.app-shell .home-tool-result .animation-studio{margin:0;max-width:none}
+.app-shell .home-tool-result .anim-task-head{padding:14px}
+.app-shell .home-tool-result .anim-workspace{grid-template-columns:minmax(0,1fr) 280px;gap:12px;padding:12px}
+.app-shell .home-tool-result .anim-actions{position:static}
+.app-shell .home-result-process{padding:12px;font-size:12px}
+.app-shell .works-page .task-grid{grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:14px}
+.app-shell .works-page .task-art{height:102px;padding:16px}
+.app-shell .works-page .task-card-body{padding:12px 14px 8px}
+.app-shell .works-page .task-card-body h3{font-size:14px;line-height:1.5;margin-top:7px;margin-bottom:5px}
+.app-shell .works-page .task-card-body p{margin:5px 0;font-size:12px}
+.app-shell .works-page .work-actions{gap:4px;padding:4px 12px 12px;flex-wrap:wrap}
+.app-shell .works-page .work-actions button{padding:5px 8px;font-size:11px;min-height:32px}
+@media(max-width:1150px){.app-shell .home-tool-result .studio-body{grid-template-columns:90px minmax(0,1fr)}.app-shell .home-tool-result .studio-conversation{grid-column:1/-1;grid-row:2;max-height:none;border-left:0;border-top:1px solid var(--line)}.app-shell .home-tool-result .studio-review-panel{max-height:none}.app-shell .home-tool-result .anim-workspace{grid-template-columns:1fr}.app-shell .home-tool-result .anim-actions{max-height:none}}
+@media(max-width:850px){.app-shell .conversation-home:has(.has-messages){height:calc(100dvh - 220px);min-height:540px;padding:8px 12px 12px}.app-shell .conversation-home .has-messages .brief-actions{flex-direction:row;align-items:center}.app-shell .conversation-home .has-messages .brief-action-buttons{width:auto;flex-wrap:nowrap}.app-shell .conversation-home .has-messages .brief-actions small{max-width:230px;font-size:10px}.app-shell .works-page .task-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}
+@media(max-width:560px){.app-shell .conversation-home:has(.has-messages){padding-inline:8px}.app-shell .conversation-home .has-messages .brief-messages{padding-inline:4px}.app-shell .conversation-home .has-messages .brief-composer{padding:10px 12px}.app-shell .conversation-home .has-messages .brief-actions{align-items:flex-end}.app-shell .conversation-home .has-messages .brief-actions small{max-width:125px;font-size:9px}.app-shell .conversation-home .has-messages .brief-actions button{min-height:40px;padding:6px 9px;font-size:11px}.app-shell .home-tool-result .studio-body{display:flex;flex-direction:column;min-height:0}.app-shell .home-tool-result .studio-page-rail{max-height:160px;border-right:0}.app-shell .home-tool-result .studio-page-thumbnails{display:flex;overflow-x:auto}.app-shell .home-tool-result .studio-page-thumbnail{min-width:90px}.app-shell .home-tool-result .studio-header{align-items:flex-start;flex-wrap:wrap}.app-shell .home-tool-result .studio-header h2{max-width:210px}.app-shell .home-tool-result .anim-workspace{padding:8px}.app-shell .works-page .task-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.app-shell .works-page .task-art{height:88px;padding:12px}.app-shell .works-page .task-art b{font-size:13px}.app-shell .works-page .task-card-body{padding:10px}.app-shell .works-page .task-card-body h3{font-size:13px}.app-shell .works-page .work-actions{padding:4px 8px 10px}.app-shell .works-page .work-actions button{min-height:36px}.app-shell .works-page .task-card-body small{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.app-shell .conversation-home,.app-shell .conversation-home *{transition:none!important;scroll-behavior:auto!important}}
+@supports(view-transition-name:home-composer){
+ .conversation-home .brief-composer{view-transition-name:home-composer}
+ .conversation-home .brief-messages{view-transition-name:home-transcript}
+ ::view-transition-group(home-composer),::view-transition-group(home-transcript){animation-duration:420ms;animation-timing-function:cubic-bezier(.16,1,.3,1)}
+ ::view-transition-old(root),::view-transition-new(root){animation:none}
+}
+@media(prefers-reduced-motion:reduce){::view-transition-group(*){animation-duration:0s!important}}
+
+/* The shell allocates remaining height after its real alerts and mobile navigation. */
+.app-shell:has(.conversation-home .has-messages){height:100dvh;min-height:0;overflow:hidden}
+.app-shell:has(.conversation-home .has-messages) main{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.app-shell:has(.conversation-home .has-messages) .topbar{flex:none}
+.app-shell .content.home-page:has(.has-messages){display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;max-width:none;width:100%}
+.app-shell .content.home-page:has(.has-messages)>.alert{flex:none}
+.app-shell .conversation-home:has(.has-messages){flex:1;min-height:0;height:auto;width:100%}
+.app-shell .home-result-requirements{margin:10px 0 0;font-size:12px;color:var(--ink-3)}
+.app-shell .home-result-requirements summary{font-size:12px;cursor:pointer}
+.app-shell .home-result-requirements p{font-size:12px;padding:8px 0}
+.app-shell .brief-understanding,.app-shell .brief-assumptions,.app-shell .brief-questions{margin-top:12px;padding:12px 14px;border:1px solid var(--line);background:#fff}
+.app-shell .brief-understanding h3,.app-shell .brief-assumptions h3,.app-shell .brief-questions h3{margin:0 0 8px;font-size:12px;color:var(--ink-2)}
+.app-shell .brief-understanding p,.app-shell .brief-understanding textarea{margin:0;white-space:pre-wrap;font-size:12px;line-height:1.7;width:100%;box-sizing:border-box}
+.app-shell .brief-assumptions ul{margin:0;padding-left:18px;font-size:12px;line-height:1.7}.app-shell .brief-question p{margin:0 0 8px;font-size:12px}.app-shell .brief-question-options{display:flex;gap:6px;flex-wrap:wrap}.app-shell .brief-question-options button{border:1px solid var(--line);background:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px}
+.app-shell .home-tool-result .studio-body:not(:has(.studio-page-rail)){grid-template-columns:minmax(0,1fr) 252px}
+@media(max-width:850px){.app-shell:has(.conversation-home .has-messages){display:flex;flex-direction:column}.app-shell:has(.conversation-home .has-messages) .sidebar{flex:none;height:auto}.app-shell:has(.conversation-home .has-messages) main{flex:1}.app-shell .home-tool-result .studio-body:not(:has(.studio-page-rail)){grid-template-columns:1fr}}

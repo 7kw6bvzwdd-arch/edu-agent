@@ -79,7 +79,8 @@ func (s *Server) postBriefStream(ctx context.Context, client *http.Client, endpo
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, providerCallError{Status: response.StatusCode, Temporary: response.StatusCode == 429 || response.StatusCode >= 500}
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 16384))
+		return nil, providerHTTPError(response.StatusCode, body)
 	}
 	if !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
 		return nil, fail(502, "对话服务没有返回流式内容，请重试；需求已保留")

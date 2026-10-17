@@ -1,0 +1,277 @@
+{
+  "version": "anim-v2",
+  "title": "一滴水的自然旅行",
+  "archetype": "lesson.explain@1",
+  "representative": "evaporation",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "水循环从哪里开始",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "card",
+          "slot": "main",
+          "text": "水的旅程",
+          "items": [
+            "地表和海洋里的水",
+            "水在自然界不断循环"
+          ]
+        }
+      ],
+      "narration": [
+        {
+          "id": "intro-n0",
+          "display": "同学们，今天我们一起看看，一滴水怎样在自然界旅行。",
+          "speech": "同学们，今天我们一起看看，一滴水怎样在自然界旅行。"
+        },
+        {
+          "id": "intro-n1",
+          "display": "水循环描述水在不同地方和不同状态之间不断转移的过程。",
+          "speech": "水循环描述水在不同地方和不同状态之间不断转移的过程。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "intro-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "evaporation",
+      "title": "从地表到空气",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "relationship",
+          "slot": "main",
+          "text": "蒸发与凝结",
+          "items": [
+            "液态水蒸发成水蒸气",
+            "水蒸气遇冷发生凝结",
+            "小水滴或冰晶形成云"
+          ]
+        }
+      ],
+      "narration": [
+        {
+          "id": "evaporation-n0",
+          "display": "阳光为蒸发提供能量，地表的液态水变成水蒸气进入空气。",
+          "speech": "阳光为蒸发提供能量，地表的液态水变成水蒸气进入空气。"
+        },
+        {
+          "id": "evaporation-n1",
+          "display": "水蒸气遇冷可以凝结，云中包含许多小水滴或冰晶。",
+          "speech": "水蒸气遇冷可以凝结，云中包含许多小水滴或冰晶。"
+        },
+        {
+          "id": "evaporation-n2",
+          "display": "请注意，水蒸气本身看不见，我们看到的云并不是水蒸气。",
+          "speech": "请注意，水蒸气本身看不见，我们看到的云并不是水蒸气。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "evaporation-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "evaporation-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "evaporation-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "return",
+      "title": "水怎样回到地表",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "timeline",
+          "slot": "main",
+          "text": "降水与汇流",
+          "items": [
+            "云中的水形成降水",
+            "地表径流汇入河湖海洋",
+            "一部分水渗入地下"
+          ]
+        }
+      ],
+      "narration": [
+        {
+          "id": "return-n0",
+          "display": "在适当条件下，云中的水以雨或雪等形式降落到地面。",
+          "speech": "在适当条件下，云中的水以雨或雪等形式降落到地面。"
+        },
+        {
+          "id": "return-n1",
+          "display": "降水有的形成地表径流，有的渗入地下，水继续参与循环。",
+          "speech": "降水有的形成地表径流，有的渗入地下，水继续参与循环。"
+        },
+        {
+          "id": "return-n2",
+          "display": "这些过程会同时发生，时间线只是帮助我们梳理讲解顺序。",
+          "speech": "这些过程会同时发生，时间线只是帮助我们梳理讲解顺序。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "return-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "return-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "return-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "title": "想一想",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "comparison",
+          "slot": "main",
+          "text": "比较与思考",
+          "items": [
+            "蒸发是液态转为气态",
+            "凝结是气态转为液态",
+            "云与水蒸气有什么不同"
+          ]
+        }
+      ],
+      "narration": [
+        {
+          "id": "summary-n0",
+          "display": "蒸发和凝结方向不同，它们都是水循环中的重要过程。",
+          "speech": "蒸发和凝结方向不同，它们都是水循环中的重要过程。"
+        },
+        {
+          "id": "summary-n1",
+          "display": "现在请想一想，看得见的云和看不见的水蒸气有什么不同。",
+          "speech": "现在请想一想，看得见的云和看不见的水蒸气有什么不同。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "summary-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    }
+  ]
+}

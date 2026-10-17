@@ -1,0 +1,130 @@
+/* Teaching animation shares the Amethyst form and review surfaces. */
+.app-shell .animation-page{padding-top:24px}
+.app-shell .animation-studio{max-width:1280px;margin:0 auto;min-width:0}
+.app-shell .animation-studio.is-creating{max-width:880px}
+.app-shell .animation-generator{overflow:hidden}
+.app-shell .anim-scope-note{display:flex;align-items:flex-start;gap:12px;background:var(--surface-2);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:24px;color:var(--am-800)}
+.app-shell .anim-scope-note>svg{width:20px;height:20px;flex:none;margin-top:2px}
+.app-shell .anim-scope-note p{margin:0;font-size:13px;line-height:1.8}
+.app-shell .anim-scope-note span{display:block;font-size:12px;color:var(--ink-3)}
+.app-shell .animation-generator textarea{min-height:168px}
+.app-shell .anim-field-note{font-size:12px;line-height:1.8;color:var(--ink-3);margin:12px 0 20px}
+.app-shell .anim-delivery-info p{font-size:12px;line-height:1.8;color:var(--ink-2);margin:0}
+.app-shell .anim-source-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--am-800);line-height:1.8;margin:0}
+.app-shell .anim-source-note svg{width:18px;height:18px;flex:none}
+.app-shell .anim-unavailable{margin-top:16px}
+.app-shell .anim-work-header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:24px}
+.app-shell .anim-work-header h1{font-size:24px;line-height:1.45;overflow-wrap:anywhere;margin:0 0 8px;color:var(--ink)}
+.app-shell .anim-work-header p{font-size:13px;line-height:1.8;color:var(--ink-3);margin:0}
+.app-shell .anim-work-header>button{display:flex;align-items:center;gap:6px;flex:none}
+.app-shell .anim-work-header>button svg{width:16px;height:16px}
+.app-shell .anim-phase-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:0;margin:0 0 20px;list-style:none;border-bottom:1px solid var(--line)}
+.app-shell .anim-phase-list li{display:flex;align-items:center;gap:10px;padding:0 8px 16px;color:var(--ink-3);font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.app-shell .anim-phase-list li>span{display:flex;justify-content:center;align-items:center;width:24px;height:24px;flex:none;border-radius:50%;border:1px solid var(--line-strong);font-size:11px;font-variant-numeric:tabular-nums;background:var(--surface)}
+.app-shell .anim-phase-list li.current{color:var(--am-800);font-weight:600;border-bottom-color:var(--am-600)}
+.app-shell .anim-phase-list li.current>span{background:var(--am-700);border-color:var(--am-700);color:white}
+.app-shell .anim-phase-list li.complete>span{background:var(--surface-3);color:var(--am-700);border-color:var(--line)}
+.app-shell .anim-phase-list svg{width:15px;height:15px}
+.app-shell .anim-stage{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.app-shell .anim-state-line{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.app-shell .anim-state-line strong{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.app-shell .anim-state-line small,.app-shell .anim-charge{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.app-shell .anim-workspace{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+.app-shell .anim-main{min-width:0;display:grid;gap:20px}
+.app-shell .anim-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.app-shell .anim-section-heading h2{margin:0;font-size:15px;font-weight:650}
+.app-shell .anim-section-heading>span{font-size:11px;color:var(--ink-3)}
+.app-shell .anim-preview{overflow:hidden;min-width:0}
+.app-shell .anim-preview iframe{display:block;width:100%;height:clamp(340px,calc(100dvh - 400px),580px);border:0;background:#f5f8fc}
+.app-shell .anim-preview-note{font-size:11px;color:var(--ink-3);line-height:1.8;padding:12px 20px;margin:0}
+.app-shell .anim-scenes{min-width:0;overflow:hidden}
+.app-shell .anim-scene{border-bottom:1px solid var(--line)}
+.app-shell .anim-scene:last-child{border-bottom:0}
+.app-shell .anim-scene>summary{display:flex;align-items:flex-start;gap:12px;padding:18px 20px;cursor:pointer;list-style:none}
+.app-shell .anim-scene>summary::-webkit-details-marker{display:none}
+.app-shell .anim-scene>summary:hover{background:var(--surface-2)}
+.app-shell .anim-scene>summary>svg{width:16px;height:16px;color:var(--ink-3);flex:none;margin-top:4px}
+.app-shell .anim-scene[open]>summary>svg{transform:rotate(180deg)}
+.app-shell .anim-scene-number{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;min-width:20px;line-height:24px}
+.app-shell .anim-scene-title{font-size:14px;font-weight:600;line-height:1.7;color:var(--ink-2);min-width:0;flex:1;overflow-wrap:anywhere}
+.app-shell .anim-scene-title small{display:block;font-size:12px;font-weight:400;color:var(--ink-3);margin-top:4px}
+.app-shell .anim-representative-tag{font-size:10px;color:var(--am-800);background:var(--surface-3);border:1px solid var(--line);padding:2px 6px;border-radius:var(--r-xs);flex:none;line-height:1.8}
+.app-shell .anim-scene-body{padding:0 20px 20px 52px}
+.app-shell .anim-scene-body h3{font-size:11px;font-weight:600;color:var(--ink-3);margin:0 0 8px}
+.app-shell .anim-scene-body p{font-size:13px;line-height:1.9;color:var(--ink-2);margin:4px 0;overflow-wrap:anywhere}
+.app-shell .anim-technical{margin-top:16px;font-size:11px;color:var(--ink-3)}
+.app-shell .anim-technical summary,.app-shell .anim-json-editor summary{cursor:pointer;min-height:28px;line-height:1.8}
+.app-shell .anim-technical pre{max-height:280px;overflow:auto;font-size:11px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-2);border-radius:var(--r-sm);padding:12px}
+.app-shell .anim-actions{padding:20px;min-width:0}
+.app-shell .anim-actions>.anim-section-heading{padding:0 0 16px;margin-bottom:16px}
+.app-shell .anim-actions label{display:grid;gap:8px;font-size:12px;line-height:1.8;color:var(--ink-2);font-weight:600;margin:16px 0 12px}
+.app-shell .anim-actions :is(textarea,select){width:100%;min-width:0;margin:0;font-size:12px;line-height:1.8;font-weight:400}
+.app-shell .anim-actions textarea{resize:vertical;min-height:100px}
+.app-shell .anim-actions button{width:100%;min-height:40px;font-size:12px;white-space:normal;line-height:1.8}
+.app-shell .anim-revise-button,.app-shell .anim-download{display:flex;align-items:center;justify-content:center;gap:6px}
+.app-shell .anim-actions button svg{width:16px;height:16px;flex:none}
+.app-shell .anim-action-note,.app-shell .anim-confirm-block>p{font-size:11px;line-height:1.9;color:var(--ink-3);margin:12px 0}
+.app-shell .anim-json-editor{margin-top:16px;color:var(--ink-3);font-size:11px}
+.app-shell .anim-json-editor textarea{font-family:ui-monospace,monospace;font-size:11px;margin:8px 0;min-height:260px}
+.app-shell .anim-confirm-block{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
+.app-shell .anim-confirm-block>p:first-child{margin-top:0}
+.app-shell .anim-confirm-block>button+button{margin-top:10px}
+.app-shell .anim-actions .anim-consent{display:flex;gap:10px;align-items:flex-start;margin:0 0 16px;font-size:12px;font-weight:400}
+.app-shell .anim-consent input{width:16px;height:16px;flex:none;margin:3px 0 0}
+.app-shell .anim-cancel{margin-top:20px;border-top:1px solid var(--line);box-shadow:none}
+.app-shell .anim-edit-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:20px;margin-top:20px}
+.app-shell .anim-edit-heading h3{font-size:13px;margin:0}
+.app-shell .anim-edit-heading span{font-size:11px;color:var(--ink-3)}
+.app-shell .anim-working-note{display:flex;gap:12px;align-items:flex-start;padding:16px 20px;background:var(--surface-3);border:1px solid var(--line);border-radius:var(--r-md)}
+.app-shell .anim-working-note p{font-size:12px;line-height:1.8;color:var(--ink-2);margin:0}
+.app-shell .anim-working-note p span{display:block;font-size:11px;color:var(--ink-3)}
+.app-shell .anim-working-note>.spinner{flex:none;margin-top:4px}
+.app-shell .anim-loading{display:flex;align-items:center;gap:12px;color:var(--ink-3);font-size:13px;padding:32px 0}
+@media(max-width:1100px){
+ .app-shell .anim-workspace{grid-template-columns:minmax(0,1fr)}
+ .app-shell .anim-preview iframe{height:540px}
+}
+@media(max-width:850px){
+ .app-shell .animation-page{padding-top:16px}
+ .app-shell .anim-work-header h1{font-size:22px}
+}
+@media(max-width:540px){
+ .app-shell .anim-work-header{gap:12px;margin-bottom:20px}
+ .app-shell .anim-work-header h1{font-size:20px}
+ .app-shell .anim-work-header p{font-size:12px}
+ .app-shell .anim-work-header>button{padding:8px;font-size:11px;min-height:40px}
+ .app-shell .anim-phase-list{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:12px}
+ .app-shell .anim-phase-list li{font-size:12px;gap:8px;padding:0 4px 12px}
+ .app-shell .anim-section-heading{padding:16px}
+ .app-shell .anim-section-heading>span{font-size:10px}
+ .app-shell .anim-preview iframe{height:440px}
+ .app-shell .anim-preview-note{padding:12px 16px}
+ .app-shell .anim-scene>summary{padding:16px;gap:8px}
+ .app-shell .anim-scene-body{padding:0 16px 16px}
+ .app-shell .anim-scene-title{font-size:13px}
+ .app-shell .anim-scope-note{padding:12px;gap:8px}
+ .app-shell .anim-scope-note p{font-size:12px}
+ .app-shell .anim-scope-note span{font-size:11px}
+ .app-shell .anim-actions button{min-height:44px}
+}
+
+.app-shell .anim-examples{padding:24px 32px 0}
+.app-shell .anim-examples-heading{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.app-shell .anim-examples-heading h2{font-size:15px;margin:0;color:#18324c}
+.app-shell .anim-examples-heading span{font-size:11px;color:var(--ink-3)}
+.app-shell .anim-example-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.app-shell .anim-example-grid article{overflow:hidden;border:1px solid #d6e2f0;border-radius:12px;background:#fff}
+.app-shell .anim-example-preview{position:relative;display:block;padding:0;width:100%;border:0;border-radius:0;background:#ecf7ff;overflow:hidden}
+.app-shell .anim-example-preview img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}
+.app-shell .anim-example-preview span{position:absolute;right:8px;bottom:8px;font-size:10px;color:#1767bf;background:#fff;padding:4px 7px;border-radius:6px}
+.app-shell .anim-example-grid article>div{padding:12px}
+.app-shell .anim-example-grid h3{margin:0;color:#18324c;font-size:13px}
+.app-shell .anim-example-grid p{font-size:11px;line-height:1.7;color:#536d85;margin:6px 0 10px}
+.app-shell .anim-example-grid article>div>button{padding:4px 8px;min-height:32px;font-size:11px}
+.app-shell .anim-example-player{margin-top:14px}
+.app-shell .anim-example-player iframe{width:100%;height:480px;border:1px solid #d6e2f0;border-radius:12px;background:#f5f8fc}
+.app-shell .anim-picture-upload{font-size:12px;color:var(--ink-2);line-height:1.8;padding:12px 0}
+.app-shell .anim-picture-upload summary{cursor:pointer;color:#1767bf}
+.app-shell .anim-picture-upload label{display:grid;gap:6px;margin:10px 0}
+.app-shell .anim-picture-upload img{display:block;max-width:100%;max-height:180px;object-fit:contain;margin:12px 0}
+@media(max-width:540px){.app-shell .anim-examples{padding:20px 16px 0}.app-shell .anim-example-grid{grid-template-columns:1fr}.app-shell .anim-example-preview img{max-height:170px}.app-shell .anim-example-player iframe{height:360px}}

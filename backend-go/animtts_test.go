@@ -105,7 +105,7 @@ func TestSynthesizeRetriesAreBoundedAndKeyNeverLeaks(t *testing.T) {
 		fmt.Fprint(w, `{"code":45000000,"message":"speaker not granted"}`)
 	})
 	c.URL = srv3.URL
-	if _, _, e = synthesizeWithRetry(context.Background(), srv3.Client(), c, "你好"); e == nil || *calls3 != 1 || !strings.Contains(e.Error(), "speaker not granted") {
+	if _, _, e = synthesizeWithRetry(context.Background(), srv3.Client(), c, "你好"); e == nil || *calls3 != 1 || !strings.Contains(e.Error(), "45000000") || strings.Contains(e.Error(), "speaker not granted") {
 		t.Fatalf("non-retryable: calls=%d err=%v", *calls3, e)
 	}
 }

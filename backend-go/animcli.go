@@ -1,7 +1,7 @@
 package main
 
 // Developer entry points for the animation engine before it is wired into tasks.
-// Scripts given here are never model output, so packages are always labelled as fixed samples.
+// Local JSON packages remain fixed samples; --anim-generate calls the configured model explicitly.
 // They read no database and write only to the given local paths.
 
 import (
@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const animCLIUsage = "edu-server --anim-package <script.json> <out.html> [estimated|tone|tts] | --tts-probe [out-dir] [text]"
+const animCLIUsage = "edu-server --anim-package <script.json> <out.html> [estimated|tone|tts] | --anim-generate <brief.txt> <out.html> [tts|estimated|tone] | --tts-probe [out-dir] [text]"
 
 // runAnimCLI handles animation subcommands; it returns false for other arguments.
 func runAnimCLI(ctx context.Context, args []string) (bool, error) {
@@ -33,6 +33,15 @@ func runAnimCLI(ctx context.Context, args []string) (bool, error) {
 			voice = args[3]
 		}
 		return true, animPackageCommand(ctx, args[1], args[2], voice)
+	case "--anim-generate":
+		if len(args) < 3 || len(args) > 4 {
+			return true, fmt.Errorf("usage: %s", animCLIUsage)
+		}
+		voice := animVoiceTTS
+		if len(args) == 4 {
+			voice = args[3]
+		}
+		return true, animGenerateCommand(ctx, args[1], args[2], voice)
 	case "--tts-probe":
 		dir, text := "../work/tts-probe", "一次函数 y 等于 k x 加 b 中，k 等于负 3 时，直线从左到右下降，而且比 k 等于 1 时更陡。"
 		if len(args) > 1 {
@@ -55,7 +64,14 @@ func animPackageCommand(ctx context.Context, scriptPath, out, voice string) erro
 	if len(problems) > 0 {
 		return fmt.Errorf("作者数据未通过校验：\n- %s", strings.Join(problems, "\n- "))
 	}
-	in := animPackageInput{Script: sc, Format: "wav", Voice: voice, Fixture: true, Audio: map[string][]byte{}}
+	return writeAnimPackage(ctx, sc, out, voice, true)
+}
+
+func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fixture bool) error {
+	if animNeedsPicture(sc) {
+		return fmt.Errorf("本地打包没有教师配图，请通过工作台上传并生成")
+	}
+	in := animPackageInput{Script: sc, Format: "wav", Voice: voice, Fixture: fixture, Audio: map[string][]byte{}}
 	ms := map[string]int{}
 	cfg := ttsConfigFromEnv()
 	if voice == animVoiceTTS {
@@ -64,7 +80,7 @@ func animPackageCommand(ctx context.Context, scriptPath, out, voice string) erro
 		}
 		in.Format = cfg.Format
 	}
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: cfg.timeout()}
 	for _, s := range sc.Scenes {
 		for _, n := range s.Narration {
 			switch voice {
@@ -93,7 +109,23 @@ func animPackageCommand(ctx context.Context, scriptPath, out, voice string) erro
 	if e := os.MkdirAll(filepath.Dir(out), 0o755); e != nil {
 		return e
 	}
-	if e := os.WriteFile(out, buildAnimPackage(in), 0o644); e != nil {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	f, e := os.CreateTemp(filepath.Dir(out), ".anim-*.html")
+	if e != nil {
+		return e
+	}
+	defer os.Remove(f.Name())
+	_, writeErr := f.Write(buildAnimPackage(in))
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if e := os.Rename(f.Name(), out); e != nil {
 		return e
 	}
 	fmt.Printf("wrote %s: %d scenes, %.1f s (auto play), voice=%s\n", out, len(tl.Scenes), float64(tl.TotalMS)/1000, voice)
@@ -136,7 +168,7 @@ func ttsProbeCommand(ctx context.Context, dir, text string) error {
 		return e
 	}
 	start := time.Now()
-	r, e := synthesizeSpeech(ctx, &http.Client{Timeout: 60 * time.Second}, cfg, text, true)
+	r, e := synthesizeSpeech(ctx, &http.Client{Timeout: cfg.timeout()}, cfg, text, true)
 	if e != nil {
 		return e
 	}
@@ -149,7 +181,7 @@ func ttsProbeCommand(ctx context.Context, dir, text string) error {
 	for _, w := range r.Words {
 		lastEnd = math.Max(lastEnd, w.EndTime)
 	}
-	report := map[string]any{"date": time.Now().Format(time.RFC3339), "provider": cfg.Provider, "endpoint": cfg.URL, "resource_id": cfg.ResourceID, "speaker": cfg.Speaker, "format": cfg.Format, "sample_rate": cfg.SampleRate, "speech_rate": cfg.SpeechRate, "text": text, "audio_file": filepath.Base(audioPath), "audio_bytes": len(r.Audio), "decoded_ms": r.DurationMS, "chunks": r.Chunks, "elapsed_ms": time.Since(start).Milliseconds(), "word_timestamps": len(r.Words), "last_word_end_ms": int(lastEnd * 1000), "words": r.Words, "log_id": r.LogID}
+	report := map[string]any{"date": time.Now().Format(time.RFC3339), "provider": cfg.Provider, "protocol": cfg.protocol(), "model": cfg.Model, "endpoint": cfg.URL, "original_duration_ms": r.OriginalDurationMS, "returned_transcript": r.Transcript, "sentence_timestamps": r.Sentences, "resource_id": cfg.ResourceID, "speaker": cfg.Speaker, "format": cfg.Format, "sample_rate": cfg.SampleRate, "speech_rate": cfg.SpeechRate, "text": text, "audio_file": filepath.Base(audioPath), "audio_bytes": len(r.Audio), "decoded_ms": r.DurationMS, "chunks": r.Chunks, "elapsed_ms": time.Since(start).Milliseconds(), "word_timestamps": len(r.Words), "last_word_end_ms": int(lastEnd * 1000), "words": r.Words, "log_id": r.LogID}
 	reportPath := filepath.Join(dir, "probe-"+stamp+".json")
 	if e := os.WriteFile(reportPath, asJSON(report), 0o644); e != nil {
 		return e

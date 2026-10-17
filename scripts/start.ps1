@@ -1,4 +1,3 @@
-param([switch]$BuildAnimation)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
@@ -16,7 +15,13 @@ if ($env:CLOUD_SSH_HOST) {
  docker compose up -d --wait db
  if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL failed to start.' }
 }
-if ($BuildAnimation) { docker build -f render-service-py/Dockerfile.manim -t edu-manim:local render-service-py; if ($LASTEXITCODE -ne 0) { throw 'Animation image build failed.' } }
+if($env:ANIMATION_EXPORT_SCRIPT){
+ Push-Location animation-video
+ $env:PUPPETEER_SKIP_DOWNLOAD='true'
+ npm ci --no-audit --no-fund
+ if($LASTEXITCODE -ne 0){throw 'Animation video dependency installation failed.'}
+ Pop-Location
+}
 Push-Location frontend-vue
 npm ci
 if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }

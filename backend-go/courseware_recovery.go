@@ -173,6 +173,7 @@ func (s *Server) retryCourseware(w http.ResponseWriter, r *http.Request, a Actor
 			stage = "expand_pending"
 		}
 		draft.Evaluation = nil
+		draft.Generation.PageAttempts = nil // Explicit teacher continuation starts a new bounded repair allowance.
 		draft.NeedsReview = true
 		draft.Notice = strings.TrimSpace(strings.ReplaceAll(draft.Notice, coursewareResumeNotice, "")) + " " + coursewareResumeNotice
 		if len(draft.Slides) == 3 && phase == "preview" && draft.Generation.RepairPage == 0 {

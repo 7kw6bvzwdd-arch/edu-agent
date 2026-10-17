@@ -15,7 +15,7 @@ type coursewareRepairExhausted struct {
 }
 
 func (e coursewareRepairExhausted) Error() string {
-	return fmt.Sprintf("第%d页仍需修复，已保存检查点，将自动继续：%s", e.Page, e.Issue)
+	return fmt.Sprintf("第%d页达到本轮自动修复上限，草稿已保存，未完成部分不结算；请检查问题后继续：%s", e.Page, e.Issue)
 }
 
 func coursewareCanResume(err error) bool {
@@ -45,8 +45,8 @@ func coursewareCanResume(err error) bool {
 }
 
 func coursewareResumeDelay(failures int) time.Duration {
-	// A failed round already made bounded local attempts. Persistent faults slow
-	// down to one round per hour rather than repeatedly consuming model calls.
+	// Retry transient failures with backoff. The persisted page allowance and
+	// consecutive-failure ceiling below stop repeated unsuccessful rounds.
 	return min(time.Hour, 15*time.Second*time.Duration(1<<min(8, max(0, failures-1))))
 }
 
@@ -82,7 +82,10 @@ func (s *Server) resumeCoursewareAutomatically(ctx context.Context, a Actor, id,
 	// Supplier-call budgets do not cover an unavailable database/renderer.
 	// Stop persistent recovery rounds too; the caller releases once and keeps
 	// the checkpoint. An explicit later resume starts a new charge cycle.
-	if failures >= 8 {
+	if d.Generation != nil && d.Generation.PageAttempts[d.Generation.RepairPage] >= 3 {
+		return false, nil // Existing failure path preserves the draft and releases its reservation.
+	}
+	if failures >= 3 {
 		return false, nil
 	}
 	queue := map[string]string{"researching": "pending", "expanding": "expand_pending", "rendering": "confirmed"}[stage]

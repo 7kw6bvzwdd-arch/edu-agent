@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),root=path.resolve(import.meta.dirname,'..');
+const source=process.argv[2]||path.join(root,'work/lesson-video/fixture.html'),out=path.join(root,'work/lesson-video/fixture.mp4');
+execFileSync(process.execPath,[path.join(import.meta.dirname,'export.mjs'),source,out],{stdio:'inherit',windowsHide:true,timeout:900000});
+const result=JSON.parse(execFileSync(require('ffprobe-static').path,['-v','quiet','-show_streams','-show_format','-of','json',out],{encoding:'utf8',windowsHide:true}));
+assert.equal(result.streams.find(s=>s.codec_type==='video').width,1280);
+assert.equal(result.streams.find(s=>s.codec_type==='video').height,720);
+assert.ok(result.streams.some(s=>s.codec_type==='audio'));
+const report=JSON.parse(await fs.readFile(out+'.json','utf8'));
+assert.ok(Math.abs(Number(result.format.duration)-report.duration)<0.1);
+assert.ok(Number(result.format.duration)>=30);
+assert.equal(report.audioTracks,10);
+console.log('PASS: actual H264/AAC MP4, all ten source audio tracks, full duration');

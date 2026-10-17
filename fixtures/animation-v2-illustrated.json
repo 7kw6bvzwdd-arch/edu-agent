@@ -1,0 +1,282 @@
+{
+  "version": "anim-v2",
+  "title": "一滴水的旅行",
+  "archetype": "lesson.explain@1",
+  "representative": "evaporation",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "水循环从哪里开始",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "水在自然界的旅行",
+          "items": [
+            "水受热蒸发为看不见的水蒸气",
+            "适宜条件下凝结形成小水滴",
+            "示意图简化过程，不按真实比例"
+          ],
+          "kind": "water_cycle"
+        }
+      ],
+      "narration": [
+        {
+          "id": "intro-n0",
+          "display": "同学们，今天我们沿着一滴水的旅程，观察自然界的水循环。",
+          "speech": "同学们，今天我们沿着一滴水的旅程，观察自然界的水循环。"
+        },
+        {
+          "id": "intro-n1",
+          "display": "水受热可以蒸发，进入空气的水蒸气通常是看不见的。",
+          "speech": "水受热可以蒸发，进入空气的水蒸气通常是看不见的。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "intro-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "evaporation",
+      "title": "从地表到空气",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "水在自然界的旅行",
+          "items": [
+            "水受热蒸发为看不见的水蒸气",
+            "适宜条件下凝结形成小水滴",
+            "示意图简化过程，不按真实比例"
+          ],
+          "kind": "water_cycle"
+        }
+      ],
+      "narration": [
+        {
+          "id": "evaporation-n0",
+          "display": "在适宜条件下，水蒸气可凝结成小水滴，云也可能含有冰晶。",
+          "speech": "在适宜条件下，水蒸气可凝结成小水滴，云也可能含有冰晶。"
+        },
+        {
+          "id": "evaporation-n1",
+          "display": "云中水滴或冰晶增长后，可能形成降水，回到地表。",
+          "speech": "云中水滴或冰晶增长后，可能形成降水，回到地表。"
+        },
+        {
+          "id": "evaporation-n2",
+          "display": "云中水滴或冰晶增长后，可能形成降水，回到地表。",
+          "speech": "云中水滴或冰晶增长后，可能形成降水，回到地表。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "evaporation-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "evaporation-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "evaporation-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "return",
+      "title": "水怎样回到地表",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "水的三种状态",
+          "items": [
+            "水受热蒸发为看不见的水蒸气",
+            "适宜条件下凝结形成小水滴",
+            "示意图简化过程，不按真实比例"
+          ],
+          "kind": "water_cycle"
+        }
+      ],
+      "narration": [
+        {
+          "id": "return-n0",
+          "display": "地表水通过汇流等途径回到江河湖海，水在自然界不断转移。",
+          "speech": "地表水通过汇流等途径回到江河湖海，水在自然界不断转移。"
+        },
+        {
+          "id": "return-n1",
+          "display": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？",
+          "speech": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？"
+        },
+        {
+          "id": "return-n2",
+          "display": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？",
+          "speech": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "return-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "return-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "return-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "title": "想一想",
+      "intent": "理解水循环的基本过程",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "水的三种状态",
+          "items": [
+            "水受热蒸发为看不见的水蒸气",
+            "适宜条件下凝结形成小水滴",
+            "示意图简化过程，不按真实比例"
+          ],
+          "kind": "water_cycle"
+        }
+      ],
+      "narration": [
+        {
+          "id": "summary-n0",
+          "display": "地表水通过汇流等途径回到江河湖海，水在自然界不断转移。",
+          "speech": "地表水通过汇流等途径回到江河湖海，水在自然界不断转移。"
+        },
+        {
+          "id": "summary-n1",
+          "display": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？",
+          "speech": "想一想，看得见的云和看不见的水蒸气，是同一种状态吗？"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "summary-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    }
+  ]
+}

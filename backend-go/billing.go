@@ -236,10 +236,10 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 	}
 	defer tx.Rollback(ctx)
 	var member, cost int64
-	var charge, previous string
+	var charge string
 	var deleted bool
 	var cycle, attempt int
-	e = tx.QueryRow(ctx, "SELECT member_id,cost,charge_state,status,deleted_at IS NOT NULL,charge_cycle,attempt FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&member, &cost, &charge, &previous, &deleted, &cycle, &attempt)
+	e = tx.QueryRow(ctx, "SELECT member_id,cost,charge_state,deleted_at IS NOT NULL,charge_cycle,attempt FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&member, &cost, &charge, &deleted, &cycle, &attempt)
 	if e != nil {
 		return e
 	}
@@ -250,9 +250,6 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 		return nil
 	}
 	if deleted || charge != "reserved" {
-		if d, ok := result.(Deck); ok && d.AnimationQuality != nil && d.AnimationQuality.Status == "accepted" {
-			return fail(409, "任务已取消、过期或结算，当前验收未执行，请刷新")
-		}
 		return nil
 	}
 	settled := status == "succeeded" || status == "degraded"
@@ -285,14 +282,7 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 			}
 		}
 		if taskType == "animation" {
-			d, ok := result.(Deck)
-			var saved Deck
-			if e = tx.QueryRow(ctx, "SELECT result FROM tasks WHERE id=$1", id).Scan(&saved); e != nil {
-				return e
-			}
-			if !ok || previous != "awaiting_acceptance" || saved.AnimationQuality == nil || saved.AnimationQuality.Status != "awaiting_acceptance" || d.AnimationQuality == nil || d.AnimationQuality.Status != "accepted" || d.AnimationQuality.AcceptedBy != member {
-				return fail(409, "动画须经过成品验收后才能结算")
-			}
+			return fail(410, "旧版动画不再结算；HTML动画通过独立验收流程交付")
 		}
 		if taskType == "revision" {
 			var old Deck

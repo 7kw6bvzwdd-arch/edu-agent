@@ -1,0 +1,272 @@
+{
+  "version": "anim-v2",
+  "title": "认识水的三种状态",
+  "archetype": "lesson.explain@1",
+  "representative": "structure",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "水可以有哪些状态",
+      "intent": "认识水的三态",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "水可以有哪些状态",
+          "items": [
+            "冰是固态水",
+            "杯中的水通常为液态",
+            "气态水是不可见的气体"
+          ],
+          "kind": "water_states"
+        }
+      ],
+      "narration": [
+        {
+          "id": "intro-n0",
+          "display": "同学们，今天我们要讲的问题是：冰、杯中的水和水蒸气有什么联系？",
+          "speech": "同学们，今天我们要讲的问题是：冰、杯中的水和水蒸气有什么联系？"
+        },
+        {
+          "id": "intro-n1",
+          "display": "它们都是水，但处在不同的状态。我们用简化示意图来比较水的三态。",
+          "speech": "它们都是水，但处在不同的状态。我们用简化示意图来比较水的三态。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "intro-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "intro-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "structure",
+      "title": "用结构模型比较三态",
+      "intent": "区分模型与真实外观",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "用结构模型比较三态",
+          "items": [
+            "圆点仅用于表示微观结构",
+            "固态排列较有规则",
+            "气态粒子间隔通常较大"
+          ],
+          "kind": "water_states"
+        }
+      ],
+      "narration": [
+        {
+          "id": "structure-n0",
+          "display": "请观察三组圆点。圆点是帮助理解的结构模型，不是真实分子的外观。",
+          "speech": "请观察三组圆点。圆点是帮助理解的结构模型，不是真实分子的外观。"
+        },
+        {
+          "id": "structure-n1",
+          "display": "图中用排列与间隔的差别表示结构特点，不表示水分子随状态变化而变大或变小。",
+          "speech": "图中用排列与间隔的差别表示结构特点，不表示水分子随状态变化而变大或变小。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "structure-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "structure-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "structure-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "observe",
+      "title": "白气是水蒸气吗",
+      "intent": "区分气态水与小水滴",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "白气是水蒸气吗",
+          "items": [
+            "水蒸气本身看不见",
+            "常见白气主要由小水滴组成",
+            "描述现象时要区分状态"
+          ],
+          "kind": "water_states"
+        }
+      ],
+      "narration": [
+        {
+          "id": "observe-n0",
+          "display": "烧水时常见的白气，主要是悬浮在空气中的小水滴，不能直接当作水蒸气。",
+          "speech": "烧水时常见的白气，主要是悬浮在空气中的小水滴，不能直接当作水蒸气。"
+        },
+        {
+          "id": "observe-n1",
+          "display": "水蒸气本身看不见。要把看到的现象与物质的状态区分开。",
+          "speech": "水蒸气本身看不见。要把看到的现象与物质的状态区分开。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "observe-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "observe-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "observe-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "title": "冰融化后发生了什么",
+      "intent": "检查三态概念",
+      "objects": [
+        {
+          "id": "content",
+          "type": "illustration",
+          "slot": "main",
+          "text": "冰融化后发生了什么",
+          "items": [
+            "冰融化：固态变为液态",
+            "水仍然是水",
+            "用状态变化解释生活现象"
+          ],
+          "kind": "water_states"
+        }
+      ],
+      "narration": [
+        {
+          "id": "summary-n0",
+          "display": "冰块融化成水时，水的状态发生了变化，但不能说水变成了另一种物质。",
+          "speech": "冰块融化成水时，水的状态发生了变化，但不能说水变成了另一种物质。"
+        },
+        {
+          "id": "summary-n1",
+          "display": "请再找一个生活中的状态变化，用固态、液态或气态准确地说一说。",
+          "speech": "请再找一个生活中的状态变化，用固态、液态或气态准确地说一说。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "reveal",
+          "op": "show",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n0",
+            "anchor": "begin"
+          },
+          "duration_ms": 900
+        },
+        {
+          "id": "focus",
+          "op": "emphasize",
+          "object": "content",
+          "at": {
+            "sentence": "summary-n1",
+            "anchor": "begin"
+          }
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "observe",
+          "after": "summary-n0",
+          "ms": 1000
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "",
+          "ms": 1500
+        }
+      ]
+    }
+  ]
+}

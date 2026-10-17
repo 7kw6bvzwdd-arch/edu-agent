@@ -57,8 +57,6 @@ func TestGenerationExactCountAndBoundedProviderContract(t *testing.T) {
 			t.Error(err)
 		}
 		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: returnedPages, Theme: "forest"})
-		// Keep valid animation scenes for the final animation-contract request.
-		addSampleScenes(&d, TaskInput{Type: "animation", Topic: "浮力", Pages: returnedPages})
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]string{"content": string(asJSON(d))}}}})
 	}))
 	defer provider.Close()
@@ -86,14 +84,6 @@ func TestGenerationExactCountAndBoundedProviderContract(t *testing.T) {
 	finish = "length"
 	if _, err := s.generate(context.Background(), actor, "truncated", in, nil); err == nil {
 		t.Fatal("accepted token-truncated provider output")
-	}
-	finish, in.Type, in.Pages, returnedPages = "stop", "animation", 12, 12
-	if _, err := s.generate(context.Background(), actor, "animation-brief", in, nil); err != nil {
-		t.Fatal(err)
-	}
-	prompt := request.Messages[1].Content
-	if !strings.Contains(prompt, "20–45秒") || !strings.Contains(prompt, "不要null") || strings.Contains(prompt, "至少两道") || request.MaxTokens > 10000 {
-		t.Fatal("animation was given a full lesson brief or excessive budget")
 	}
 }
 

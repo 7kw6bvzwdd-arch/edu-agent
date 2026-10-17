@@ -28,21 +28,4 @@ if __name__=='__main__':
     evaluation=request('/evaluations',{},token)
     (ROOT/'work/retrieval-evaluation.json').write_text(json.dumps(evaluation,ensure_ascii=False,indent=2),encoding='utf-8')
     print('Retrieval metrics:',json.dumps(evaluation['metrics']),flush=True)
-    ident=request('/tasks',{'type':'animation','topic':'浮力','pages':8,'theme':'forest','use_kb':True,'idempotency_key':'smoke-'+str(time.time_ns())},token)['id']
-    for _ in range(100):
-        task=request('/tasks/'+ident,token=token)
-        if task['status']=='awaiting_confirmation':break
-        time.sleep(.3)
-    assert task['status']=='awaiting_confirmation',task
-    request('/tasks/'+ident+'/confirm',{'result':task['result'],'revision':task['revision'],'accept_review':True},token)
-    for _ in range(150):
-        task=request('/tasks/'+ident,token=token)
-        if task['status'] in ('succeeded','degraded','failed'):break
-        time.sleep(1)
-    (ROOT/'work/animation-smoke.json').write_text(json.dumps(task,ensure_ascii=False,indent=2),encoding='utf-8')
-    print('Animation:',task['status'],ident,flush=True)
-    assert task['status'] in ('succeeded','degraded'),task.get('error')
-    with urllib.request.urlopen(urllib.request.Request(BASE+'/tasks/'+ident+'/download/mp4',headers={'Authorization':'Bearer '+token})) as r:
-        media=r.read();assert len(media)>1000
-        (ROOT/'work/animation-sample.mp4').write_bytes(media)
-    print('Real MP4 bytes:',len(media),flush=True)
+    print('HTML animation is covered by isolated HTTP and browser workflow tests; no paid calls made.')

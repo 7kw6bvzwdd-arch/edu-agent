@@ -71,7 +71,10 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 			approved[m.ID] = true
 		}
 	}
-	attempts := map[int]int{}
+	if d.Generation.PageAttempts == nil {
+		d.Generation.PageAttempts = map[int]int{}
+	}
+	attempts := d.Generation.PageAttempts
 	for {
 		if err := s.coursewareGenerationActive(ctx, a, id); err != nil {
 			return d, err
@@ -161,6 +164,11 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 			return d, coursewareRepairExhausted{Page: page, Issue: issue}
 		}
 		attempts[page]++
+		// Persist before any provider call; worker recovery cannot reset the
+		// bounded repair allowance for a page that has made no progress.
+		if err := s.saveCoursewareCheckpoint(ctx, a, id, d, sources); err != nil {
+			return d, err
+		}
 		s.coursewareEvent(ctx, a, id, fmt.Sprintf("batch_start_%d_%d", page, page), fmt.Sprintf("正在制作或修复第%d页，只参考本页及相邻页，其他页面保持不变", page))
 		if pending != nil && (pending.page != page || issue != "") {
 			pending.stop()
@@ -268,11 +276,24 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 			d.PageChecks[saved.ID] = check
 			delete(d.PageChecks, key)
 		}
-		d.Generation.RepairPage, d.Generation.Issue = 0, ""
+		if err == nil {
+			d.Generation.RepairPage, d.Generation.Issue = 0, ""
+			delete(attempts, page)
+		} else {
+			d.Generation.RepairPage, d.Generation.Issue = page, err.Error()
+			var unavailable pageReviewUnavailable
+			var api APIError
+			if errors.As(err, &unavailable) || errors.As(err, &api) && (api.Status >= 500 || api.Status == 429) {
+				// Availability failures need the saved page re-rendered/rechecked,
+				// not another generation request for identical content.
+				d.Generation.RepairPage, d.Generation.Issue = 0, ""
+			}
+		}
 		if err := s.saveCoursewareCheckpoint(ctx, a, id, d, sources); err != nil {
 			return d, err
 		}
 		if err != nil {
+			s.coursewareEvent(ctx, a, id, "page_draft_saved", fmt.Sprintf("第%d个制作页草稿与审核问题已保存，尚未通过，不计作完成；仅修复此页", page))
 			return d, err
 		}
 		s.coursewareEvent(ctx, a, id, fmt.Sprintf("batch_complete_%d", page), fmt.Sprintf("第%d页已保存，继续制作不会重新生成其他完成页", page))

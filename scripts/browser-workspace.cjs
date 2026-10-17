@@ -1,8 +1,6 @@
 // Node 22+; run against the isolated sample server: node scripts/browser-workspace.cjs
 // EDU_TEST_URL defaults to :8081; EDU_TEST_USERNAME / EDU_TEST_PASSWORD default to
 // admin / test-pass-123. Never reads .env or starts an application server.
-// --video-ui runs only the health/engine UI matrix. CDP mocks health responses
-// and blocks the inspected POST; no external video service is ever called.
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -126,7 +124,7 @@ async function create(kind) {
     const post = await waitFor('create request', () => [...paused.values()].find(p => p.request.method === 'POST'), 10000);
     assert.equal(JSON.parse(post.request.postData).topic, topic);
     assert.equal(JSON.parse(post.request.postData).use_web, false);
-    assert.equal(JSON.parse(post.request.postData).animation_engine, kind === 'animation' ? 'manim' : undefined,
+    assert.equal(JSON.parse(post.request.postData).animation_engine, undefined,
       'Animation engine is explicit only on animation requests');
     passed(kind + ': correct animation engine request field');
     await uiWait('immediate progress before POST response', `(() => {
@@ -198,106 +196,6 @@ async function deleteThroughDialog(id) {
   assert.equal(await request('/tasks/' + id, 'GET', undefined, true), null);
   deleted.add(id);
   passed('Owner deletes only test-created item via dialog');
-}
-
-async function videoEngineUI() {
-  const health = await sampleHealth();
-  // Change health only inside this test browser. The actual server remains
-  // sample; every create POST stays paused until an explicit mock rejection.
-  for (const scenario of [
-    {name: 'sample configured', mode: 'sample', animation_video_configured: true, animation_video_duration: 8},
-    {name: 'unconfigured', mode: 'real', animation_video_configured: false, animation_video_duration: 8},
-    {name: 'configured 8 seconds', mode: 'real', animation_video_configured: true, animation_video_duration: 8},
-    {name: 'configured 12 seconds', mode: 'real', animation_video_configured: true, animation_video_duration: 12},
-  ]) {
-    await call('Fetch.enable', {patterns: [
-      {urlPattern: base + '/api/health', requestStage: 'Request'},
-      {urlPattern: base + '/api/tasks', requestStage: 'Request'},
-    ]});
-    try {
-      await call('Page.reload');
-      const healthRequest = await waitFor('mock health request', () => [...paused.values()].find(p => p.request.url.endsWith('/api/health')), 10000);
-      await call('Fetch.fulfillRequest', {requestId: healthRequest.requestId, responseCode: 200,
-        responseHeaders: [{name: 'Content-Type', value: 'application/json'}],
-        body: Buffer.from(JSON.stringify({...health, ...scenario})).toString('base64')});
-      paused.delete(healthRequest.requestId);
-      // Login bootstrap fetches GET /tasks; only creation is held for inspection.
-      const tasksRequest = await waitFor('task-list bootstrap', () => [...paused.values()].find(p => p.request.method === 'GET'), 10000);
-      await call('Fetch.continueRequest', {requestId: tasksRequest.requestId});
-      paused.delete(tasksRequest.requestId);
-      await uiWait('mock health workbench', "!!document.querySelector('.workbench')");
-      await click('教学动画', 'document.querySelector("nav")');
-      await uiWait('mock animation selector', "!!document.querySelector('#animation-engine')");
-      await check(scenario.name + ': defaults to precise animation', "document.querySelector('#animation-engine').value === 'manim'");
-      const available = scenario.mode !== 'sample' && scenario.animation_video_configured === true;
-      await check(scenario.name + ': availability', `document.querySelector('#animation-engine option[value="ark"]').disabled === ${!available}`);
-      if (!available) {
-        await check(scenario.name + ': clear service message', `document.querySelector('#animation-service-note').textContent.includes(${quote(scenario.mode === 'sample' ? '本地示例模式不支持情境视频' : '尚未配置视频服务')})`);
-        continue;
-      }
-      await setValue('#animation-engine', 'ark');
-      await check(scenario.name + ': cancellation separates points from provider charges', "document.querySelector('.animation-billing-note')?.textContent.includes('取消可释放业务积分，但供应商可能已计费；不保证云端退款')");
-      await check(scenario.name + ': duration and honest single-clip scope', `(() => {
-        const text = document.querySelector('.animation-duration').textContent;
-        return text.includes(${quote(scenario.animation_video_duration + ' 秒')}) && ['无声','单段','不保证与分镜逐一对应','核验'].every(s => text.includes(s));
-      })()`);
-      await check(scenario.name + ': teaching advice without provider or environment claims', `(() => {
-        const text = document.querySelector('.animation-engine').textContent + document.querySelector('.page-heading').textContent;
-        return text.includes('适合导入情境；公式和严谨推演建议精确教学动画') && !/20[–—-]45|480p|已接入即梦|ARK_VIDEO_MODEL|\\.env/.test(text);
-      })()`);
-      await call('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
-      await uiWait('video mobile viewport', 'innerWidth === 390');
-      await check(scenario.name + ': mobile has no horizontal overflow', 'document.documentElement.scrollWidth <= 390');
-      await call('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1080, deviceScaleFactor: 1, mobile: false});
-      await click('开始研究', "document.querySelector('.config-panel')");
-      const post = await waitFor('mocked scenario POST', () => [...paused.values()].find(p => p.request.method === 'POST'), 10000);
-      const payload = JSON.parse(post.request.postData);
-      assert.equal(payload.type, 'animation');
-      assert.equal(payload.animation_engine, 'ark');
-      await check(scenario.name + ': retains immediate progress', "!!document.querySelector('.generation-progress.working')");
-      await call('Fetch.fulfillRequest', {requestId: post.requestId, responseCode: 503,
-        responseHeaders: [{name: 'Content-Type', value: 'application/json'}],
-        body: Buffer.from(JSON.stringify({message: '浏览器测试已拦截提交，未调用视频服务'})).toString('base64')});
-      paused.delete(post.requestId);
-      await waitFor('mock rejection displayed', () => evaluate("document.querySelector('.alert.error')?.textContent.includes('浏览器测试已拦截提交')"));
-      passed(scenario.name + ': ark sent in intercepted POST; zero video requests forwarded');
-      if (scenario.animation_video_duration === 12) await existingVideoWorkUI();
-    } finally {
-      for (const requestId of paused.keys()) await call('Fetch.failRequest', {requestId, errorReason: 'Aborted'});
-      paused.clear();
-      await call('Fetch.disable');
-    }
-  }
-}
-
-async function existingVideoWorkUI() {
-  // Browser-only fixture: exercise real openWork/selectTask and SSE polling,
-  // without saving a cloud work in the sample database or contacting a provider.
-  await evaluate(`(() => {
-    const originalFetch = window.fetch;
-    const task = {id:'browser-mock-ark', type:'animation', status:'awaiting_confirmation', mode:'real',
-      display_title:'已有情境视频', revision:1, cost:40, events:[], sources:[],
-      input:{topic:'已有情境视频', animation_engine:'ark'},
-      result:{title:'已有情境视频', theme:'forest', needs_review:true, lesson:'待教师审核', slides:[{title:'情境', bullets:['观察现象'], notes:''}]}};
-    window.__videoDetailReads = 0;
-    window.fetch = async (url, options) => {
-      if (url === '/api/tasks/browser-mock-ark/events') return new Response(new ReadableStream({start(controller) {window.__videoEvents = controller;}}), {headers:{'Content-Type':'text/event-stream'}});
-      if (url === '/api/tasks/browser-mock-ark') {window.__videoDetailReads++; return Response.json(task);}
-      if (typeof url === 'string' && (url === '/api/tasks' || url.startsWith('/api/tasks?'))) return Response.json([task]);
-      return originalFetch(url, options);
-    };
-  })()`);
-  await click('我的作品', 'document.querySelector("nav")');
-  await uiWait('mock existing work listed', "!!document.querySelector('[data-task-id=" + quote('browser-mock-ark') + "]')");
-  await click('审核方案', card('browser-mock-ark'));
-  await uiWait('existing ark work opened', "document.querySelector('#animation-engine')?.value === 'ark' && !document.querySelector('#animation-engine').disabled");
-  await check('Opening an existing ark work synchronizes its engine and copy', "document.querySelector('.page-heading').textContent.includes('无声情境短片') && !!document.querySelector('.animation-billing-note')");
-  await setValue('#animation-engine', 'manim');
-  await waitFor('mock SSE stream attached', () => evaluate('!!window.__videoEvents'));
-  await evaluate(`window.__videoEvents.enqueue(new TextEncoder().encode(${quote('id: 1\ndata: {"id":1,"stage":"awaiting_confirmation","message":"方案刷新"}\n\n')}))`);
-  await waitFor('SSE triggers detail polling', () => evaluate('window.__videoDetailReads >= 2'));
-  await check('Background polling preserves the teacher\'s engine selection', "document.querySelector('#animation-engine').value === 'manim'");
-  await evaluate('window.__videoEvents.close()');
 }
 
 async function main() {
@@ -374,12 +272,7 @@ async function main() {
   })()`);
   await check('Courseware has its independent assistant explanation', "document.querySelector('.assistant-note')?.textContent.includes('课件助手') && document.querySelector('.assistant-note').textContent.includes('独立')");
   await check('Courseware does not show animation engine selector', "!document.querySelector('#animation-engine')");
-  if (process.argv.includes('--video-ui')) {
-    await videoEngineUI();
-    assert.deepEqual(runtimeErrors, [], 'No browser runtime exceptions');
-    passed('No browser runtime exceptions');
-    return;
-  }
+
   await check('Six distinct template cards', "document.querySelectorAll('.themes .theme').length === 6 && new Set([...document.querySelectorAll('.themes input')].map(x => x.value)).size === 6");
   // Select by its page-count options, independent of neighboring subject fields.
   await evaluate("[...document.querySelectorAll('.config-panel select')].find(s => [...s.options].some(o => o.value === '20')).setAttribute('data-workspace-pages', '')");
@@ -484,26 +377,14 @@ async function main() {
   await click('我的作品', 'document.querySelector("nav")');
   await uiWait('works ready for new animation', "!!document.querySelector('.collection-create')");
   await click('新建动画', 'document.querySelector(".collection-create")');
-  await uiWait('new animation opens workbench', `!!document.querySelector('.workbench') && !document.querySelector('.works-toolbar') && document.querySelector('nav [aria-current="page"]')?.textContent.includes('教学动画')`);
+  await uiWait('new animation opens workbench', `!!document.querySelector('.animation-studio') && !document.querySelector('#animation-engine')`);
   passed('New animation from My Works opens animation workbench');
-  await check('Animation has its independent assistant explanation', "document.querySelector('.assistant-note')?.textContent.includes('动画助手') && document.querySelector('.assistant-note').textContent.includes('独立')");
-  await check('Precise teaching animation is the default', "document.querySelector('#animation-engine')?.value === 'manim'");
-  await check('Sample mode disables scenario video', "document.querySelector('#animation-engine option[value=\"ark\"]').disabled && document.querySelector('#animation-service-note').textContent.includes('本地示例模式不支持情境视频')");
-  const animation = await create('animation');
-  await click('取消并释放');
-  await uiWait('animation cancelled', "!!document.querySelector('.output-head .status.cancelled')", 30000, '教学动画');
-  const cancelled = await request('/tasks/' + animation.id);
-  assert.equal(cancelled.status, 'cancelled');
-  assert.equal(cancelled.charge_state, 'released');
-  assert.ok(!cancelled.events.some(e => ['confirmed', 'rendering', 'succeeded'].includes(e.stage)), 'Animation never reached rendering');
-  passed('Animation cancelled before rendering and reserved points released');
+  await check('HTML animation requires real provider configuration', "document.querySelector('.anim-brief .primary').disabled");
   await click('我的作品', 'document.querySelector("nav")');
   await uiWait('My Works for deletion', "!!document.querySelector('.works-toolbar')");
   await searchWorks(runID);
-  await deleteThroughDialog(animation.id);
   await deleteThroughDialog(courseware.id);
   await check('All test-created works removed from filtered list', "document.querySelectorAll('.task-card').length === 0");
-  await videoEngineUI();
   assert.deepEqual(runtimeErrors, [], 'No browser runtime exceptions');
   passed('No browser runtime exceptions');
 }
@@ -553,11 +434,9 @@ async function cleanup() {
     await cleanup();
     const report = {url: base, runID, passed: checks.length, checks, runtimeErrors, cleanupErrors,
       created: [...owned], deleted: [...deleted], failure: failure || null,
-      scope: process.argv.includes('--video-ui')
-        ? 'Isolated sample app; browser-mocked health matrix; ark POST inspected and rejected without forwarding.'
-        : 'Isolated sample app; UI transitions and owner dialogs; real PPTX; animation cancelled before rendering; browser-mocked video UI matrix.'};
+      scope: 'Isolated sample app; courseware editing and owner dialogs; HTML animation readiness.'};
     await fs.mkdir(output, {recursive: true});
-    await fs.writeFile(path.join(output, process.argv.includes('--video-ui') ? 'video-ui-validation.json' : 'new-workspace-validation.json'), JSON.stringify(report, null, 2));
+    await fs.writeFile(path.join(output, 'new-workspace-validation.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
     if (failure || cleanupErrors.length) process.exitCode = 1;
   }

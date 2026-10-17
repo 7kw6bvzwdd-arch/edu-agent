@@ -1,0 +1,59 @@
+/* A focused form for the courseware tool, inside the existing Amethyst shell. */
+.app-shell .courseware-create-page{padding-top:24px}
+.app-shell .courseware-create-page .workbench{display:block}
+.app-shell .courseware-create-page>.alert{max-width:880px;margin:0 auto 16px}
+.app-shell .generator-back{border:0;background:transparent;box-shadow:none;padding:4px 0;color:var(--ink-2);font-size:inherit}
+.app-shell .generator-back:hover:not(:disabled){background:transparent;color:var(--am-700);text-decoration:underline;text-underline-offset:4px}
+.app-shell .courseware-generator{max-width:880px;margin:0 auto;border-radius:var(--r-lg);border-color:var(--line);box-shadow:var(--shadow-1);overflow:visible}
+.app-shell .courseware-generator:focus-within{border-color:var(--line);box-shadow:var(--shadow-1)}
+.app-shell .generator-heading{padding:28px 32px 0}
+.app-shell .generator-heading h1{font-size:25px;font-weight:700;line-height:1.4;color:var(--ink);margin:0 0 8px}
+.app-shell .generator-heading p{font-size:13px;line-height:1.8;color:var(--ink-2);margin:0}
+.app-shell .generator-form{padding:24px 32px 20px}
+.app-shell .generator-fields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:20px}
+.app-shell .generator-row{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-width:0}
+.app-shell .generator-fields label{display:block;margin:0;font-size:13px;font-weight:600;color:var(--ink-2);min-width:0}
+.app-shell .generator-fields :is(input:not([type=checkbox]),select,textarea){margin-top:8px;font-size:13px;font-weight:400;border-color:var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--ink);width:100%;min-width:0}
+.app-shell .generator-fields :is(select,input:not([type=checkbox])){min-height:44px}
+.app-shell .generator-fields textarea{line-height:1.9;padding:12px 14px;resize:vertical;min-height:112px}
+.app-shell .generator-fields textarea::placeholder{color:var(--ink-3);opacity:1}
+.app-shell .generator-required,.app-shell .generator-optional{font-size:11px;font-weight:400;margin-left:6px;color:var(--ink-3)}
+.app-shell .generator-topic-group>label textarea{min-height:148px;display:block;margin-bottom:0}
+.app-shell .generator-topic-group:has(.generator-materials)>label textarea{border-radius:var(--r-sm) var(--r-sm) 0 0}
+.app-shell .generator-materials{border:1px solid var(--line-strong);border-top:0;border-radius:0 0 var(--r-sm) var(--r-sm);background:var(--surface-2)}
+.app-shell .generator-materials>summary{display:flex;align-items:center;gap:8px;cursor:pointer;min-height:44px;padding:8px 14px;font-size:12px;color:var(--am-700);list-style:none}
+.app-shell .generator-materials>summary::-webkit-details-marker{display:none}
+.app-shell .generator-materials>summary svg{width:18px;height:18px}
+.app-shell .generator-materials>summary span{margin-left:auto;color:var(--ink-3);font-size:11px}
+.app-shell .generator-materials[open]>summary{border-bottom:1px solid var(--line)}
+.app-shell .generator-materials .teaching-materials{border:0;margin:0;padding:16px;background:transparent;min-width:0}
+.app-shell .generator-materials .teaching-materials legend{display:none}
+.app-shell .generator-materials .teaching-materials label{margin:12px 0}
+.app-shell .generator-materials .field-help{line-height:1.8;color:var(--ink-3)}
+.app-shell .generator-options{border-top:1px solid var(--line);padding-top:16px}
+.app-shell .generator-options>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--ink-2);min-height:28px;line-height:1.8}
+.app-shell .generator-options>summary small{font-size:11px;font-weight:400;color:var(--ink-3);margin-left:12px}
+.app-shell .generator-options-body{display:grid;gap:16px;padding:16px 0 4px}
+.app-shell .generator-options .brief-source-options label{display:flex;align-items:center;font-size:12px;font-weight:400;min-height:32px}
+.app-shell .generator-options .fine{margin:0;font-size:11px;line-height:1.8;color:var(--ink-3)}
+.app-shell .generator-submit{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;font-size:14px;margin-top:20px}
+.app-shell .generator-submit svg{width:20px;height:20px}
+.app-shell .generator-form>.alert{margin:16px 0 0}
+.app-shell .generator-submit-note{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px}
+.app-shell .generator-submit-note p{margin:0;text-align:center;color:var(--ink-3);font-size:11px;line-height:1.8}
+.app-shell .generator-submit-note span{display:block}
+@media(max-width:850px){
+ .app-shell .courseware-create-page{padding-top:16px}
+ .app-shell .generator-heading{padding:24px 24px 0}
+ .app-shell .generator-form{padding:20px 24px}
+}
+@media(max-width:540px){
+ .app-shell .generator-heading{padding:20px 18px 0}
+ .app-shell .generator-heading h1{font-size:22px}
+ .app-shell .generator-heading p{font-size:12px}
+ .app-shell .generator-form{padding:20px 18px 16px}
+ .app-shell .generator-fields{gap:20px}
+ .app-shell .generator-row{grid-template-columns:minmax(0,1fr);gap:16px}
+ .app-shell .generator-options>summary small{display:block;margin-left:16px}
+ .app-shell .generator-submit-note p{font-size:11px}
+}

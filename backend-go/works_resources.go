@@ -21,8 +21,8 @@ func (s *Server) limitInterrupted(ctx context.Context, tx pgx.Tx, member int64) 
 	if err := tx.QueryRow(ctx, "SELECT id FROM members WHERE id=$1 FOR UPDATE", member).Scan(&locked); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT id,CASE WHEN jsonb_typeof(result->'slides')='array' THEN jsonb_array_length(result->'slides') ELSE 0 END>0 OR pptx_path<>'' OR mp4_path<>'' AS valuable
- FROM tasks t WHERE member_id=$1 AND deleted_at IS NULL AND status IN ('failed','cancelled') AND charge_state<>'reserved' AND restored_at IS NULL
+	rows, err := tx.Query(ctx, `SELECT id,CASE WHEN jsonb_typeof(result->'slides')='array' THEN jsonb_array_length(result->'slides') ELSE 0 END>0 OR pptx_path<>'' OR mp4_path<>'' OR html_path<>'' OR animation<>'{}'::jsonb AS valuable
+ FROM tasks t WHERE member_id=$1 AND deleted_at IS NULL AND status IN ('failed','cancelled') AND charge_state<>'reserved' AND restored_at IS NULL AND NOT (type='animation' AND html_path<>'')
  AND NOT EXISTS(SELECT 1 FROM tasks child WHERE child.member_id=t.member_id AND child.idempotency_key='retry-'||t.id)
  ORDER BY updated_at DESC,id DESC FOR UPDATE SKIP LOCKED`, member)
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Server) cleanupDeletedTask(ctx context.Context, tid int64, id string) (
 	}
 	defer tx.Rollback(ctx)
 	var pending, leased, deleted bool
-	err = tx.QueryRow(ctx, "SELECT cleanup_pending,COALESCE(lease_until>now(),false) OR charge_state='reserved',deleted_at IS NOT NULL FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&pending, &leased, &deleted)
+	err = tx.QueryRow(ctx, "SELECT cleanup_pending,COALESCE(lease_until>now(),false) OR COALESCE(animation_export_lease_until>now(),false) OR charge_state='reserved',deleted_at IS NOT NULL FROM tasks WHERE id=$1 FOR UPDATE", id).Scan(&pending, &leased, &deleted)
 	if err != nil {
 		return false, err
 	}
@@ -328,7 +328,7 @@ func (s *Server) cleanupDeletedTask(ctx context.Context, tid int64, id string) (
 		}
 		return true, tx.Commit(ctx)
 	}
-	for _, dir := range []string{"animation-jobs", "animation-quality"} {
+	for _, dir := range []string{"animation-jobs", "animation-quality", "animation-html"} {
 		if err = s.removeArtifactTree(ctx, filepath.Join(root, dir, id)); err != nil {
 			return false, err
 		}
@@ -338,7 +338,7 @@ func (s *Server) cleanupDeletedTask(ctx context.Context, tid int64, id string) (
 			return false, err
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE tasks SET result='{}',sources='[]',pptx_path='',mp4_path='',error='',input=jsonb_strip_nulls(jsonb_build_object('topic',input->'topic','parent_id',input->'parent_id','source_task_id',input->'source_task_id')),cleanup_pending=false WHERE id=$1`, id)
+	_, err = tx.Exec(ctx, `UPDATE tasks SET result='{}',sources='[]',pptx_path='',mp4_path='',html_path='',animation='{}',error='',input=jsonb_strip_nulls(jsonb_build_object('topic',input->'topic','parent_id',input->'parent_id','source_task_id',input->'source_task_id')),cleanup_pending=false WHERE id=$1`, id)
 	if err != nil {
 		return false, err
 	}

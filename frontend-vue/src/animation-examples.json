@@ -1,0 +1,5 @@
+[
+ {"id":"water-cycle","title":"一滴水的旅行","subject":"地理","topic":"水循环：一滴水的旅行","description":"用水循环示意图配合讲解，观察蒸发、凝结与降水。","requirements":"用水循环插图讲解蒸发、凝结、降水和汇流，说明水蒸气不可见，图示不按实际比例；开场自然引出问题，结尾留一道思考题。","image":"/animation-examples/water-cycle.svg","alt":"湖水、蒸发箭头、云和山地降水的明亮水循环示意图"},
+ {"id":"water-states","title":"认识水的三种状态","subject":"物理","topic":"水的固态、液态和气态","description":"对照三态结构示意，区分观察现象与微观模型。","requirements":"用water_states受控插图比较固态、液态、气态，强调圆点仅是结构模型，不是真实分子外观；解释气态水不可见，安排观察停顿。","image":"/animation-examples/water-states.svg","alt":"固态、液态与气态三个浅色区域中的结构示意圆点"},
+ {"id":"plant","title":"从根到叶认识植物","subject":"生物","topic":"认识植物的根、茎、叶","description":"结合带标注的植物示意图，逐步认识主要结构。","requirements":"使用plant受控插图标注植物的根、茎、叶，讲解主要功能与观察方法；说明是简化示意，不冒充完整生理仿真。","image":"/animation-examples/plant.svg","alt":"绿色植物的根、茎、叶及引线标注示意图"}
+]

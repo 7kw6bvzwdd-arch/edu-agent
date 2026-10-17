@@ -26,15 +26,6 @@ func TestAgentModelFallbackAndGradePrompts(t *testing.T) {
 			t.Errorf("missing grade guidance: %s", phrase)
 		}
 	}
-	manim := animationPrompt(in, nil, "5")
-	if !strings.Contains(manim, "20–45秒") {
-		t.Fatal("Manim duration lost")
-	}
-	in.AnimationEngine = "ark"
-	ark := animationPrompt(in, nil, "5")
-	if !strings.Contains(ark, "5秒") || strings.Contains(ark, "20–45秒") || strings.Contains(ark, "480p") {
-		t.Fatal("cloud storyboard claims Manim duration or resolution")
-	}
 }
 
 func TestAgentProviderRoutingAndUsage(t *testing.T) {
@@ -65,7 +56,7 @@ func TestAgentProviderRoutingAndUsage(t *testing.T) {
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = course.URL, "course-test", "course-model"
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = animation.URL, "animation-test", "animation-model"
 	s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.EvalModel = legacy.URL, "eval-test", "eval-model"
-	for _, entry := range []struct{ kind, operation string }{{"courseware", "courseware.generate"}, {"courseware", "slide.rewrite"}, {"animation", "animation.storyboard"}, {"animation", "animation.code"}, {"animation", "animation.repair"}} {
+	for _, entry := range []struct{ kind, operation string }{{"courseware", "courseware.generate"}, {"courseware", "slide.rewrite"}, {"animation", "animation.storyboard"}, {"animation", "animation.html.plan"}, {"animation", "animation.html.revise"}} {
 		if _, err := s.agentChat(context.Background(), a, "agent-route", entry.kind, entry.operation, "test"); err != nil {
 			t.Fatal(err)
 		}
@@ -84,31 +75,30 @@ func TestAgentProviderRoutingAndUsage(t *testing.T) {
 			models[v["operation"].(string)] = v["model"].(string)
 		}
 	}
-	if models["slide.rewrite"] != "course-model" || models["animation.repair"] != "animation-model" || models["courseware.review"] != "eval-model" {
+	if models["slide.rewrite"] != "course-model" || models["animation.html.revise"] != "animation-model" || models["courseware.review"] != "eval-model" {
 		t.Fatal("usage did not record actual routed model", models)
 	}
 }
 
-func TestAgentHealthDuringAnimationRebuild(t *testing.T) {
+func TestAgentHealthWithoutHTMLConfiguration(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
 	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = "http://127.0.0.1:1", "test", "course-model"
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = "http://127.0.0.1:1", "test", "animation-model"
-	s.cfg.VideoURL, s.cfg.VideoKey, s.cfg.VideoModel = "http://127.0.0.1:1", "test", "video-model"
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
-	for _, duration := range []string{"1", "5", "16", "invalid"} {
-		s.cfg.VideoDuration = duration
-		health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-		if health["courseware_configured"] != true || health["animation_configured"] != false || health["animation_video_configured"] != false || health["animation_service_status"] != "rebuilding" {
-			t.Fatal("disabled animation advertised as available", health)
-		}
-		for _, engine := range []string{"ark", "manim"} {
-			in := TaskInput{Type: "animation", AnimationEngine: engine, Topic: "一次函数", Pages: 8, UseKB: true, IdempotencyKey: newID()}
-			w := worksCall(t, s, "POST", "/api/tasks", token, in, 503)
-			if !strings.Contains(w.Body.String(), "教学动画功能重构中") {
-				t.Fatal("rebuild rejection missing", w.Body.String())
-			}
+	health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
+	if health["animation_geometry_version"] != "geometry-v1" || !strings.Contains(string(asJSON(health["animation_archetypes"])), "geo.transform@1") {
+		t.Fatal("geometry capabilities missing from health")
+	}
+	if health["courseware_configured"] != true || health["animation_configured"] != false || health["animation_video_configured"] != false || health["animation_service_status"] != "unconfigured" {
+		t.Fatal("disabled animation advertised as available", health)
+	}
+	for _, engine := range []string{"ark", "manim"} {
+		in := TaskInput{Type: "animation", AnimationEngine: engine, Topic: "一次函数", Pages: 8, UseKB: true, IdempotencyKey: newID()}
+		w := worksCall(t, s, "POST", "/api/tasks", token, in, 503)
+		if !strings.Contains(w.Body.String(), "旧版动画生成已移除") {
+			t.Fatal("rebuild rejection missing", w.Body.String())
 		}
 	}
 	if worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String() != before {
@@ -138,54 +128,20 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 			if !strings.Contains(prompt, "八年级") || !strings.Contains(prompt, "前置知识") {
 				t.Error("grade not passed to workflow", kind)
 			}
-			if kind == "animation" && (!strings.Contains(prompt, "5秒") || !strings.Contains(prompt, "动作节点") || strings.Contains(prompt, "20–45秒")) {
-				t.Error("cloud storyboard duration mismatch")
-			}
-			d := sampleDeck(TaskInput{Type: kind, AnimationEngine: "ark", Topic: "一次函数", Theme: "forest", Pages: 8})
+			d := sampleDeck(TaskInput{Type: kind, Topic: "一次函数", Theme: "forest", Pages: 8})
 			respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
 		}))
 	}
 	course := makeProvider("courseware", "course-model")
 	defer course.Close()
-	animation := makeProvider("animation", "animation-model")
-	defer animation.Close()
 	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = course.URL, "test", "course-model"
-	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = animation.URL, "test", "animation-model"
-	s.cfg.VideoURL, s.cfg.VideoKey, s.cfg.VideoModel, s.cfg.VideoDuration = "http://127.0.0.1:1", "test", "never-called", "5"
 	for _, kind := range []string{"courseware"} {
 		in := TaskInput{Type: kind, Grade: "八年级", Topic: "一次函数", Theme: "forest", Pages: 8, UseKB: true, IdempotencyKey: newID()}
-		if kind == "animation" {
-			in.AnimationEngine = "ark"
-		}
-		// Seed through the real reservation API, then switch only the animation fixture.
-		// This test exercises provider routing and confirmation, not Docker readiness.
 		seed := in
 		seed.Type, seed.AnimationEngine = "courseware", ""
 		id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, seed, 202))["id"].(string)
 		t.Cleanup(func() { worksCall(t, s, "POST", "/api/tasks/"+id+"/cancel", token, nil, 200) })
-		if kind == "animation" {
-			var a Actor
-			if err := json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", token, nil, 200).Body.Bytes(), &a); err != nil {
-				t.Fatal(err)
-			}
-			ctx := context.Background()
-			tx, err := s.tx(ctx, a.TenantID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback(ctx)
-			changed, err := tx.Exec(ctx, "UPDATE tasks SET type='animation',input=$1 WHERE id=$2 AND member_id=$3 AND status='pending' AND charge_state='reserved'", asJSON(in), id, a.MemberID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if changed.RowsAffected() != 1 {
-				t.Fatal("animation fixture was not pending with a reservation")
-			}
-			if err := tx.Commit(ctx); err != nil {
-				t.Fatal(err)
-			}
-		}
 		if err := s.workOne(context.Background()); err != nil {
 			t.Fatal(err)
 		}

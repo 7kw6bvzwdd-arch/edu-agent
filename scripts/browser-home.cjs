@@ -81,7 +81,7 @@ let browser,socket;
  await click('首页');await wait("!!document.querySelector('.home-workspace')");
  await evaluate("document.querySelector('[data-tool=knowledge]').click()");await wait("!!document.querySelector('.document-row')||document.body.innerText.includes('还没有资料')");
  await click('首页');await wait("!!document.querySelector('.home-workspace')");
- await evaluate("document.querySelector('[data-tool=animation]').click()");await wait("!!document.querySelector('#animation-engine')");
+ await evaluate("document.querySelector('[data-tool=animation]').click()");await wait("!!document.querySelector('.animation-studio')");
  await click('首页');await wait("!!document.querySelector('.home-workspace')");
  await evaluate("document.querySelector('.home-recent-work').click()");await wait("!!document.querySelector('.courseware-studio')");
  await click('继续制作');await wait("document.querySelector('.studio-stage-banner')?.textContent.includes('先看看前三页')");

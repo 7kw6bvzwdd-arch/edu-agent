@@ -6,4 +6,8 @@ import './amethyst.css'
 import './home.css'
 import './review.css'
 import './workspace-patterns.css'
+import './generator.css'
+import './animation.css'
 createApp(App).mount('#app')
+import './conversation.css'
+import './courseware-review.css'

@@ -26,8 +26,12 @@ func TestCoursewareBriefStreamsBeforeCompletionHTTP(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
 		json.NewDecoder(r.Body).Decode(&request)
-		if request["stream"] != true || request["model"] != "brief-stream-test" || r.Header.Get("Authorization") != "Bearer brief-test" {
+		if request["stream"] != true || request["model"] != "deepseek-flash" || r.Header.Get("Authorization") != "Bearer brief-test" {
 			t.Error("must request the courseware provider's actual stream")
+		}
+		thinking, _ := request["thinking"].(map[string]any)
+		if thinking["type"] != "disabled" {
+			t.Error("DeepSeek dialogue must reserve its bounded output budget for the streamed answer")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprintf(w, "data: %s\n\n", asJSON(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": `{"reply":"先从生活情境开始`}}}}))
@@ -44,7 +48,7 @@ func TestCoursewareBriefStreamsBeforeCompletionHTTP(t *testing.T) {
 	}))
 	defer provider.Close()
 	s.cfg.Mode = "live"
-	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "brief-test", "brief-stream-test"
+	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "brief-test", "deepseek-flash"
 	server := httptest.NewServer(s.Handler())
 	defer server.Close()
 	body := map[string]any{"stream": true, "input": TaskInput{Type: "courseware", UseWeb: true}, "messages": []map[string]string{{"role": "user", "content": "给九年级做二次函数，40分钟，学生学过一次函数"}}}
@@ -96,6 +100,38 @@ func TestCoursewareBriefStreamsBeforeCompletionHTTP(t *testing.T) {
 	}
 	if worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String() != before || worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String() != tasks {
 		t.Fatal("conversation created a work or reserved points")
+	}
+}
+
+func TestWorkspaceBriefProviderLimitHTTP(t *testing.T) {
+	s := worksServer(t)
+	token := worksLogin(t, s, "admin")
+	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
+	tasks := worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 429, map[string]any{"error": map[string]string{"code": "SetLimitExceeded", "message": "private-provider-message-must-not-leak"}})
+	}))
+	defer provider.Close()
+	s.cfg.Mode = "live"
+	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "private-test-key", "brief-test"
+	for _, stream := range []bool{true, false} {
+		for _, path := range []string{"/api/workspace/brief", "/api/courseware/brief"} {
+			body := map[string]any{"stream": stream, "input": TaskInput{Topic: "二次函数", Subject: "物理", Grade: "八年级"}, "messages": []map[string]string{{"role": "user", "content": "制作二次函数课件"}}}
+			want := 503
+			if stream {
+				want = 200
+			}
+			result := worksCall(t, s, "POST", path, token, body, want).Body.String()
+			if !strings.Contains(result, "SetLimitExceeded") || !strings.Contains(result, "用量上限") || !strings.Contains(result, "成员制作积分") || strings.Contains(result, "private-") {
+				t.Fatalf("provider limit must be actionable and redacted: %s", result)
+			}
+			if stream && (!strings.Contains(result, "event: error") || strings.Contains(result, "event: done") || strings.Contains(result, "展开教学设置")) {
+				t.Fatal("provider limit cannot suggest bypassing through the same unavailable model", result)
+			}
+		}
+	}
+	if worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String() != before || worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String() != tasks {
+		t.Fatal("failed discussion changed tasks or points")
 	}
 }
 

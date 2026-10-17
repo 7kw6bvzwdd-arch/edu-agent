@@ -187,8 +187,8 @@ func (s *Server) tagCurriculum(w http.ResponseWriter, r *http.Request, a Actor) 
 	if err := decode(r, &tag); err != nil {
 		return err
 	}
-	if (tag.Subject != "数学" && tag.Subject != "物理") || strings.TrimSpace(tag.Grade) == "" || strings.TrimSpace(tag.Edition) == "" || len([]rune(tag.Grade+tag.Edition)) > 100 {
-		return fail(400, "请填写数学或物理、年级和教材版本")
+	if strings.TrimSpace(tag.Subject) == "" || len([]rune(tag.Subject)) > 40 || strings.TrimSpace(tag.Grade) == "" || strings.TrimSpace(tag.Edition) == "" || len([]rune(tag.Grade+tag.Edition)) > 100 {
+		return fail(400, "请填写实际学科（40字以内）、学习阶段和教材版本")
 	}
 	tx, err := s.tx(r.Context(), a.TenantID)
 	if err != nil {
@@ -250,7 +250,7 @@ func (s *Server) resolveTeachingMaterials(ctx context.Context, a Actor, in *Task
 		if err = tx.QueryRow(ctx, "SELECT name,pages,curriculum FROM documents WHERE id=$1 AND status='ready'", in.MaterialID).Scan(&name, &pages, &tag); err != nil {
 			return err
 		}
-		if tag.Subject != "" && (tag.Subject != in.Subject || tag.Grade != in.Grade || (tag.Edition != in.Textbook && !strings.HasPrefix(tag.Edition, in.Textbook+" "))) {
+		if tag.Subject != "" && ((in.Subject != "" && tag.Subject != in.Subject) || (in.Grade != "" && tag.Grade != in.Grade) || (in.Textbook != "" && tag.Edition != in.Textbook && !strings.HasPrefix(tag.Edition, in.Textbook+" "))) {
 			return fail(400, "所选教材的学科、年级或版本不匹配")
 		}
 		in.Curriculum, err = selectedCurriculum(pages, in.MaterialStart, in.MaterialEnd)

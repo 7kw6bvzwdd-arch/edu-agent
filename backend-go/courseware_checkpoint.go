@@ -15,10 +15,11 @@ import (
 // Kept inside the task result so the existing ownership, retention and deletion
 // rules also cover checkpoints. Only the server writes this field.
 type CoursewareCheckpoint struct {
-	Version    string `json:"version"`
-	Phase      string `json:"phase"`
-	RepairPage int    `json:"repair_page,omitempty"`
-	Issue      string `json:"issue,omitempty"`
+	Version      string      `json:"version"`
+	Phase        string      `json:"phase"`
+	RepairPage   int         `json:"repair_page,omitempty"`
+	Issue        string      `json:"issue,omitempty"`
+	PageAttempts map[int]int `json:"page_attempts,omitempty"`
 }
 
 const coursewareLessonPages = "\n\n## 逐页授课记录（随页面同步）\n"
@@ -71,14 +72,24 @@ func (s *Server) coursewarePreviewPages(ctx context.Context, tx pgx.Tx, id strin
 }
 
 func (s *Server) saveCoursewareCheckpoint(ctx context.Context, a Actor, id string, d Deck, sources []Source) error {
+	progress := d.Generation != nil && d.Generation.RepairPage == 0 && len(d.Slides) > 0
+	if progress && d.Plan != nil {
+		for _, sl := range d.Slides {
+			check := d.PageChecks[sl.ID]
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample") {
+				progress = false
+				break
+			}
+		}
+	}
 	tx, err := s.tx(ctx, a.TenantID)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	res, err := tx.Exec(ctx, `UPDATE tasks SET result=$1,sources=$2,revision=revision+1,updated_at=now(),
-		automatic_failures=CASE WHEN (CASE WHEN jsonb_typeof(result->'slides')='array' THEN jsonb_array_length(result->'slides') ELSE 0 END)<jsonb_array_length($1::jsonb->'slides') THEN 0 ELSE automatic_failures END
-		WHERE id=$3 AND member_id=$4 AND status IN ('researching','expanding') AND charge_state='reserved' AND deleted_at IS NULL AND ($5::integer IS NULL OR charge_cycle=$5) AND ($6::integer IS NULL OR attempt=$6)`, asJSON(d), asJSON(sources), id, a.MemberID, generationCycle(ctx), generationAttempt(ctx))
+		automatic_failures=CASE WHEN $7 THEN 0 ELSE automatic_failures END
+		WHERE id=$3 AND member_id=$4 AND status IN ('researching','expanding') AND charge_state='reserved' AND deleted_at IS NULL AND ($5::integer IS NULL OR charge_cycle=$5) AND ($6::integer IS NULL OR attempt=$6)`, asJSON(d), asJSON(sources), id, a.MemberID, generationCycle(ctx), generationAttempt(ctx), progress)
 	if err != nil {
 		return err
 	}
@@ -290,6 +301,8 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		return Slide{}, "", "", err
 	}
 	var last error
+	var candidate Slide
+	var candidateTitle, candidateLesson string
 	for attempt := 0; attempt < 2; attempt++ {
 		var next Deck
 		if s.cfg.Mode == "sample" {
@@ -297,8 +310,12 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 			next.Slides = next.Slides[position-1 : position]
 		} else {
 			var err error
+			s.coursewareEvent(ctx, a, id, "page_generation", fmt.Sprintf("教学位置第%d页正在生成内容，当前页最多自动修复三轮", position))
 			next, err = s.coursewarePageRequest(ctx, a, id, in, sources, prompt, position)
 			if err != nil {
+				if candidate.Title != "" {
+					return candidate, candidateTitle, candidateLesson, err
+				}
 				return Slide{}, "", "", err
 			}
 		}
@@ -316,12 +333,16 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 			next.Slides[0].Picture = d.Slides[page-1].Picture
 		}
 		if next.Lesson == "" {
-			next.Lesson = "教学路线：问题导入、概念探究、例题、练习与迁移；详见每页讲解备注。"
+			next.Lesson = "教学路线按实际学科与已确认规划组织，具体教学任务与反馈详见每页讲解备注。"
 		}
 		last = coursewarePageIssue(next, 1, sources)
 		if last == nil {
 			var pptx []byte
+			s.coursewareEvent(ctx, a, id, "page_render", fmt.Sprintf("教学位置第%d页内容已生成，正在排版并制作真实PPT截图", position))
 			pptx, last = s.renderCoursewarePage(ctx, &next, page)
+			if last == nil {
+				candidate, candidateTitle, candidateLesson = next.Slides[0], next.Title, next.Lesson
+			}
 			var api APIError
 			if last != nil && (!errors.As(last, &api) || api.Status >= 500 || api.Status == 429) {
 				// Generated content is sound; renderer availability is not a reason
@@ -329,6 +350,7 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 				return next.Slides[0], next.Title, next.Lesson, last
 			}
 			if last == nil && in.Detail != "" {
+				s.coursewareEvent(ctx, a, id, "page_review", fmt.Sprintf("教学位置第%d页正在审核实际PPT画面，审核通过后保存", position))
 				next.Plan = d.Plan
 				check, err := s.inspectGeneratedPageWithNext(ctx, a, id, in, next, pptx, func() {
 					if start, _ := ctx.Value(coursewareNextPageKey{}).(func(Deck)); start != nil {
@@ -368,6 +390,9 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		} else {
 			break
 		}
+	}
+	if candidate.Title != "" {
+		return candidate, candidateTitle, candidateLesson, fmt.Errorf("第%d页未完成：%w", page, last)
 	}
 	return Slide{}, "", "", fmt.Errorf("第%d页未完成：%w", page, last)
 }

@@ -1,0 +1,290 @@
+{
+  "version": "anim-v2",
+  "title": "平移与旋转中的面积不变",
+  "archetype": "geo.transform@1",
+  "representative": "translation",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "观察矩形的面积",
+      "intent": "由底和高计算矩形面积",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -8,
+            "xmax": 8,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "shape1",
+          "type": "rectangle",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "width": 3,
+            "height": 2,
+            "tx": 0,
+            "ty": 0,
+            "angle": 0,
+            "cx": 0,
+            "cy": 0
+          }
+        },
+        {
+          "id": "area1",
+          "type": "measure",
+          "slot": "side",
+          "shape": "shape1"
+        }
+      ],
+      "narration": [
+        {
+          "id": "g1",
+          "display": "矩形的底为3，高为2。",
+          "speech": "矩形的底为三，高为二。"
+        },
+        {
+          "id": "g2",
+          "display": "它的面积是6平方单位。",
+          "speech": "它的面积是六平方单位。"
+        }
+      ],
+      "actions": [],
+      "holds": [
+        {
+          "id": "observe1",
+          "type": "observe",
+          "after": "g2",
+          "ms": 1800
+        }
+      ]
+    },
+    {
+      "id": "translation",
+      "title": "平移改变位置",
+      "intent": "观察矩形向右平移时面积不变",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -8,
+            "xmax": 8,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "shape1",
+          "type": "rectangle",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "width": 3,
+            "height": 2,
+            "tx": 0,
+            "ty": 0,
+            "angle": 0,
+            "cx": 0,
+            "cy": 0
+          }
+        },
+        {
+          "id": "area1",
+          "type": "measure",
+          "slot": "side",
+          "shape": "shape1"
+        }
+      ],
+      "narration": [
+        {
+          "id": "g3",
+          "display": "把矩形向右平移3个单位。",
+          "speech": "把矩形向右平移三个单位。"
+        },
+        {
+          "id": "g4",
+          "display": "虚线是本幕初始图形，实线是当前图形。",
+          "speech": "虚线是本幕初始图形，实线是当前图形。"
+        },
+        {
+          "id": "g5",
+          "display": "底和高没有改变，面积仍是6。",
+          "speech": "底和高没有改变，面积仍是六。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "translate",
+          "op": "tween",
+          "object": "shape1",
+          "param": "tx",
+          "to": 3,
+          "at": {
+            "sentence": "g3",
+            "offset_ms": 600
+          },
+          "duration_ms": 2600
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe2",
+          "type": "observe",
+          "after": "g3",
+          "ms": 1500
+        },
+        {
+          "id": "think",
+          "type": "await",
+          "after": "g5",
+          "ms": 2500
+        }
+      ]
+    },
+    {
+      "id": "rotation",
+      "title": "旋转保持形状和面积",
+      "intent": "直角三角形绕原点旋转",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -8,
+            "xmax": 8,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "shape1",
+          "type": "right_triangle",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "width": 3,
+            "height": 2,
+            "tx": 0,
+            "ty": 0,
+            "angle": 0,
+            "cx": 0,
+            "cy": 0
+          }
+        },
+        {
+          "id": "area1",
+          "type": "measure",
+          "slot": "side",
+          "shape": "shape1"
+        }
+      ],
+      "narration": [
+        {
+          "id": "g6",
+          "display": "直角三角形的底为3，高为2，面积是3。",
+          "speech": "直角三角形的底为三，高为二，面积是三。"
+        },
+        {
+          "id": "g7",
+          "display": "绕中心O逆时针旋转90度。",
+          "speech": "绕中心欧逆时针旋转九十度。"
+        },
+        {
+          "id": "g8",
+          "display": "对应边长不变，面积也保持不变。",
+          "speech": "对应边长不变，面积也保持不变。"
+        }
+      ],
+      "actions": [
+        {
+          "id": "rotate",
+          "op": "tween",
+          "object": "shape1",
+          "param": "angle",
+          "to": 90,
+          "at": {
+            "sentence": "g7",
+            "offset_ms": 600
+          },
+          "duration_ms": 2600
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe3",
+          "type": "observe",
+          "after": "g7",
+          "ms": 1800
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "title": "位置变化与面积不变",
+      "intent": "比较平移和旋转的共同点",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -8,
+            "xmax": 8,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "shape1",
+          "type": "rectangle",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "width": 3,
+            "height": 2,
+            "tx": 0,
+            "ty": 0,
+            "angle": 0,
+            "cx": 0,
+            "cy": 0
+          }
+        },
+        {
+          "id": "area1",
+          "type": "measure",
+          "slot": "side",
+          "shape": "shape1"
+        }
+      ],
+      "narration": [
+        {
+          "id": "g9",
+          "display": "平移和旋转都保持图形的形状与大小。",
+          "speech": "平移和旋转都保持图形的形状与大小。"
+        },
+        {
+          "id": "g10",
+          "display": "想一想，改变位置为什么不会改变面积？",
+          "speech": "想一想，改变位置为什么不会改变面积？"
+        }
+      ],
+      "actions": [],
+      "holds": [
+        {
+          "id": "ask",
+          "type": "await",
+          "after": "g10",
+          "ms": 3000
+        }
+      ]
+    }
+  ]
+}

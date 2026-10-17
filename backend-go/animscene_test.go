@@ -156,3 +156,19 @@ func TestAnimTimelineFollowsAudioAndHolds(t *testing.T) {
 		t.Fatalf("overlap: %v", p)
 	}
 }
+
+func TestAnimDirectionClaimScopesSpecificSlope(t *testing.T) {
+	sc := loadLinearKFixture(t)
+	scene := &sc.Scenes[0]
+	scene.Objects = append(scene.Objects, AnimObject{ID: "negative", Type: "line", Slot: "main", Axes: "ax", Params: map[string]float64{"k": -1, "b": 1}})
+	scene.Narration[0].Display = "k=1的直线从左到右上升。"
+	scene.Narration[0].Speech = "k 等于一的直线从左到右上升。"
+	if _, p := decodeAnimScript(asJSON(sc)); len(p) > 0 {
+		t.Fatalf("correct scoped claim rejected: %v", p)
+	}
+	scene.Narration[0].Speech = "k 等于负一的直线从左到右上升。"
+	expectProblem(t, sc, "旁白称直线上升")
+	scene.Narration[0].Display = "所有直线从左到右上升。"
+	scene.Narration[0].Speech = "所有直线从左到右上升。"
+	expectProblem(t, sc, "旁白称直线上升")
+}

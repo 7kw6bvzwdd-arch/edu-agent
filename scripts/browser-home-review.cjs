@@ -22,13 +22,14 @@ let browser,socket;
   if(m.method!=='Fetch.requestPaused')return;
   const {requestId,request}=m.params,p=new URL(request.url).pathname,data=request.postData?JSON.parse(request.postData):{};
   let reply,binary,code=200,contentType='application/json';if(request.method!=='GET')writes.push({path:p,data});
-  if(p==='/api/health')reply={status:'ok',mode:liveReview?'live':'sample',courseware_content_review_enabled:!liveReview,courseware_studio_version:'studio-v1',courseware_media_version:'media-v1'};
+  if(p==='/api/health')reply={status:'ok',mode:liveReview?'live':'sample',courseware_content_review_enabled:!liveReview,courseware_studio_version:'studio-v1',courseware_media_version:'media-v1',teaching_features_version:'teaching-v1'};
   else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'林老师',role:'teacher',permissions};
   else if(p==='/api/tenants')reply=[{id:1,name:'启明教研空间'}];
   else if(p==='/api/billing')reply={balance:100,reserved:20,available:80,plan:'basic',products:[],orders:[],ledger:[]};
-  else if(p==='/api/tasks')reply=empty?[]:[task];
+  else if(p==='/api/tasks')reply=request.method==='POST'?{id:task.id}:empty?[]:[task];
+  else if(['/api/courseware/materials','/api/courseware/references'].includes(p))reply=[];
   else if(p==='/api/tasks/fixture-review')reply=task;
-  else if(p==='/api/courseware/brief'){if(failBrief){code=503;reply={message:'需求服务暂不可用，请重试。'}}else reply={reply:'可以用生活情境导入，再通过实验讨论浮力。',mode:'sample'}}
+  else if(p==='/api/courseware/brief'){if(failBrief){code=503;reply={message:'需求服务暂不可用，请重试。'}}else reply={reply:'可以用生活情境导入，再通过实验讨论浮力。',mode:'sample',...(data.intent==='generate'?{settings:{topic:'二次函数',grade:data.input.grade,subject:data.input.subject}}:{})}}
   else if(p.endsWith('/conversation'))reply=[];
   else if(p.endsWith('/events')){binary=Buffer.from(': fixture\n\n');contentType='text/event-stream'}
   else if(p.endsWith('/preview')){const i=Number(p.split('/').at(-2).split('-').at(-1));binary=pngs[i%pngs.length];contentType='image/png'}
@@ -61,6 +62,34 @@ let browser,socket;
  failBrief=true;await fill('.brief-composer textarea','再增加一道练习');await click('.brief-composer button[type=submit]');await wait("document.querySelector('.brief-composer .alert.error')?.textContent.includes('暂不可用')");
  assert.equal(await evaluate("document.querySelector('.brief-composer textarea').value"),'再增加一道练习');failBrief=false;
  checks.push('Homepage conversation, optional settings, inline errors and retained input work without task creation');
+ await click('.sidebar nav button[aria-label="所有工具"]');await click('[data-tool="courseware"]');
+ await wait("!!document.querySelector('.courseware-generator')");
+ assert.equal(await evaluate("!!document.querySelector('.conversation-home')"),false,'Tools opens a dedicated courseware form');
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,0,'Opening the tool cannot reserve credits');
+ assert.equal(await evaluate("document.querySelector('.generator-submit').disabled"),true,'A teaching topic is required');
+ await evaluate("(()=>{const e=document.querySelector('[aria-label=\"课件年级\"]');e.value='九年级';e.dispatchEvent(new Event('change',{bubbles:true}));const s=document.querySelector('[aria-label=\"课件学科\"]');s.value='数学';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
+ await fill('[aria-label="课件教学主题"]','二次函数的图像与性质，从生活情境开始，安排课堂练习。');
+ await fill('[aria-label="课件其他要求"]','至少安排三个课堂问题，答案放在讲解备注中。');
+ await shot('generator-desktop.png');
+ for(const width of [1024,820,390]){
+  await call('Emulation.setDeviceMetricsOverride',{width,height:width===390?844:1000,deviceScaleFactor:1,mobile:width===390});
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Generator has no overflow at '+width);
+  if(width===390)await shot('generator-mobile.png');
+ }
+ await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await click('.generator-materials summary');await wait("document.querySelector('.generator-materials').open");
+ assert.ok(await evaluate("!!document.querySelector('.generator-materials input[type=file]')"),'Reference upload is reachable');
+ await click('.generator-materials summary');
+ failBrief=true;await click('.generator-submit');await wait("document.querySelector('.generator-form .alert.error')?.textContent.includes('暂不可用')");
+ assert.ok(await evaluate("document.querySelector('[aria-label=\"课件教学主题\"]').value.includes('二次函数')"),'Failed submission retains the topic');
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,0,'Brief errors do not create tasks');
+ failBrief=false;await click('.generator-submit');await wait("document.querySelectorAll('.studio-slide-picture img').length===3");
+ const generated=writes.find(w=>w.path==='/api/tasks').data;
+ assert.equal(generated.type,'courseware');assert.equal(generated.preview_first,true);assert.equal(generated.grade,'九年级');assert.equal(generated.subject,'数学');
+ assert.ok(generated.requirements.includes('至少安排三个课堂问题'),'Other requirements reach the generation request');
+ assert.equal(writes.filter(w=>w.path.endsWith('/expand')).length,0,'Creation still requires preview review before expansion');
+ checks.push('Tools opens a responsive form; reference upload, retained error input and existing three-page preview flow work');
+ await click('.sidebar nav button[aria-label="首页"]');await wait("!!document.querySelector('.home-recent-work')");
  await click('.home-recent-work');await wait("document.querySelectorAll('.studio-slide-picture img').length===3");
  assert.equal(await evaluate("document.querySelectorAll('.studio-page-thumbnail').length"),3,'Review exposes a thumbnail navigator');
  assert.equal(await evaluate("[...document.querySelectorAll('.studio-slide')].filter(e=>e.getBoundingClientRect().height>0).length"),1,'Review shows one selected slide');

@@ -42,7 +42,7 @@ func TestSinglePageReviewIncludesOnlyItsPlanAndConventions(t *testing.T) {
 }
 
 func TestSavedPageContentReviewDoesNotLeakOtherLessonNotes(t *testing.T) {
-	d := Deck{Title: "一次函数", Lesson: "第10页其他练习的条件和答案，不得当作本页缺陷。",Evaluation:"旧整套评审：第10页其他练习的条件和答案。",PageChecks:map[string]PageQualityCheck{"other":{Issues:[]PageQualityIssue{{Evidence:"第10页其他练习的条件和答案。"}}}}, Slides: []Slide{{Order: 14, Title: "本页作业", Notes: "本页教师讲解与答案。"}}, Plan: &TeachingPlan{Conventions: "本课约定", Pages: []TeachingPage{{Position: 14, Goal: "本页任务"}}}}
+	d := Deck{Title: "一次函数", Lesson: "第10页其他练习的条件和答案，不得当作本页缺陷。", Evaluation: "旧整套评审：第10页其他练习的条件和答案。", PageChecks: map[string]PageQualityCheck{"other": {Issues: []PageQualityIssue{{Evidence: "第10页其他练习的条件和答案。"}}}}, Slides: []Slide{{Order: 14, Title: "本页作业", Notes: "本页教师讲解与答案。"}}, Plan: &TeachingPlan{Conventions: "本课约定", Pages: []TeachingPage{{Position: 14, Goal: "本页任务"}}}}
 	page := pageForReview(d)
 	if strings.Contains(string(asJSON(page)), "第10页其他练习") {
 		t.Fatal("saved-page audit receives unrelated lesson notes")
@@ -294,6 +294,15 @@ func TestRenderedPageReviewUsesActualScreenshot(t *testing.T) {
 	check, err = s.inspectGeneratedPage(ctx, a, id, TaskInput{}, d, pptx)
 	if err != nil || !pageCheckPassed(check, false) || recoveryCalls != 2 {
 		t.Fatal("contract recheck did not recover without regenerating page", err, check, recoveryCalls)
+	}
+	for _, observed := range []string{"标注完整可见，但底部可能被裁切", "根据刻度估读，点看起来约31而不是32"} {
+		issue.Category, issue.Certainty, issue.Severity = "layout", "confirmed", "error"
+		issue.Observed = observed
+		recoveryCalls = 0
+		check, err = s.inspectGeneratedPage(ctx, a, id, TaskInput{}, d, pptx)
+		if err != nil || !pageCheckPassed(check, false) || recoveryCalls != 2 {
+			t.Fatalf("estimate/risk regenerated correct page instead of rechecking same screenshot: %s calls=%d err=%v", observed, recoveryCalls, err)
+		}
 	}
 }
 

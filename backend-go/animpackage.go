@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const animRendererVersion = "html-player-v1"
+const animRendererVersion = "classroom-illustrated-v1"
 
 //go:embed animplayer/player.js
 var animPlayerJS string
@@ -27,6 +27,7 @@ const (
 )
 
 type animPackageInput struct {
+	Picture  *TeachingPicture
 	Script   AnimScript
 	Timeline AnimTimeline
 	Audio    map[string][]byte // sentence ID -> audio bytes
@@ -46,7 +47,11 @@ func animLabels(in animPackageInput) []map[string]any {
 	case animVoiceTTS:
 		labels = append(labels, map[string]any{"text": "AI合成语音"})
 	case animVoiceEstimated:
-		labels = append(labels, map[string]any{"text": "样例模式：无真实语音，时长为估算", "warn": true})
+		label := "预览模式：无真实语音，时长为估算"
+		if in.Fixture {
+			label = "样例模式：无真实语音，时长为估算"
+		}
+		labels = append(labels, map[string]any{"text": label, "warn": true})
 	case animVoiceTone:
 		labels = append(labels, map[string]any{"text": "测试音：非真实语音", "warn": true})
 	}
@@ -70,7 +75,7 @@ func buildAnimPackage(in animPackageInput) []byte {
 	}
 	labels := animLabels(in)
 	// json.Marshal escapes <, > and &, so the data cannot close its script element.
-	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion}))
+	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion, "picture": in.Picture}))
 	csp := "default-src 'none'; script-src " + cspHash(animPlayerJSLF) + "; style-src " + cspHash(animPlayerCSSLF) + "; img-src data:; media-src data:; font-src data:; base-uri 'none'; form-action 'none'"
 	var tags strings.Builder
 	for _, l := range labels {
@@ -91,7 +96,7 @@ func buildAnimPackage(in animPackageInput) []byte {
 		b.WriteString(`<meta name="aigc" content="` + map[bool]string{true: "AI合成语音", false: "AI生成内容"}[in.Fixture] + `">`)
 	}
 	b.WriteString(`<meta name="aigc-voice" content="` + in.Voice + `">`)
-	b.WriteString(`<title>` + title + `</title><style>` + animPlayerCSS + `</style></head><body>`)
+	b.WriteString(`<title>` + title + `</title><style>` + animPlayerCSSLF + `</style></head><body>`)
 	b.WriteString(`<header><h1>` + title + `</h1>` + tags.String() + `</header>`)
 	b.WriteString(`<main><div class="frame"><svg id="stage" viewBox="0 0 1280 720" role="img" aria-label="` + title + ` 动画画面"></svg><div id="subtitle" role="region" aria-label="字幕" aria-live="off"></div></div></main>`)
 	b.WriteString(`<nav aria-label="播放控制"><button id="play" type="button" aria-pressed="false">播放</button><button id="continue" type="button" hidden>继续</button>`)

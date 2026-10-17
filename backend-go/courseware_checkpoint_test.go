@@ -223,11 +223,11 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 			}
 			if truncate {
 				failed := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
-				if failed["status"] != "expand_pending" || failed["charge_state"] != "reserved" || calls != 6 {
+				if failed["status"] != "failed" || failed["charge_state"] != "released" || calls != 6 {
 					t.Fatal("unbounded length repair", calls, failed["status"])
 				}
 				truncate = false
-				makeAutomaticRetryReady(t, s, id)
+				worksCall(t, s, "POST", route+"/retry", token, nil, 202)
 				if err = s.workOne(context.Background()); err != nil {
 					t.Fatal(err)
 				}

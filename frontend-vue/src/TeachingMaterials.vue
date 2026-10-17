@@ -1,12 +1,14 @@
 <script setup>
-import {ref,computed,onMounted,watch} from 'vue'
+import {ref,computed,onMounted,watch,useId} from 'vue'
+import {coursewareSubjects} from './courseware-subjects.js'
 const props=defineProps({form:Object,api:Function,disabled:Boolean,tagging:Boolean,pageImages:Boolean})
-const materials=ref([]),references=ref([]),error=ref(''),busy=ref(false),preview=ref(null),tag=ref({subject:'数学',grade:'八年级',edition:'人教版'}),tagID=ref('')
+const subjectList=useId()
+const materials=ref([]),references=ref([]),error=ref(''),busy=ref(false),preview=ref(null),tag=ref({subject:'',grade:'',edition:''}),tagID=ref('')
 const selected=computed(()=>materials.value.find(m=>m.id===props.form.material_id))
 const original=ref(null),imageRequest=ref(0)
 async function showOriginal(page){const id=props.form.material_id,request=++imageRequest.value;await run(async()=>{const value=await props.api('/courseware/materials/'+encodeURIComponent(id)+'/pages/'+page+'/image');if(request===imageRequest.value&&id===props.form.material_id)original.value=value})}
 watch(()=>props.form.material_id,()=>{imageRequest.value++;original.value=null})
-const matching=computed(()=>materials.value.filter(m=>!m.curriculum?.subject||(m.curriculum.subject===props.form.subject&&m.curriculum.grade===props.form.grade&&(m.curriculum.edition===props.form.textbook||m.curriculum.edition.startsWith(props.form.textbook+' ')))))
+const matching=computed(()=>materials.value.filter(m=>!m.curriculum?.subject||((!props.form.subject||m.curriculum.subject===props.form.subject)&&(!props.form.grade||m.curriculum.grade===props.form.grade)&&(!props.form.textbook||m.curriculum.edition===props.form.textbook||m.curriculum.edition.startsWith(props.form.textbook+' ')))))
 const reference=computed(()=>references.value.find(m=>m.id===props.form.reference_id))
 async function run(fn){busy.value=true;error.value='';try{await fn()}catch(e){error.value=e.message}finally{busy.value=false}}
 async function load(){const [m,r]=await Promise.all([props.api('/courseware/materials'),props.api('/courseware/references')]);materials.value=m;references.value=r}
@@ -22,6 +24,7 @@ onMounted(()=>run(load))
 <template>
  <fieldset class="teaching-materials" :disabled="disabled||busy">
   <legend>教材章节与参考课件</legend>
+  <datalist :id="subjectList"><option v-for="subject in coursewareSubjects" :key="subject" :value="subject"/></datalist>
   <p v-if="error" class="alert error" role="alert">{{error}}</p>
   <label>教材原文<select v-model="form.material_id" @change="selectMaterial"><option value="">不指定教材文件</option><option v-for="m in matching" :value="m.id" :key="m.id">{{m.name}}{{m.curriculum?.subject?'':'（未标注版本）'}}</option></select></label>
   <p class="field-help">从“知识与来源”导入教材。章节由原文标题识别，可手动核对页码；版本标签由教师填写。</p>
@@ -38,7 +41,7 @@ onMounted(()=>run(load))
   <label class="reference-upload">{{busy?'处理中…':'上传参考PDF / PPTX'}}<input type="file" accept=".pdf,.pptx" @change="uploadReference"></label>
   <p class="field-help">最多80页、20MB。抽样分析实际画面，保留分析文字，原文件与画面处理后释放。会调用视觉模型，不预留业务积分。</p>
   <details v-if="reference" open><summary>已观察的参考风格</summary><p>共{{reference.profile.total_pages}}页 · 分析页码：{{reference.profile.observed_pages?.join('、')}}</p><p v-if="reference.profile.text_truncated">原文超出容量，仅保留前部文字；画面仍按所列页码抽样。</p><p>{{reference.profile.layout}}</p><p>{{reference.profile.typography}}</p><p>{{reference.profile.rhythm}}</p><p>{{reference.profile.diagram_style}}</p><button type="button" @click="removeReference">删除此参考</button></details>
-  <details v-if="tagging"><summary>标注资料的教材版本</summary><label>资料<select v-model="tagID"><option value="">选择已就绪的资料</option><option v-for="m in materials" :key="m.id" :value="m.id">{{m.name}}</option></select></label><label>学科<select v-model="tag.subject"><option>数学</option><option>物理</option></select></label><label>年级<input v-model="tag.grade" maxlength="30"></label><label>教材版本<input v-model="tag.edition" maxlength="70" placeholder="包含册次与出版年份，便于准确匹配"></label><button type="button" @click="saveTag" :disabled="!tagID">保存版本标注</button></details>
+  <details v-if="tagging"><summary>标注资料的教材版本</summary><label>资料<select v-model="tagID"><option value="">选择已就绪的资料</option><option v-for="m in materials" :key="m.id" :value="m.id">{{m.name}}</option></select></label><label>学科<input v-model="tag.subject" :list="subjectList" maxlength="40" placeholder="选择或输入实际学科"></label><label>年级<input v-model="tag.grade" maxlength="30"></label><label>教材版本<input v-model="tag.edition" maxlength="70" placeholder="包含册次与出版年份，便于准确匹配"></label><button type="button" @click="saveTag" :disabled="!tagID">保存版本标注</button></details>
  </fieldset>
 </template>
 <style scoped>

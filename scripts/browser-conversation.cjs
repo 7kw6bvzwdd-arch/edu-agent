@@ -1,10 +1,13 @@
 // Browser fixtures only: actual incremental ReadableStream, no model or user data writes.
-const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{spawn}=require('node:child_process');
-const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms));let browser,socket;
+const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{spawn}=require('node:child_process'),http=require('node:http');
+const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms));let browser,socket,server;
 (async()=>{
  const out=path.join(root,'work/conversation-first/browser');await fs.mkdir(out,{recursive:true});
+ server=http.createServer(async(req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname;const file=path.resolve(root,'frontend-vue/dist','.'+(name==='/'?'/index.html':name));assert.ok(file.startsWith(path.join(root,'frontend-vue/dist')));res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(await fs.readFile(file))}catch{res.writeHead(404);res.end()}});await new Promise(r=>server.listen(8199,'127.0.0.1',r));
  const writes=[],errors=[],checks=[];const deck=JSON.parse(await fs.readFile(path.join(root,'fixtures/courseware-quality-v2.json'),'utf8'));deck.slides=deck.slides.slice(0,3);deck.slides.forEach((s,i)=>s.id='slide-'+i);
+ const animationScript=JSON.parse(await fs.readFile(path.join(root,'fixtures/animation-v2-linear-k.json'),'utf8'));let animationTask=null;
  const task={id:'conversation-fixture',type:'courseware',status:'pending',mode:'live',revision:1,cost:20,input:{topic:'二次函数',subject:'数学',grade:'九年级',preview_first:true},result:null,events:[],sources:[],slide_reviews:[]};
+ let animationOnly=false;
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9298','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page;for(let i=0;i<50;i++){try{page=(await fetch('http://127.0.0.1:9298/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(100)}assert.ok(page);
  socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});let serial=0;const pending=new Map();
@@ -13,16 +16,21 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method!=='Fetch.requestPaused')return;const {requestId,request}=m.params,p=new URL(request.url).pathname;let reply,code=200,contentType='application/json';
   if(request.method!=='GET')writes.push({path:p,data:JSON.parse(request.postData||'{}')});
-  if(p==='/api/health')reply={status:'ok',mode:'live',courseware_quality_configured:true,courseware_content_review_enabled:false,courseware_media_version:'media-v1',courseware_studio_version:'studio-v1'};
-  else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'林老师',role:'teacher',permissions:['courseware.generate']};
+  if(p==='/api/health')reply={status:'ok',mode:'live',animation_configured:true,animation_html_version:'workflow-v1',courseware_quality_configured:true,courseware_content_review_enabled:false,courseware_media_version:'media-v1',courseware_studio_version:'studio-v1'};
+  else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'林老师',role:'teacher',permissions:['courseware.generate','animation.render']};
   else if(p==='/api/tenants')reply=[{id:1,name:'测试教研空间'}];
   else if(p==='/api/billing')reply={balance:100,reserved:0,available:100,plan:'basic',products:[],orders:[],ledger:[]};
-  else if(p==='/api/tasks')reply=request.method==='POST'?{id:task.id}:[];
+  else if(p==='/api/tasks'){if(request.method==='POST'){const data=JSON.parse(request.postData);if(data.type==='animation'){animationTask={id:'inline-animation',type:'animation',mode:'live',status:'anim_plan',revision:1,cost:40,input:data,result:null,events:[],sources:[]};reply={id:animationTask.id}}else reply={id:task.id}}else reply=[];}
+  else if(p==='/api/tasks/inline-animation')reply=animationTask;
+  else if(p==='/api/tasks/inline-animation/animation')reply={id:animationTask.id,status:animationTask.status,revision:1,script:animationScript,charge_state:'unreserved',free_used:{},has_preview:false,has_delivery:false};
+  else if(p.includes('/slides/')&&p.endsWith('/preview')){contentType='image/svg+xml';reply='<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="#faf6ff"/><text x="90" y="150" fill="#59358b" font-size="50">PPT preview fixture</text></svg>';}
   else if(p==='/api/tasks/'+task.id)reply=task;
   else if(p.endsWith('/conversation'))reply=[];
   else if(p.endsWith('/events')){reply=': fixture\n\n';contentType='text/event-stream'}
   else {errors.push('Unexpected API '+p);code=404;reply={message:'Missing fixture'}}
-  call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:Buffer.from(typeof reply==='string'?reply:JSON.stringify(reply)).toString('base64')}).catch(e=>errors.push(String(e)));
+  if(animationOnly&&p==='/api/health')reply.teaching_features_version='teaching-v1';
+  if(animationOnly&&p==='/api/auth/me')reply.permissions=['animation.render'];
+  call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:Buffer.from(typeof reply==='string'?reply:JSON.stringify(reply)).toString('base64')}).catch(e=>{if(!animationOnly||!String(e).includes('Invalid InterceptionId'))errors.push(String(e))});
  };
  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
  const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(50)}throw Error('UI timeout '+expression)};
@@ -31,7 +39,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  const shot=async name=>{await fs.writeFile(path.join(out,name+'.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'))};
  await call('Page.enable');await call('Runtime.enable');await call('Fetch.enable',{patterns:[{urlPattern:'*/api/*'}]});
  await call('Page.addScriptToEvaluateOnNewDocument',{source:"sessionStorage.setItem('edu_token','fixture-token');localStorage.setItem('edu_sidebar_collapsed','0')"});
- await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:process.env.TEST_APP_URL||'http://127.0.0.1:5173'});
+ await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:process.env.TEST_APP_URL||'http://127.0.0.1:8199'});
  await wait("!!document.querySelector('.brief-composer textarea')");
  assert.ok(await evaluate("(()=>{const r=document.querySelector('.home-main-grid').getBoundingClientRect(),m=document.querySelector('main').getBoundingClientRect();return r.width<=980&&Math.abs((r.left+r.right-m.left-m.right)/2)<2})()"),'First-screen conversation is centered at a comfortable reading width');
  assert.ok(await evaluate("(()=>{const p=document.querySelector('.home-preparation').getBoundingClientRect(),c=document.querySelector('.home-main-grid').getBoundingClientRect();return p.top>=c.bottom&&p.bottom<innerHeight})()"),'Useful preparation shortcuts sit below the conversation');
@@ -47,7 +55,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  assert.ok(await evaluate("document.querySelector('.brief-composer textarea').getBoundingClientRect().bottom<innerHeight"));await shot('home-desktop');
  checks.push('First screen starts with conversation; settings are optional and collapsed; no invented default topic');
  await evaluate(`(()=>{const original=window.fetch.bind(window);window.__briefRequests=[];window.fetch=(url,options={})=>{
-  if(!String(url).endsWith('/courseware/brief'))return original(url,options);
+  if(!String(url).endsWith('/workspace/brief'))return original(url,options);
   window.__briefRequests.push(JSON.parse(options.body));
   return Promise.resolve(new Response(new ReadableStream({start(controller){const encode=new TextEncoder();window.__event=(event,data)=>{const bytes=encode.encode('event: '+event+'\\ndata: '+JSON.stringify(data)+'\\n\\n');controller.enqueue(bytes.slice(0,17));controller.enqueue(bytes.slice(17))};window.__end=()=>controller.close();options.signal?.addEventListener('abort',()=>controller.error(new DOMException('Stopped','AbortError')),{once:true});window.__event('start',{mode:'live'});window.__event('delta',{text:'先从生活情境开始，'});}}),{headers:{'Content-Type':'text/event-stream'}}));
  }})()`);
@@ -55,13 +63,14 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await wait("document.querySelector('article.brief-bubble.assistant p')?.textContent.includes('先从生活情境')");
  assert.equal(await evaluate("document.querySelector('.brief-topic input').value"),'','Partial stream must not apply settings');
  assert.equal(writes.length,0);assert.ok(await evaluate("document.querySelector('.brief-composer textarea').value.includes('二次函数')"));
- const result={reply:'先从生活情境开始，再安排练习。<img src=x onerror=alert(1)>',mode:'live',settings:{topic:'二次函数',subject:'数学',grade:'九年级',lesson_minutes:40,student_level:'基础偏弱'},blocks:[{title:'这堂课的安排',rows:[{label:'课题',value:'二次函数'},{label:'年级',value:'九年级'},{label:'课时（分钟）',value:'40'}]},{title:'教学重点',rows:[{label:'学生基础',value:'基础偏弱'}]}]};
+ const result={tool:'courseware',action:'discuss',reply:'先从生活情境开始，再安排练习。<img src=x onerror=alert(1)>',mode:'live',settings:{topic:'二次函数',subject:'数学',grade:'九年级',lesson_minutes:40,student_level:'基础偏弱'},blocks:[{title:'这堂课的安排',rows:[{label:'课题',value:'二次函数'},{label:'年级',value:'九年级'},{label:'课时（分钟）',value:'40'}]},{title:'教学重点',rows:[{label:'学生基础',value:'基础偏弱'}]}]};
  await evaluate(`window.__briefResult=${JSON.stringify(result)};window.__event('delta',{text:'再安排练习。'});for(const block of window.__briefResult.blocks)window.__event('block',block);window.__event('done',window.__briefResult);window.__end()`);
  await wait("!document.querySelector('.brief-composer textarea').disabled&&document.querySelectorAll('.brief-requirement-block').length===2");
  assert.equal(await evaluate("document.querySelector('.brief-topic input').value"),'二次函数');assert.equal(await evaluate("document.querySelectorAll('.brief-requirement-block table').length"),2);
  assert.equal(await evaluate("document.querySelector('article.brief-bubble.assistant img')"),null,'Model output must remain escaped text');assert.equal(writes.length,0);await shot('requirements-desktop');
  checks.push('Text arrives before completion; validated settings update after completion; requirement tables render as escaped blocks without creating tasks');
- assert.ok(await evaluate("document.querySelector('.home-dialogue').getBoundingClientRect().width/document.querySelector('.home-main-grid').getBoundingClientRect().width>.98"),'Conversation uses the whole available row');
+ assert.ok(await evaluate("document.querySelector('.home-dialogue').getBoundingClientRect().width/document.querySelector('main').getBoundingClientRect().width>.9"),'Expanded conversation fills the page');
+ assert.equal(await evaluate("getComputedStyle(document.querySelector('.home-recent')).display"),'none');
  await fill('[aria-label="修改课题"]','二次函数的图像');
  await fill('[aria-label="修改课时（分钟）"]','5');
  await click('.brief-block-actions button');
@@ -73,6 +82,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  for(const [width,height]of [[1440,900],[1366,768],[1024,768],[390,844]]){
   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await evaluate('window.scrollTo(0,0)');
   assert.ok(await evaluate("document.querySelector('.brief-action-buttons').getBoundingClientRect().bottom<=innerHeight"),'Active conversation actions visible at '+width);
+  assert.ok(await evaluate("document.querySelector('.brief-composer').getBoundingClientRect().height<=(innerWidth<600?200:160)"),'Expanded composer stays compact at '+width);
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'Editable tables do not cause horizontal overflow at '+width);await shot('chat-'+width);
  }
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
@@ -81,7 +91,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  assert.equal(await evaluate("window.__briefRequests.at(-1).input.topic"),'二次函数的图像');
  assert.equal(await evaluate("window.__briefRequests.at(-1).input.lesson_minutes"),50);
  assert.equal(await evaluate("document.querySelector('[aria-label=\"修改课题\"]').disabled"),true,'Table settings are locked while a reply is streaming');
- await click('.brief-composer button[type=button]');await wait("!!document.querySelector('.brief-composer .error')");
+ await click('.brief-action-buttons button[type=button]');await wait("!!document.querySelector('.brief-composer .error')");
  assert.equal(await evaluate("document.querySelector('.brief-composer textarea').value"),'再加一道探究题');assert.equal(await evaluate("document.querySelector('.brief-topic input').value"),'二次函数的图像');assert.equal(writes.length,0);
  assert.equal(await evaluate("document.querySelector('[aria-label=\"修改课题\"]').disabled"),false,'Last accepted table stays editable after stopping');
  checks.push('Inline edits preserve the transcript, validate minutes, sync settings and reach the next chat request');
@@ -97,13 +107,35 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await fill('.brief-composer textarea','改成45分钟，直接制作');await click('.brief-direct');await wait("window.__briefRequests.length===4");
  assert.equal(await evaluate("window.__briefRequests.at(-1).intent"),'generate');
  assert.equal(writes.length,0,'Direct action must await completed validated settings');
- await evaluate("window.__briefResult.settings={lesson_minutes:45};window.__event('done',window.__briefResult);window.__end()");
- await wait("!!document.querySelector('.courseware-studio')");
+ await evaluate("window.__briefResult.action='generate';window.__briefResult.settings={lesson_minutes:45};window.__event('done',window.__briefResult);window.__end()");
+ await wait("!!document.querySelector('.home-tool-result .courseware-studio')");
+ assert.equal(await evaluate("document.querySelector('.app-shell').dataset.page"),'home','Tool execution stays in homepage conversation');
+ await click('.brief-direct');assert.equal(writes.filter(w=>w.path==='/api/tasks').length,1,'Repeated start cannot duplicate an existing result');
  const created=writes.filter(w=>w.path==='/api/tasks');assert.equal(created.length,1);assert.equal(created[0].data.topic,'二次函数的图像');assert.equal(created[0].data.grade,'九年级');assert.equal(created[0].data.lesson_minutes,45);assert.equal(created[0].data.preview_first,true);assert.ok(created[0].data.requirements.includes('教师手工摘要'));assert.ok(created[0].data.requirements.includes('课时：45分钟'));
  assert.equal(created[0].data.detail,'concise');assert.equal(created[0].data.textbook,'人教版（教师核对）');assert.equal(created[0].data.objectives,'解释图像变化，并完成两道独立练习。');
  checks.push('Direct generation is an explicit user action; unsent additions and manual summary reach one preview-first task');
- await click('.sidebar nav button:first-child');await wait("!!document.querySelector('.brief-composer textarea')");
- for(const [width,height]of [[1366,768],[1024,768],[390,844]]){await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await evaluate('window.scrollTo(0,0)');assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'));await shot('home-'+width);assert.ok(await evaluate("document.querySelector('.brief-composer textarea').getBoundingClientRect().bottom<innerHeight"),'Input visible at '+width)}
- checks.push('Desktop, short desktop and mobile preserve input visibility without horizontal overflow');
- assert.deepEqual(errors,[]);await fs.writeFile(path.join(out,'checks.json'),JSON.stringify({checks,errors,task_creates:created.length},null,2));console.log(JSON.stringify({checks}));await call('Browser.close');socket.close();
-})().catch(e=>{console.error(e.stack);process.exitCode=1;socket?.close();browser?.kill()});
+ task.status='awaiting_preview';task.revision=2;task.result=deck;task.preview_images_available=true;task.preview_slide_ids=deck.slides.map(s=>s.id);
+ await wait("document.querySelectorAll('.home-tool-result .studio-page-thumbnail').length===3");
+ assert.ok(await evaluate("document.querySelector('.home-tool-result .studio-slide img')?.src.startsWith('blob:')||document.querySelector('.home-tool-result img')?.src.startsWith('blob:')"),'Authenticated PPT preview is embedded');
+ await shot('inline-ppt-desktop');
+ await fill('.brief-composer textarea','再帮我制作一次函数教学动画，比较斜率变化');await click('.brief-composer button[type=submit]');await wait("window.__briefRequests.length===5");
+ await evaluate("window.__event('done',{tool:'animation',action:'generate',reply:'先制作规则意识讲解方案，确认前不预留积分。',mode:'live',settings:{topic:'规则意识',subject:'道德与法治'},blocks:[]});window.__end()");
+ await wait("!!document.querySelector('[data-result-tool=animation] .anim-scenes')||document.querySelector('[data-result-tool=animation]')?.innerText.includes('确认方案')");
+ assert.equal(writes.filter(w=>w.path==='/api/tasks').length,2,'One execution per explicit request');
+ assert.equal(writes.filter(w=>w.path==='/api/tasks')[1].data.animation_engine,'html');
+ assert.equal(writes.filter(w=>w.path==='/api/tasks')[1].data.subject,'道德与法治','General subjects reach the actual task request');
+ assert.equal(writes.some(w=>w.path.endsWith('/confirm-plan')),false,'Chat cannot auto-reserve animation credits');
+ assert.equal(await evaluate("document.querySelectorAll('.home-tool-result').length"),2);
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble.user').length"),5,'Switching tools preserves conversation');
+ checks.push('Homepage invokes either tool and keeps independent inline PPT and animation results');
+ await shot('inline-animation-desktop');
+ for(const [width,height]of [[1366,768],[1024,768],[390,844]]){await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await evaluate('window.scrollTo(0,0)');assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'Inline results fit '+width);assert.ok(await evaluate("document.querySelector('.brief-composer textarea').getBoundingClientRect().bottom<innerHeight"),'Composer stays visible '+width);await shot('inline-'+width)}
+ await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+ await click('.sidebar nav button:nth-child(2)');await wait("!!document.querySelector('.home-tool-grid')");await click('.sidebar nav button:first-child');await wait("document.querySelectorAll('.home-tool-result').length===2");assert.equal(writes.filter(w=>w.path==='/api/tasks').length,2,'Returning home cannot duplicate a task');
+ checks.push('Navigation preserves the conversation and independent results without duplicate creation');
+ animationOnly=true;await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");await sleep(200);
+ assert.equal(await evaluate("document.querySelector('.home-tool-switch button:last-child')?.disabled"),false,'Animation-only member can select animation');
+ assert.deepEqual(errors,[],'Animation-only homepage cannot fetch restricted courseware materials');
+ checks.push('Animation-only members can use homepage without requesting restricted courseware materials');
+ assert.deepEqual(errors,[]);await fs.writeFile(path.join(out,'checks.json'),JSON.stringify({checks,errors,task_creates:writes.filter(w=>w.path==='/api/tasks').length},null,2));console.log(JSON.stringify({checks}));await call('Browser.close');socket.close();await new Promise(r=>server.close(r));
+})().catch(e=>{console.error(e.stack);process.exitCode=1;socket?.close();browser?.kill();server?.close()});
