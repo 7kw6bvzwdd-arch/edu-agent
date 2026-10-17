@@ -29,6 +29,13 @@ process.stdout.write('restricted-ready');`
 	}
 	cmd := exec.CommandContext(ctx, "node", "-e", script)
 	release, err := restrictExportProcess(cmd)
+	if runtime.GOOS == "windows" && err != nil && err.Error() == "video export requires a non-administrator service account" {
+		// Elevated CI must prove the production guard refuses execution.
+		if cmd.Process != nil || release != nil {
+			t.Fatal("administrator export was started or admitted")
+		}
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

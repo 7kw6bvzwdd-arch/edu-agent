@@ -24,5 +24,11 @@ with tempfile.TemporaryDirectory() as directory:
     assert result.returncode == 0, result.stderr
     assert git('rev-parse', 'HEAD').stdout.strip() in result.stdout
     assert 'published baseline' not in result.stdout, 'Inspection must print metadata only'
+    commit = git('rev-parse', 'HEAD').stdout.strip()
+    result = subprocess.run(base + ['--commit', commit, '--inspect'], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert commit in result.stdout, 'Commit releases must preserve the exact source identity'
+    result = subprocess.run(base + ['--commit', 'HEAD', '--inspect'], capture_output=True, text=True)
+    assert result.returncode != 0, 'Commit releases require a full immutable hash'
     assert (root / 'version.txt').read_text() == 'unpublished change', 'Release must not modify the working tree'
-print('PASS: exact tag resolution, dirty-tree isolation and metadata-only inspection')
+print('PASS: exact tag/commit resolution, dirty-tree isolation and metadata-only inspection')

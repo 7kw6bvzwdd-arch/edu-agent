@@ -1,28 +1,39 @@
-"""Build all deployable components from one exact local Git tag."""
+"""Build all deployable components from one exact Git tag or full commit."""
 import argparse
 import hashlib
 import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--tag', required=True)
+revision = parser.add_mutually_exclusive_group(required=True)
+revision.add_argument('--tag')
+revision.add_argument('--commit', help='Full immutable 40-character Git commit hash')
 parser.add_argument('--repo', type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[1])
 parser.add_argument('--output', type=pathlib.Path)
-parser.add_argument('--inspect', action='store_true', help='Validate tag and report commit without building')
+parser.add_argument('--inspect', action='store_true', help='Validate revision and report commit without building')
 args = parser.parse_args()
 repo = args.repo.resolve()
 def git(*command):
     return subprocess.check_output(['git', '-C', str(repo), *command])
 try:
-    if args.tag not in git('tag', '--list').decode().splitlines():
-        raise ValueError('An exact existing Git tag is required')
-    commit = git('rev-parse', '--verify', 'refs/tags/' + args.tag + '^{commit}').decode().strip()
+    if args.commit:
+        if not re.fullmatch(r'[0-9a-f]{40}', args.commit):
+            raise ValueError('A full immutable Git commit hash is required')
+        commit = git('rev-parse', '--verify', args.commit + '^{commit}').decode().strip()
+        if commit != args.commit:
+            raise ValueError('Commit identity mismatch')
+        args.tag = 'commit-' + commit[:12]
+    else:
+        if args.tag not in git('tag', '--list').decode().splitlines():
+            raise ValueError('An exact existing Git tag is required')
+        commit = git('rev-parse', '--verify', 'refs/tags/' + args.tag + '^{commit}').decode().strip()
 except (ValueError, subprocess.CalledProcessError) as error:
     parser.exit(2, str(error) + '\n')
 metadata = {'tag': args.tag, 'commit': commit, 'platform': os.name}
