@@ -38,6 +38,27 @@ type animGenerationRecord struct {
 	Voice        string `json:"voice"`
 }
 
+type animModelReply struct {
+	Choices []struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+	Usage struct {
+		Prompt     int `json:"prompt_tokens"`
+		Completion int `json:"completion_tokens"`
+	} `json:"usage"`
+}
+
+func animModelPayload(model string, messages []map[string]string) map[string]any {
+	payload := map[string]any{"model": model, "messages": messages, "max_tokens": 12000, "response_format": map[string]string{"type": "json_object"}}
+	if model == "deepseek-flash" {
+		payload["thinking"] = map[string]string{"type": "disabled"}
+	}
+	return payload
+}
+
 func animGenerateCommand(ctx context.Context, briefPath, out, voice string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -82,27 +103,13 @@ func animGenerateCommand(ctx context.Context, briefPath, out, voice string) erro
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		payload := map[string]any{"model": model, "messages": messages, "max_tokens": 12000, "response_format": map[string]string{"type": "json_object"}}
-		if model == "deepseek-flash" {
-			payload["thinking"] = map[string]string{"type": "disabled"}
-		}
+		payload := animModelPayload(model, messages)
 		record.Calls++
 		b, err := server.postBytesWithClient(ctx, client, endpoint, payload, key)
 		if err != nil {
 			return fmt.Errorf("动画模型调用失败（第%d次）：%w", record.Calls, err)
 		}
-		var reply struct {
-			Choices []struct {
-				FinishReason string `json:"finish_reason"`
-				Message      struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-			Usage struct {
-				Prompt     int `json:"prompt_tokens"`
-				Completion int `json:"completion_tokens"`
-			} `json:"usage"`
-		}
+		var reply animModelReply
 		if json.Unmarshal(b, &reply) != nil || len(reply.Choices) != 1 {
 			return fmt.Errorf("动画模型响应无法解析或未返回唯一结果")
 		}
@@ -120,13 +127,7 @@ func animGenerateCommand(ctx context.Context, briefPath, out, voice string) erro
 				problems = append(problems, "生成原型与教师课题不一致")
 			}
 			if len(problems) == 0 {
-				ms := map[string]int{}
-				for _, scene := range sc.Scenes {
-					for _, n := range scene.Narration {
-						ms[n.ID] = estimateSpeechMS(n.Speech)
-					}
-				}
-				_, problems = buildAnimTimeline(sc, ms)
+				problems = animEstimatedProblems(sc)
 			}
 		}
 		if len(problems) == 0 {

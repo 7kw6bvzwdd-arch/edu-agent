@@ -722,10 +722,7 @@ func (s *Server) animGenerate(ctx context.Context, a Actor, t animTask) (AnimScr
 		if e = s.animCount(ctx, a, t, kind); e != nil {
 			return sc, e
 		}
-		payload := map[string]any{"model": s.cfg.AnimationLLMModel, "messages": messages, "max_tokens": 12000, "response_format": map[string]string{"type": "json_object"}}
-		if s.cfg.AnimationLLMModel == "deepseek-flash" {
-			payload["thinking"] = map[string]string{"type": "disabled"}
-		}
+		payload := animModelPayload(s.cfg.AnimationLLMModel, messages)
 
 		start := time.Now()
 		b, err := s.postBytesWithClient(ctx, client, endpoint, payload, s.cfg.AnimationLLMKey)
@@ -733,20 +730,13 @@ func (s *Server) animGenerate(ctx context.Context, a Actor, t animTask) (AnimScr
 		if err != nil {
 			return sc, fmt.Errorf("动画模型调用失败")
 		}
-		var reply struct {
-			Choices []struct {
-				Finish  string `json:"finish_reason"`
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-		}
+		var reply animModelReply
 		if json.Unmarshal(b, &reply) != nil || len(reply.Choices) != 1 {
 			return sc, fmt.Errorf("模型响应不完整")
 		}
 		content := reply.Choices[0].Message.Content
 		var problems []string
-		if reply.Choices[0].Finish != "stop" {
+		if reply.Choices[0].FinishReason != "stop" {
 			problems = []string{"输出未完整结束"}
 		} else {
 			sc, problems = decodeAnimScript([]byte(content))
@@ -787,13 +777,7 @@ func (s *Server) animGenerate(ctx context.Context, a Actor, t animTask) (AnimScr
 			}
 		}
 		if len(problems) == 0 {
-			ms := map[string]int{}
-			for _, scene := range sc.Scenes {
-				for _, n := range scene.Narration {
-					ms[n.ID] = estimateSpeechMS(n.Speech)
-				}
-			}
-			_, problems = buildAnimTimeline(sc, ms)
+			problems = animEstimatedProblems(sc)
 		}
 		if len(problems) == 0 {
 			return sc, nil
@@ -1090,12 +1074,5 @@ func animRevisionProblems(old, sc AnimScript) []string {
 			}
 		}
 	}
-	ms := map[string]int{}
-	for _, scene := range sc.Scenes {
-		for _, n := range scene.Narration {
-			ms[n.ID] = estimateSpeechMS(n.Speech)
-		}
-	}
-	_, p := buildAnimTimeline(sc, ms)
-	return p
+	return animEstimatedProblems(sc)
 }

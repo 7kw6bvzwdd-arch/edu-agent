@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Intercept every API request: no production account, task or model writes.
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
@@ -20,11 +21,8 @@ let browser,socket;
  for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9286/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
  assert.ok(page,'Edge starts');socket=new WebSocket(page.webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
- let seq=0;const pending=new Map();
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>reject(Error('CDP timeout: '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
- socket.onmessage=e=>{
-  const m=JSON.parse(e.data);
-  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+
+ const { call, evaluate } = createCDP(socket, m => {
   if(m.method==='Page.javascriptDialogOpening')call('Page.handleJavaScriptDialog',{accept:true}).catch(e=>errors.push(String(e)));
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method!=='Fetch.requestPaused')return;
@@ -60,8 +58,7 @@ let browser,socket;
   else{errors.push('Unexpected API: '+p);code=404;reply={}}
   const deliver=()=>call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:(body||Buffer.from(JSON.stringify(reply))).toString('base64')}).catch(e=>errors.push(String(e)));
   if(p.endsWith('/canvas-preview'))setTimeout(deliver,previewDelay);else deliver();
- };
- const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(100)}throw Error('UI timeout: '+expression+'\n'+await evaluate('document.body.innerText.slice(-2000)')+'\n'+JSON.stringify(errors))};
  const click=label=>evaluate(`(()=>{const b=[...(document.querySelector('.classroom-presentation')||document).querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)}));if(!b||b.disabled)throw Error('Missing button');b.click()})()`);
  const srcs=()=>evaluate("[...document.querySelectorAll('.studio-slide-picture img')].map(i=>i.src)");

@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Test built UI against intercepted fixture APIs; no login, generation or writes reach the backend.
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -21,11 +22,8 @@ let browser, socket;
   assert.ok(page,'browser started');
   socket=new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
-  let sequence=0;const pending=new Map();
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>reject(Error('CDP timeout: '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
-  socket.onmessage=event=>{
-    const m=JSON.parse(event.data);
-    if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+
+  const { call, evaluate } = createCDP(socket, m => {
     if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
     if(m.method==='Fetch.requestPaused'){
       const {requestId,request}=m.params;const url=new URL(request.url);let reply,code=200;
@@ -42,8 +40,7 @@ let browser, socket;
       else {code=400;reply={message:'Unexpected fixture request'};errors.push(request.method+' '+url.pathname)}
       call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(reply)).toString('base64')}).catch(e=>errors.push(String(e)));
     }
-  };
-  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+  });
   const wait=async expression=>{for(let i=0;i<50;i++){if(await evaluate(expression))return;await sleep(100)}throw Error('UI timeout: '+expression)};
   const click=async label=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)}));if(!b)throw Error('Button missing');b.click()})()`);
   await call('Runtime.enable');await call('Page.enable');

@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 type Product struct {
@@ -351,11 +349,4 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 		}
 	}
 	return tx.Commit(ctx)
-}
-func parseTime(v any) string {
-	if t, ok := v.(time.Time); ok {
-		return t.Format(time.RFC3339)
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
 }

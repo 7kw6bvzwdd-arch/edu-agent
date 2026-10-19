@@ -226,8 +226,7 @@ const worksStatusOptions = computed(() =>
     )
   )
 );
-const price = computed(() => (page.value === 'animation' ? 40 : 20)),
-  finished = computed(() => ['succeeded', 'degraded'].includes(task.value?.status));
+const finished = computed(() => ['succeeded', 'degraded'].includes(task.value?.status));
 const canEdit = computed(
     () =>
       !busy.value &&

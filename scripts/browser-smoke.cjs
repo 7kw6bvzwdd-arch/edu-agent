@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
@@ -24,14 +25,10 @@ let socket;
   if(!pages)throw Error('Headless browser did not expose its debugging endpoint. '+errors.join('; '));
   socket = new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
-  let id=0;const pending=new Map();
-  socket.onmessage = event=>{
-    const m=JSON.parse(event.data);
-    if(m.id){const p=pending.get(m.id);if(!p)return;pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}
+
+  const { call, evaluate } = createCDP(socket, m => {
     if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text+': '+(m.params.exceptionDetails.exception?.description||''));
-  };
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;const timer=setTimeout(()=>{pending.delete(n);reject(Error('Timed out: '+method))},10000);pending.set(n,{resolve,reject,timer});socket.send(JSON.stringify({id:n,method,params}))});
-  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+  }, 10000);
   await call('Runtime.enable');await call('Page.enable');
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
   await call('Page.navigate',{url:'http://127.0.0.1:8080'});

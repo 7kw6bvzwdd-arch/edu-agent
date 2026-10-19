@@ -117,3 +117,14 @@ func buildAnimTimeline(sc AnimScript, audioMS map[string]int) (AnimTimeline, []s
 	}
 	return tl, p
 }
+
+func animEstimatedProblems(sc AnimScript) []string {
+	ms := map[string]int{}
+	for _, scene := range sc.Scenes {
+		for _, n := range scene.Narration {
+			ms[n.ID] = estimateSpeechMS(n.Speech)
+		}
+	}
+	_, problems := buildAnimTimeline(sc, ms)
+	return problems
+}

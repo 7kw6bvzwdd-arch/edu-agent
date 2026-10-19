@@ -118,7 +118,7 @@ func TestTextProviderContractAndFabricatedCitation(t *testing.T) {
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}, "usage": map[string]int{"prompt_tokens": 120, "completion_tokens": 240}})
 	}))
 	defer provider.Close()
-	s, e := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Mode: "live", Storage: t.TempDir(), LLMURL: provider.URL + "/api/v3", LLMKey: "test-key", LLMModel: "test-text-model"})
+	s, e := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Mode: "live", Storage: t.TempDir(), RenderURL: os.Getenv("TEST_RENDER_URL"), LLMURL: provider.URL + "/api/v3", LLMKey: "test-key", LLMModel: "test-text-model"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -134,15 +134,15 @@ func TestTextProviderContractAndFabricatedCitation(t *testing.T) {
 		t.Fatal(e)
 	}
 	a := Actor{TenantID: 1, MemberID: member}
-	d, e := s.generate(context.Background(), a, "contract-check", TaskInput{Topic: "浮力", Pages: 8, Theme: "forest"}, nil)
+	d, e := s.generate(context.Background(), a, "contract-check", TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest"}, nil)
 	if e != nil || len(d.Slides) != 8 || !d.NeedsReview {
 		t.Fatal("provider contract", e)
 	}
 	invalidCitation = true
-	if _, e = s.generate(context.Background(), a, "citation-check", TaskInput{Topic: "浮力", Pages: 8, Theme: "forest"}, nil); e == nil {
+	if _, e = s.generate(context.Background(), a, "citation-check", TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest"}, nil); e == nil {
 		t.Fatal("fabricated citation accepted")
 	}
-	if calls != 2 {
+	if calls != 3 {
 		t.Fatal("unexpected provider calls", calls)
 	}
 }

@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Opens a built offline animation package in headless Edge with the network
 // disabled and checks playback behaviour. Usage: node scripts/browser-animation-package.cjs <package.html>
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
@@ -12,16 +13,12 @@ let browser,socket;
  for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9271/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
  assert.ok(page,'Edge starts');socket=new WebSocket(page.webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
- let seq=0;const pending=new Map(),errors=[],requests=[],checks=[];
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>reject(Error('CDP timeout: '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
- socket.onmessage=e=>{
-  const m=JSON.parse(e.data);
-  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+ const errors=[],requests=[],checks=[];
+ const { call, evaluate: ev } = createCDP(socket, m => {
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);
   if(m.method==='Log.entryAdded'&&m.params.entry.level==='error')errors.push(m.params.entry.text);
   if(m.method==='Network.requestWillBeSent'){const u=m.params.request.url;if(!u.startsWith('data:')&&!u.startsWith('file:'))requests.push(u)}
- };
- const ev=async(expr)=>{const r=await call('Runtime.evaluate',{expression:expr,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const ok=(name,cond,detail)=>{checks.push({name,pass:!!cond,detail});if(!cond)console.error('FAIL',name,detail??'')};
  await call('Runtime.enable');await call('Log.enable');await call('Network.enable');await call('Page.enable');
  await call('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0});

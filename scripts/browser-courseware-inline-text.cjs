@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Intercept every API request: no production account, task or model writes.
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
@@ -19,11 +20,8 @@ let browser,socket;
  for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9285/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
  assert.ok(page,'Edge starts');socket=new WebSocket(page.webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
- let seq=0;const pending=new Map();
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>reject(Error('CDP timeout: '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
- socket.onmessage=e=>{
-  const m=JSON.parse(e.data);
-  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+
+ const { call, evaluate } = createCDP(socket, m => {
   if(m.method==='Page.javascriptDialogOpening')call('Page.handleJavaScriptDialog',{accept:true}).catch(e=>errors.push(String(e)));
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method!=='Fetch.requestPaused')return;
@@ -33,7 +31,7 @@ let browser,socket;
   else if(p==='/api/documents/document-fixture/reparse'&&request.method==='POST'){reparsed++;documents[0].status='pending';reply={ok:true}}
   else if(p==='/api/documents'&&request.method==='GET')reply=documents;
   else if(p==='/api/tasks'&&request.method==='POST'){created++;creation=JSON.parse(request.postData);task.status='awaiting_preview';task.input=creation;task.result=deck;deck.slides[0].focus='课堂问题';task.revision=3;task.slide_reviews=deck.slides.map(s=>({id:s.id,hash:'hash-'+s.id,approved:false,vote:s.id==='slide-0'?-1:0,reason:'历史改进意见'}));reply={id:task.id}}
-  else if(p==='/api/courseware/brief'&&request.method==='POST')reply={reply:'请补充课堂探究活动。',mode:'sample'};
+  else if(p==='/api/courseware/brief'&&request.method==='POST')reply={reply:'已记录浮力教学需求。',mode:'sample',settings:{topic:'浮力'}};
   else if(p==='/api/tasks/'+task.id+'/draft'&&request.method==='POST'){const b=JSON.parse(request.postData);if(failSaveOnce){failSaveOnce=false;code=422;reply={message:'文字过密，请缩短要点；原版本保留'}}else if(b.revision!==task.revision){code=409;reply={message:'当前版本已变化'}}else{const old=task.result;task.result=b.result;task.revision++;saved++;task.slide_reviews=task.result.slides.map(s=>JSON.stringify(s)===JSON.stringify(old.slides.find(o=>o.id===s.id))?task.slide_reviews.find(m=>m.id===s.id):({id:s.id,hash:'saved-'+s.id,approved:false,vote:0}));reply={ok:true}}}
   else if(p.endsWith('/feedback')&&request.method==='POST'){const b=JSON.parse(request.postData),id=p.split('/').at(-2);assert.equal(b.vote,0);task.slide_reviews.find(s=>s.id===id).vote=0;reply={ok:true}}
   else if(p.endsWith('/review')&&request.method==='POST'){const b=JSON.parse(request.postData),id=p.split('/').at(-2);assert.equal(b.revision,task.revision);const m=task.slide_reviews.find(s=>s.id===id);assert.equal(b.hash,m.hash);assert.equal(m.vote,0);m.approved=b.approved;reviews.set(id,b);reply={ok:true}}
@@ -57,8 +55,7 @@ let browser,socket;
   else if(p.endsWith('/preview')){previews++;contentType='image/png';body=png}
   else{errors.push('Unexpected API: '+p);code=404;reply={}}
   call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:(body||Buffer.from(JSON.stringify(reply))).toString('base64')}).catch(e=>errors.push(String(e)));
- };
- const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(100)}throw Error('UI timeout: '+expression+'\n'+await evaluate('document.body.innerText.slice(-2000)')+'\n'+JSON.stringify(errors))};
  const click=label=>evaluate(`(()=>{const b=[...(document.querySelector('.classroom-presentation')||document).querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)}));if(!b||b.disabled)throw Error('Missing button');b.click()})()`);
  const srcs=()=>evaluate("[...document.querySelectorAll('.studio-slide-picture img')].map(i=>i.src)");
@@ -84,14 +81,14 @@ let browser,socket;
  await click('知识与来源');await wait("document.querySelector('.document-row')?.innerText.includes('已就绪')");await click('重新解析');await wait("document.querySelector('.document-row')?.innerText.includes('排队中')");assert.equal(reparsed,1);assert.equal(await evaluate("[...document.querySelectorAll('.document-row button')].some(b=>b.textContent==='重新解析')"),false);checks.push('Reparse confirmation queues existing document once, pending state prevents repeated request');
  await click('我的作品');await wait("!!document.querySelector('.task-open')");await evaluate("document.querySelector('.task-open').click()");
  await wait("document.querySelectorAll('.studio-slide-picture img').length===3");
- await evaluate("document.querySelector('.claim-sources summary').click()");await wait("document.querySelector('.claim-sources').innerText.includes('文件第7页')");assert.ok(await evaluate("document.querySelector('.claim-sources').innerText.includes('人教版 教师标注样例版次')"));assert.ok(await evaluate("document.querySelector('.claim-sources blockquote').innerText.includes('浮力方向竖直向上')"));checks.push('Per-page actual excerpt, teacher edition and file-page distinction shown');
+ await evaluate("document.querySelector('.studio-reference-details summary').click()");await evaluate("document.querySelector('.claim-sources summary').click()");await wait("document.querySelector('.claim-sources').innerText.includes('文件第7页')");assert.ok(await evaluate("document.querySelector('.claim-sources').innerText.includes('人教版 教师标注样例版次')"));assert.ok(await evaluate("document.querySelector('.claim-sources blockquote').innerText.includes('浮力方向竖直向上')"));checks.push('Per-page actual excerpt, teacher edition and file-page distinction shown');
  task.status='succeeded';task.revision++;
  deck.slides[0]={...deck.slides[0],layout:'exercise',title:'计算与解释',bullets:['计算2+3','解释你的计算方法'],answer:'答案是5',notes:'TEACHER_ONLY_HINT'};
  deck.slides[1]={...deck.slides[1],title:'三角形',scientific:{kind:'triangle',title:'三边关系',sides:[3,4,5]},graph:null,diagram:'',chart:null,table:null,figure:null};
  deck.slides[2]={...deck.slides[2],title:'断路电流',scientific:{kind:'circuit',title:'断开的串联电路',voltage:6,resistances:[10,20],connection:'series',closed:false},graph:null,diagram:'',chart:null,table:null,figure:null};
- await evaluate("document.querySelector('.studio-header-actions button').click()");
+ await click('首页');
  await click('我的作品');await evaluate("document.querySelector('.task-open').click()");
- await wait("[...document.querySelectorAll('button')].some(b=>b.textContent==='课堂演示')");
+ await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='课堂演示')");
  await click('课堂演示');await wait("!!document.querySelector('.classroom-presentation')");
  assert.equal(await evaluate("document.querySelector('.classroom-presentation').innerText.includes('TEACHER_ONLY_HINT')"),false);
  assert.equal(await evaluate("document.querySelector('.classroom-presentation').innerText.includes('答案是5')"),false);
@@ -107,24 +104,25 @@ let browser,socket;
  await click('退出');await wait("!document.querySelector('.classroom-presentation')");
  assert.equal(await evaluate("document.querySelectorAll('[aria-label^=\"点赞\"],[aria-label^=\"点踩\"]').length"),0);
  await call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFile(path.join(output,'studio-desktop.png'),Buffer.from(r.data,'base64')));
- await click('新建课件');await wait("!!document.querySelector('.teaching-materials')");await evaluate("document.querySelector('.brief-parameters').open=true");
+ await click('新建课件');await wait("!!document.querySelector('.teaching-materials')");await evaluate("document.querySelector('.generator-materials').open=true");
  await wait("[...document.querySelectorAll('.teaching-materials select option')].some(o=>o.value==='textbook1')");
  const material=await evaluate("(()=>{const s=[...document.querySelectorAll('.teaching-materials label')].find(l=>l.textContent.startsWith('教材原文')).querySelector('select');s.value='textbook1';s.dispatchEvent(new Event('change',{bubbles:true}));return s.value})()");assert.equal(material,'textbook1');
  await click('查看匹配原文');await wait("document.querySelector('.teaching-materials').innerText.includes('y=kx+b，k不为零')");
  await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('查看原始页面'))");await click('查看原始页面');await wait("!!document.querySelector('.original-page img')");checks.push('Original PDF image in material preview');
  assert.ok(await evaluate("document.querySelector('.teaching-materials').innerText.includes('教师标注测试版次')"));assert.ok(await evaluate("document.querySelector('.teaching-materials').innerText.includes('目录只能定位章节')"));checks.push('Material preview preserves edition/chapter and directory warning');
  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
- await evaluate("document.querySelector('.brief-parameters').open=false;document.querySelector('.brief-summary details').open=true");
- await evaluate("(()=>{const x=document.querySelector('[aria-label=\"课件需求摘要\"]');x.value+='\\n教师自定义：先观察，再推导。';x.dispatchEvent(new Event('input',{bubbles:true}))})()");
- await click('确认需求，生成三页质量预览');await wait("!!document.querySelector('.courseware-studio')");await wait("!!document.querySelector('[aria-label=\"移动第1页对象\"]')");
+ await evaluate("document.querySelector('.generator-materials').open=false");
+ await evaluate("(()=>{const x=document.querySelector('.generator-topic-group textarea');x.value='浮力教学：先观察，再推导。';x.dispatchEvent(new Event('input',{bubbles:true}));const extra=document.querySelector('.generator-fields>label textarea');extra.value='教师自定义：先观察，再推导。';extra.dispatchEvent(new Event('input',{bubbles:true}))})()");
+ await click('生成三页预览');await wait("!!document.querySelector('.courseware-studio')");await wait("!!document.querySelector('[aria-label=\"移动第1页对象\"]')");
  assert.equal(created,1);assert.ok(creation.requirements.includes('教师自定义'));
  assert.equal(await evaluate("!!document.querySelector('.config-panel')||!!document.querySelector('.courseware-setup')"),false);
  assert.equal(await evaluate("document.querySelectorAll('[aria-label^=\"点赞\"],[aria-label^=\"点踩\"]').length"),0);
  await click('一键审核通过');await wait("document.querySelector('.studio-completion').innerText.includes('全部已审核')");
  assert.equal(reviews.size,3);assert.ok(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('确认预览，制作其余'))?.disabled===false"));
- await evaluate("document.querySelector('[aria-label=\"编辑第1页\"]').click()");
+ await evaluate("document.querySelector('.studio-page-rail button').click()");
+ await evaluate("document.querySelector('[aria-label=\"移动第1页对象\"]').click()");await wait("!!document.querySelector('.object-stage')");await evaluate("document.querySelector('.studio-content-settings').open=true");
  await evaluate("(()=>{const x=document.querySelector('.studio-slide-editor label input');x.value='教师直接编辑标题';x.dispatchEvent(new Event('input',{bubbles:true}))})()");
- await click('保存本页及其他修改');await wait("document.querySelector('.studio-slide-editor input').value==='教师直接编辑标题'&&!document.querySelector('.unsaved-note')");
+ await click('保存本页及其他修改');await wait("document.querySelector('.studio-slide-picture img')?.alt.includes('教师直接编辑标题')&&!document.querySelector('.unsaved-note')");
  assert.equal(saved,1);assert.equal(task.result.slides[0].title,'教师直接编辑标题');
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
  await evaluate("document.querySelector('[aria-label=\"移动第1页对象\"]').click()");await wait("!!document.querySelector('.object-stage')");
@@ -164,7 +162,8 @@ let browser,socket;
 
  const pictureBefore=await srcs();await click('我的作品');await evaluate("document.querySelector('.task-open').click()");
  await wait("document.querySelector('.studio-slide-picture img')?.alt.includes('教师直接编辑标题')");
- await evaluate("document.querySelector('[aria-label=\"编辑第1页\"]').click()");await wait("document.querySelector('.studio-slide-editor input')?.value==='教师直接编辑标题'");await evaluate("document.querySelector('[aria-label=\"编辑第1页\"]').click()");
+ await evaluate("document.querySelector('.studio-page-rail button').click()");
+ await evaluate("document.querySelector('[aria-label=\"移动第1页对象\"]').click()");await wait("!!document.querySelector('.object-stage')");await evaluate("document.querySelector('.studio-content-settings').open=true");await wait("document.querySelector('.studio-slide-editor input')?.value==='教师直接编辑标题'");await evaluate("document.querySelector('[aria-label=\"移动第1页对象\"]').click()");
  await evaluate("document.querySelector('.modal-backdrop button')?.click()");
  await call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFile(path.join(output,'studio-desktop.png'),Buffer.from(r.data,'base64')));
  assert.equal(JSON.stringify(task.result.slides[0].canvas_positions),reopenedPositions);
@@ -203,12 +202,12 @@ let browser,socket;
  await evaluate("document.querySelector('[aria-label=\"移动标题\"]').click()");
  assert.equal(await evaluate("document.querySelector('[aria-label=\"画布编辑标题\"]').value"),'画布直接编辑标题');
  await typeText('画布编辑标题',' ');
- assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='保存画布及其他修改').disabled"),true);
+ assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='保存画布及其他修改').disabled"),true);
  await typeText('画布编辑标题','画布直接编辑标题');await click('完成输入');
  await evaluate("document.querySelector('[aria-label=\"移动正文\"]').click()");
  await typeText('画布编辑正文',Array.from({length:7},(_,i)=>'第'+i+'条').join('\n'));
  assert.ok(await evaluate("document.querySelector('.canvas-text-warning').textContent.includes('6')"));
- assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='保存画布及其他修改').disabled"),true);
+ assert.equal(await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='保存画布及其他修改').disabled"),true);
  await click('撤销文字修改');
  await click('保存画布及其他修改');await wait("!document.querySelector('.unsaved-note')");
  assert.equal(task.result.slides[0].title,'画布直接编辑标题');
@@ -252,7 +251,7 @@ let browser,socket;
  assert.equal(await evaluate("document.querySelector('[aria-label=\"画布编辑标题\"]').value"),'保留本地修改');
  checks.push('Version conflict retains inline text without a successful write');
 
- checks.push('Home confirmation sends custom summary once; no repeated setup; old feedback cleared only on explicit review; three-page gate retained; direct edit saved and reopened');
+ checks.push('Creation form sends custom requirements once; no repeated setup; old feedback cleared only on explicit review; three-page gate retained; direct edit saved and reopened');
  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'));
  await call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFile(path.join(output,'home-mobile.png'),Buffer.from(r.data,'base64')));
  checks.push('Step reveal and hidden teacher notes; explicit answer reveal; scientific classroom preview; textbook original page selection; mobile width');

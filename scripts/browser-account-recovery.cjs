@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Intercept every API call: no real passwords, tasks or balances are changed.
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
@@ -13,11 +14,8 @@ let browser,socket;
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9250','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(output,'browser-profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page;for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9250/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
  assert.ok(page,'browser startup');socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((r,j)=>{socket.onopen=r;socket.onerror=j});
- let sequence=0;const pending=new Map();
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>reject(Error('CDP timeout '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
- socket.onmessage=event=>{
-  const m=JSON.parse(event.data);
-  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+
+ const { call, evaluate } = createCDP(socket, m => {
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method==='Fetch.requestPaused'){
    const {requestId,request}=m.params,u=new URL(request.url);let reply,code=200;
@@ -44,8 +42,7 @@ let browser,socket;
    else{code=400;reply={message:'Unexpected request'};errors.push(request.method+' '+u.pathname)}
    call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(reply)).toString('base64')}).catch(e=>errors.push(String(e)));
   }
- };
- const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const run=fn=>evaluate('('+fn.toString()+')()');
  const wait=async expression=>{for(let i=0;i<60;i++){if(await evaluate(expression))return;await sleep(100)}console.error(await evaluate('JSON.stringify({heading:document.querySelector("h1")?.textContent,alerts:[...document.querySelectorAll("[role=alert]")].map(x=>x.textContent),account:document.querySelector(".account-settings")?.textContent,focused:document.activeElement?.outerHTML})'));throw Error('UI timeout '+expression)};
  const click=label=>evaluate('(()=>{const b=[...document.querySelectorAll("button")].find(b=>b.textContent.includes('+JSON.stringify(label)+'));if(!b)throw Error("Missing button");b.click()})()');
@@ -66,11 +63,11 @@ let browser,socket;
  sessionUnavailable=true;await call('Page.reload');await wait('!!document.querySelector(".session-recovery")');
  assert.equal(await evaluate('sessionStorage.getItem("edu_token")'),'fixture-token');
  assert.equal(await evaluate('document.querySelector(".auth-panel")===null'),true);
- sessionUnavailable=false;await wait('!!document.querySelector(".session-recovery button:not(:disabled)")');await click('重试');await wait('!!document.querySelector(".home-workspace")');
+ sessionUnavailable=false;await wait('!!document.querySelector(".session-recovery button:not(:disabled)")');await click('重试');await wait('!!document.querySelector(".account-navigation")');await click('首页');await wait('!!document.querySelector(".home-workspace")');
  checks.push('Temporary startup authentication outage keeps credentials and offers a working retry');
  await evaluate('document.querySelector(".profile-open").click()');await wait('!!document.querySelector(".account-settings")');
  await fs.writeFile(path.join(output,'account-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
- await click('课件工作台');await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ await click('首页');await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await evaluate('document.querySelector(".mobile-account").click()');await wait('!!document.querySelector(".account-settings")');
  assert.equal(await evaluate('document.documentElement.scrollWidth<=390'),true);
  await fs.writeFile(path.join(output,'account-mobile.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
@@ -118,7 +115,7 @@ let browser,socket;
  await wait('!!document.querySelector(".login-form")');assert.equal(passwordCalls,1);assert.equal(await evaluate('sessionStorage.getItem("edu_token")'),null);
  assert.ok(await evaluate('document.querySelector(".login-form").textContent.includes("密码已更新")'));
  checks.push('Password confirmation prevents bad submission; success clears session and returns to login');
- await call('Page.reload');await wait('!!document.querySelector(".home-workspace")');
+ await call('Page.navigate',{url:process.env.TEST_APP_URL||'http://127.0.0.1:8080'});await wait('!!document.querySelector(".home-workspace")');
  holdBilling=true;await click('套餐与账单');for(let i=0;i<60&&!heldBilling;i++)await sleep(100);assert.ok(heldBilling);
  await run(()=>document.querySelector('.tenant-select select').dispatchEvent(new Event('change',{bubbles:true})));
  await wait('sessionStorage.getItem("edu_token")==="fixture-new-token"');
@@ -126,7 +123,7 @@ let browser,socket;
  await wait('!!document.querySelector("[role=alert]")');
  assert.equal(await evaluate('sessionStorage.getItem("edu_token")'),'fixture-new-token');assert.equal(await evaluate('document.querySelector(".auth-panel")===null'),true);
  checks.push('Delayed 401 from a previous credential cannot log out the new session');
- worksVersion='';await call('Page.reload');await wait('!!document.querySelector(".home-workspace")');
+ worksVersion='';await call('Page.navigate',{url:process.env.TEST_APP_URL||'http://127.0.0.1:8080'});await wait('!!document.querySelector(".home-workspace")');
  await click('我的作品');await wait('document.querySelectorAll(".task-card").length===2');
  assert.equal(worksQueries.at(-1).view,'history');
  assert.equal(await evaluate('document.querySelector(".works-views button").disabled'),true);

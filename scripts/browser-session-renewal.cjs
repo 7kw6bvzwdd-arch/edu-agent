@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Every API call is intercepted. No real credentials, tasks, or model calls.
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
@@ -16,12 +17,9 @@ let browser,socket;
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9264','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(output,'browser-profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page;for(let i=0;i<50;i++){try{page=(await fetch('http://127.0.0.1:9264/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(100)}
  assert.ok(page,'browser startup');socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((r,j)=>{socket.onopen=r;socket.onerror=j});
- let seq=0;const pending=new Map();
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>reject(Error('CDP timeout '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
+
  const reply=(requestId,code,data)=>call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(data)).toString('base64')}).catch(e=>errors.push(String(e)));
- socket.onmessage=e=>{
-  const m=JSON.parse(e.data);
-  if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}}
+ const { call, evaluate } = createCDP(socket, m => {
   if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method!=='Fetch.requestPaused')return;
   const {requestId,request}=m.params,p=new URL(request.url).pathname,credential=request.headers.Authorization||request.headers.authorization;
@@ -44,8 +42,7 @@ let browser,socket;
   else if(p.endsWith('/revisions'))reply(requestId,200,[]);
   else if(p.endsWith('/events'))call('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'text/event-stream'}],body:Buffer.from(': fixture\n\n').toString('base64')}).catch(e=>errors.push(String(e)));
   else{errors.push('Unexpected API '+p);reply(requestId,404,{message:'Unexpected API'})}
- };
- const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const wait=async expression=>{for(let i=0;i<80;i++){if(await evaluate(expression))return;await sleep(100)}throw Error('UI timeout '+expression)};
  const click=label=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)}));if(!b)throw Error('Missing button');b.click()})()`);
  const clock=async value=>{elapsed=value;await evaluate('window.sessionTestClock='+value)};
@@ -65,7 +62,7 @@ let browser,socket;
  assert.equal(refreshes,1,'Concurrent pollers share one refresh');
  if(editor)assert.equal(await evaluate('document.querySelector(".studio-slide-editor input").value'),'未保存的教学标题','Renewal preserves unsaved edits');
  checks.push('Active courseware survives the original 12-hour expiry with one refresh and unchanged edits');
- await call('Page.reload');elapsed=0;await wait('!!document.querySelector(".home-workspace")');
+ await call('Page.reload');elapsed=0;await wait('!!document.querySelector(".courseware-studio")');await click('首页');await wait('!!document.querySelector(".home-workspace")');
  unavailable=true;await clock(12*60*60*1000-2*60*1000);await click('套餐与账单');await sleep(700);
  assert.equal(await evaluate('sessionStorage.getItem("edu_token")'),original,'Temporary refresh outage keeps valid credentials');
  assert.equal(await evaluate('!!document.querySelector(".auth-panel")'),false);

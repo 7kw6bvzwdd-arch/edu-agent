@@ -239,30 +239,22 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 	if in.Type == "animation" {
 		return Deck{}, animationUnavailable()
 	}
+	if in.Type != "courseware" {
+		return Deck{}, fail(400, "仅支持课件生成")
+	}
 	var d Deck
 	planRepaired := false
 	if s.cfg.Mode == "sample" {
 		d = sampleDeck(in)
-	} else if in.Type == "courseware" {
+	} else {
 		var err error
 		d, planRepaired, err = s.coursewareDraft(ctx, a, id, in, sources)
 		if err != nil {
 			return d, err
 		}
-	} else {
-		prompt := coursewarePrompt(in, sources)
-		kind, operation := "courseware", "courseware.generate"
-		budget := min(12000, 1200+in.Pages*540)
-		raw, e := s.agentChat(ctx, a, id, kind, operation, prompt, budget)
-		if e != nil {
-			return d, e
-		}
-		if e = json.Unmarshal([]byte(raw), &d); e != nil {
-			return d, fmt.Errorf("模型结构化内容无效，请重试")
-		}
 	}
 	d.Theme = in.Theme
-	if e := validateDeck(d); e != nil && !(in.Type == "courseware" && s.cfg.Mode == "live") {
+	if e := validateDeck(d); e != nil && s.cfg.Mode != "live" {
 		return d, e
 	}
 	if len(d.Slides) != in.Pages {
@@ -287,7 +279,7 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 	if s.cfg.Mode == "sample" {
 		d.Notice = "本地示例内容，不是实时AI生成。请确认课题与示例内容相符。"
 	}
-	if in.Type == "courseware" && s.cfg.Mode == "live" {
+	if s.cfg.Mode == "live" {
 		d = arrangeCourseware(d)
 		issues, err := s.coursewarePreflight(ctx, &d, in.Pages)
 		if err != nil {

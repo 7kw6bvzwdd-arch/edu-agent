@@ -94,7 +94,7 @@ func TestCoursewareRetryIsolationAndReservationHTTP(t *testing.T) {
 		retry = id
 	}
 	v := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+retry, token, nil, 200))
-	if v["status"] != "awaiting_confirmation" || !strings.Contains(string(asJSON(v["result"])), "浮力") {
+	if v["status"] != "expand_pending" || !strings.Contains(string(asJSON(v["result"])), "浮力") {
 		t.Fatal("draft not reused")
 	}
 	after := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))

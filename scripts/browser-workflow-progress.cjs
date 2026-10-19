@@ -1,3 +1,4 @@
+const createCDP = require('./browser-cdp.cjs');
 // Real app with isolated HTTP fixtures: never calls models or writes user data.
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{spawn}=require('node:child_process'),http=require('node:http');
 const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms));let browser,socket,server;
@@ -10,10 +11,8 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  let animationOnly=false,healthRequests=0;const scenario=process.env.TEST_READINESS_CASE||'recovered';
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9299','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page;for(let i=0;i<50;i++){try{page=(await fetch('http://127.0.0.1:9299/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(100)}assert.ok(page);
- socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});let serial=0;const pending=new Map();
- const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++serial,timer=setTimeout(()=>reject(Error('CDP timeout '+method)),15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}))});
- socket.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}return}
-  if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
+ socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
+ const { call, evaluate } = createCDP(socket, m => {  if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);
   if(m.method!=='Fetch.requestPaused')return;const {requestId,request}=m.params,p=new URL(request.url).pathname;let reply,code=200,contentType='application/json';
   if(request.method!=='GET')writes.push({path:p,data:JSON.parse(request.postData||'{}')});
   if(p==='/api/health'){
@@ -35,8 +34,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
   if(animationOnly&&p==='/api/health')reply.teaching_features_version='teaching-v1';
   if(animationOnly&&p==='/api/auth/me')reply.permissions=['animation.render'];
   call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:contentType}],body:Buffer.from(typeof reply==='string'?reply:JSON.stringify(reply)).toString('base64')}).catch(e=>{if(!animationOnly||!String(e).includes('Invalid InterceptionId'))errors.push(String(e))});
- };
- const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+ });
  const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(50)}throw Error('UI timeout '+expression+'; UI: '+await evaluate('document.body.innerText.slice(-1500)')+'; errors: '+JSON.stringify(errors))};
  const fill=(selector,value)=>evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
  const click=selector=>evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
