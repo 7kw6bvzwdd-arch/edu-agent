@@ -15,6 +15,17 @@ func TestCoursewareProviderBudgetPersistsAcrossRecoveryHTTP(t *testing.T) {
 	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "ocean", UseKB: true, PreviewFirst: true, IdempotencyKey: newID()}
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 	route := "/api/tasks/" + id
+	// The public API normalizes omitted detail to automatic planning. Budget
+	// this stored input, rather than assuming the requested legacy page count.
+	var created struct {
+		Input TaskInput `json:"input"`
+	}
+	json.Unmarshal(worksCall(t, s, "GET", route, token, nil, 200).Body.Bytes(), &created)
+	in = created.Input
+	pages := in.Pages
+	if pages == 0 {
+		pages = 15
+	}
 	defer worksCall(t, s, "POST", route+"/cancel", token, nil, 200)
 	tx, err := s.tx(context.Background(), a.TenantID)
 	if err != nil {
@@ -24,7 +35,7 @@ func TestCoursewareProviderBudgetPersistsAcrossRecoveryHTTP(t *testing.T) {
 	// fixture can legitimately be evicted by the twelve-record retention policy
 	// when earlier tests have already filled that member's pending collection.
 	draft := Deck{Title: "浮力", Slides: []Slide{{ID: newID(), Title: "已保存的浮力概念", Bullets: []string{"浮力方向竖直向上"}, Notes: "当前课件已有有效内容，供应商异常时应保留这一页与续作入口。"}}}
-	_, err = tx.Exec(context.Background(), "UPDATE tasks SET mode='live',status='researching',courseware_provider_calls=$1,result=$3 WHERE id=$2", coursewareProviderLimit(8)-1, id, asJSON(draft))
+	_, err = tx.Exec(context.Background(), "UPDATE tasks SET mode='live',status='researching',courseware_provider_calls=$1,result=$3 WHERE id=$2", coursewareProviderLimit(pages)-1, id, asJSON(draft))
 	if err != nil {
 		tx.Rollback(context.Background())
 		t.Fatal(err)

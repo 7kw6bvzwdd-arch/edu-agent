@@ -19,7 +19,7 @@
 
 - 隔离 PostgreSQL + 真实渲染服务，HTTP 校验登录/成员隔离、版本冲突、候选留存、未确认图片拒绝插入、确认后保存、一页暂停 PPTX 下载、恢复检查点和积分不变。`work/image-flow-fix-20261019/live-green/http-results.json`。已检查实际 ZIP 内图片原始字节和教师权限声明。
 - 浏览器使用真实 Vue 页面及明确标识的业务接口 fixture，覆盖网页与 Commons 图片选择、移除、停止等待、防迟到结果、上传替换、跳过；暂停一页草稿刷新留存、禁止审批。日志位于同目录 `browser-*-final.log`、`browser-final-paused.log`。
-- 额外自动制作与预算/素材隔离回归记录在 `regression-final/`。
+- 额外自动制作分项记录在 `automatic-cases/`、`remaining-serial/`，预算在 `budget-final/`，素材隔离在 `regression-final/`。首轮整组测试命中8分钟测试超时，随后改为逐项运行；曾出现 Office 截图暂不可用，复核记录保留。预算旧测试假定请求的固定页数，已改为使用 HTTP 实际保存的自动规划输入，不改变预算策略。
 - 前端构建、格式检查、Go vet 记录在同目录日志。
 
 这些确定性回归的搜索、网页与模型响应均为 fixture，实际 PPTX 由运行中的渲染服务生成；不冒充真实模型或史实质量验收。Commons 的外部网络连通性没有因代码修复而恢复。旧任务此前未保存的候选无法恢复，需用户重新检索或上传。

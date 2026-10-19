@@ -536,7 +536,9 @@ func (s *Server) normalizeImageCandidates(ctx context.Context, a Actor, d *Deck)
 				candidate.Picture.Caption = string([]rune(candidate.Picture.Caption)[:60])
 			}
 			candidate.Provenance = *asset.Provenance
-			candidate.Reason = plainImageMetadata(candidate.Reason, 300)
+			if len([]rune(candidate.Reason)) > 300 {
+				return fail(400, "候选图说明最多300字")
+			}
 		}
 	}
 	return nil
