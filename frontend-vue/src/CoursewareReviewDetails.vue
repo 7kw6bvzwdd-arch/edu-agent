@@ -39,6 +39,16 @@ defineProps({
         <p v-if="qualityStatus(current)" class="inspector-quality-note" role="status">
           {{ qualityStatus(current) }}
         </p>
+        <ul
+          v-if="task.result?.page_checks?.[current.id]?.issues?.length"
+          class="inspector-quality-issues"
+        >
+          <li v-for="(issue, index) in task.result.page_checks[current.id].issues" :key="index">
+            <b>{{ issue.severity === 'error' ? '需修复' : '建议' }} · {{ issue.object }}</b>
+            <p>{{ issue.evidence }}</p>
+            <p>{{ issue.repair }}</p>
+          </li>
+        </ul>
         <details class="inspector-notes">
           <summary>教师讲解备注</summary>
           <p>{{ current.notes || '本页尚无讲解备注。' }}</p>

@@ -88,3 +88,11 @@
  .app-shell .courseware-studio .studio-slide-top{gap:8px}
  .app-shell .courseware-studio .studio-completion button{min-height:44px}
 }
+
+.app-shell .courseware-studio .studio-thumbnail-label{min-width:0;white-space:normal}
+.app-shell .courseware-studio .studio-thumbnail-label small{min-width:0;max-width:100%;white-space:normal;line-height:1.5;overflow-wrap:anywhere}
+.app-shell .courseware-studio .studio-recheck{width:100%;margin-top:12px}
+.app-shell .courseware-studio .studio-recheck-help{display:block;margin-top:8px;line-height:1.7;color:var(--ink-3)}
+.app-shell .courseware-studio .inspector-quality-issues{padding-left:18px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.app-shell .courseware-studio .inspector-quality-issues li+li{margin-top:10px}
+.app-shell .courseware-studio .inspector-quality-issues p{margin:4px 0}

@@ -67,7 +67,10 @@ const approvedCount = computed(
 );
 const resumeNotice = '已恢复逐页检查点，继续只处理问题页和未完成页；未变更页面的审核保留。';
 const deckNotice = computed(() => {
-  const text = local.value?.notice || '';
+  const text = (local.value?.notice || '').replaceAll(
+    '内容模型审核已停用；保留程序校验与截图审核，请教师核对知识、题设、计算和答案。',
+    '生成时曾停用内容模型审核；请以各页最新核验状态为准。'
+  );
   return text.includes(resumeNotice)
     ? (text.replaceAll(resumeNotice, '').trim() + ' ' + resumeNotice).trim()
     : text;
@@ -239,10 +242,27 @@ function qualityStatus(sl) {
       : '内容未核验；实际画面待检查';
   if (check.content === 'disabled')
     return check.visual === 'checked'
-      ? '内容模型审核已停用；实际画面已检查，仍需教师核对'
-      : '内容模型审核已停用；实际画面检查尚未完成';
+      ? '本页生成时未做内容核验；实际画面已检查，可重新检查后确认'
+      : '本页生成时未做内容核验；实际画面检查尚未完成';
   if (check.content !== 'checked' || check.visual !== 'checked') return '内容或画面检查尚未完成';
   return '内容已核验 · 实际画面已检查，仍需教师确认';
+}
+function qualityLabel(sl) {
+  if (changed(sl)) return '修改后待检查';
+  const check = props.task?.result?.page_checks?.[sl.id];
+  if (!check) return '内容未核验';
+  if (check.issues?.some((issue) => issue.severity === 'error')) return '需修复';
+  return (
+    { checked: '内容已核验', sample: '样例检查', skipped: '普通页未核验' }[check.content] ||
+    '内容未核验'
+  );
+}
+async function recheck() {
+  await run(async () => {
+    notice.value = '正在检查现有页面，完成后更新核验结果；已有内容会保留。';
+    await persist(true);
+    notice.value = '已重新检查并保存。请查看各页核验状态与问题，确认后再审核；未重新生成课件内容。';
+  });
 }
 const changed = (sl) =>
   JSON.stringify(sl) !== JSON.stringify(props.task?.result?.slides?.find((s) => s.id === sl.id)) ||
@@ -533,7 +553,7 @@ async function approveAll() {
       throw Error(
         '一键审核未全部完成，已记录的审核会保留。' +
           e.message +
-          '；请刷新后重试以继续审核未通过的页面。'
+          '；如核验未完成，请点击“重新检查”，查看本页核对信息后再审核。'
       );
     }
     if (disposed || props.task?.id !== id) return;
@@ -799,7 +819,7 @@ onUnmounted(() => {
             ><span class="studio-thumbnail-label"
               ><b>{{ i + 1 }}</b
               ><span>{{ changed(sl) ? '待保存' : meta(sl.id).approved ? '已确认' : '待审核' }}</span
-              ><small>{{ qualityStatus(sl) || '内容未核验' }}</small></span
+              ><small :title="qualityStatus(sl)">{{ qualityLabel(sl) }}</small></span
             >
           </button>
         </div>
@@ -983,6 +1003,17 @@ onUnmounted(() => {
             取消并释放预留
           </button>
         </footer>
+        <button
+          v-if="ready && local?.plan"
+          class="studio-recheck"
+          @click="recheck"
+          :disabled="!editable"
+        >
+          {{ working ? '处理中…' : '重新检查内容与画面' }}
+        </button>
+        <small v-if="ready && local?.plan" class="studio-recheck-help">
+          按当前核验设置检查，保留已有页面；不扣积分，也不会自动审核或继续制作。
+        </small>
         <CoursewareReviewDetails
           :current="current"
           :current-position="currentPosition"

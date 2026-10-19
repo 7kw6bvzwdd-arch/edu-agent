@@ -77,8 +77,21 @@ func TestCoursewareThreeSlideGateHTTP(t *testing.T) {
 		t.Fatal("expansion failed", full["error"])
 	}
 	all := full["result"].(map[string]any)["slides"].([]any)
-	if len(all) < 8 || !reflect.DeepEqual(slides, all[:3]) {
-		t.Fatal("approved preview slides were overwritten")
+	if len(all) < 8 {
+		t.Fatal("expanded lesson is incomplete")
+	}
+	// Representative preview pages return to teaching order in the full deck.
+	for _, preview := range slides {
+		found := false
+		for _, page := range all {
+			if page.(map[string]any)["id"] == preview.(map[string]any)["id"] {
+				found = reflect.DeepEqual(preview, page)
+				break
+			}
+		}
+		if !found {
+			t.Fatal("approved preview slide was lost or overwritten")
+		}
 	}
 	worksCall(t, s, "POST", route+"/confirm", token, map[string]any{"revision": full["revision"], "result": full["result"], "accept_review": true}, 409)
 	for _, entry := range full["slide_reviews"].([]any) {

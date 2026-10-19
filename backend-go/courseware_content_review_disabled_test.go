@@ -141,8 +141,37 @@ func TestPausedContentReviewResumesSavedPageHTTP(t *testing.T) {
 	s.cfg.CoursewareContentReviewDisabled = false
 	meta := v["slide_reviews"].([]any)[0].(map[string]any)
 	worksCall(t, s, "POST", route+"/slides/"+meta["id"].(string)+"/review", token, map[string]any{"revision": v["revision"], "hash": meta["hash"], "approved": true}, 409)
-	s.cfg.CoursewareContentReviewDisabled = true
+	// Rechecking an unchanged legacy draft uses the existing save path and must
+	// neither regenerate teaching content nor approve or charge the teacher.
+	outage = false
+	s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = provider.URL, "fixture", "review"
+	beforeBilling := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
+	beforeGenerated, beforeContent := generated, contentCalls
 	other := worksLogin(t, s, "other")
+	request := map[string]any{"revision": v["revision"], "result": v["result"]}
+	worksCall(t, s, "POST", route+"/draft", other, request, 404)
+	worksCall(t, s, "POST", route+"/draft", token, request, 200)
+	v = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+	var rechecked Deck
+	json.Unmarshal(asJSON(v["result"]), &rechecked)
+	if v["status"] != "awaiting_preview" || generated != beforeGenerated || contentCalls <= beforeContent {
+		t.Fatal("unchanged draft failed to rerun enabled content checks without regeneration", v["status"], generated, contentCalls)
+	}
+	for i, sl := range rechecked.Slides {
+		if slideContentHash(rechecked, sl) != slideContentHash(done, done.Slides[i]) || !s.pageCheckPassed(rechecked.PageChecks[sl.ID], false, sl) {
+			t.Fatal("recheck changed teaching content or left a disabled check", sl.ID, rechecked.PageChecks[sl.ID])
+		}
+	}
+	for _, row := range v["slide_reviews"].([]any) {
+		if row.(map[string]any)["approved"] == true {
+			t.Fatal("recheck cannot approve on behalf of the teacher")
+		}
+	}
+	if worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String() != beforeBilling {
+		t.Fatal("recheck changed teacher points")
+	}
+	meta = v["slide_reviews"].([]any)[0].(map[string]any)
+	s.cfg.CoursewareContentReviewDisabled = true
 	worksCall(t, s, "POST", route+"/slides/"+meta["id"].(string)+"/review", other, map[string]any{"revision": v["revision"], "hash": meta["hash"], "approved": true}, 404)
 	worksCall(t, s, "POST", route+"/slides/"+meta["id"].(string)+"/review", token, map[string]any{"revision": v["revision"], "hash": meta["hash"], "approved": true}, 200)
 

@@ -10,7 +10,7 @@ let browser,socket;
  deck.plan={pages:Array.from({length:12},()=>({}))};deck.slides=deck.slides.slice(0,3);deck.slides.forEach((s,i)=>s.id='slide-'+i);
  const pngs=await Promise.all(deck.slides.map((_,i)=>fs.readFile(path.join(root,'work/courseware-studio/fixture.pptx.slides/slide-'+(i+1)+'.png'))));
  const task={id:'fixture-review',type:'courseware',status:'awaiting_preview',mode:'sample',revision:1,cost:20,created_at:'2026-10-15T02:00:00Z',input:{topic:'浮力与阿基米德原理',grade:'八年级',subject:'物理',pages:12,preview_first:true},result:deck,events:[],sources:[],preview_images_available:true,slide_reviews:deck.slides.map(s=>({id:s.id,hash:'hash-'+s.id,approved:false,vote:0}))};
- const errors=[],writes=[],checks=[];let discussion=[],failChat=false;let permissions=['courseware.generate'],empty=false,failBrief=false,failReview=false,liveReview=false;
+ const errors=[],writes=[],checks=[];let discussion=[],failChat=false;let permissions=['courseware.generate'],empty=false,failBrief=false,failReview=false,failRecheck=false,liveReview=false;
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9303','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(output,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page;for(let i=0;i<40;i++){try{page=(await fetch('http://127.0.0.1:9303/json/list').then(r=>r.json())).find(p=>p.type==='page');if(page)break}catch{}await sleep(200)}
  assert.ok(page);socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
@@ -20,7 +20,7 @@ let browser,socket;
   if(m.method!=='Fetch.requestPaused')return;
   const {requestId,request}=m.params,p=new URL(request.url).pathname,data=request.postData?JSON.parse(request.postData):{};
   let reply,binary,code=200,contentType='application/json';if(request.method!=='GET')writes.push({path:p,data});
-  if(p==='/api/health')reply={status:'ok',mode:liveReview?'live':'sample',courseware_content_review_enabled:!liveReview,courseware_studio_version:'studio-v1',courseware_media_version:'media-v1',teaching_features_version:'teaching-v1'};
+  if(p==='/api/health')reply={status:'ok',mode:liveReview?'live':'sample',courseware_content_review_enabled:true,courseware_studio_version:'studio-v1',courseware_media_version:'media-v1',teaching_features_version:'teaching-v1'};
   else if(p==='/api/auth/me')reply={tenant_id:1,member_id:1,name:'林老师',role:'teacher',permissions};
   else if(p==='/api/tenants')reply=[{id:1,name:'启明教研空间'}];
   else if(p==='/api/billing')reply={balance:100,reserved:20,available:80,plan:'basic',products:[],orders:[],ledger:[]};
@@ -32,7 +32,8 @@ let browser,socket;
   else if(p.endsWith('/events')){binary=Buffer.from(': fixture\n\n');contentType='text/event-stream'}
   else if(p.endsWith('/preview')){const i=Number(p.split('/').at(-2).split('-').at(-1));binary=pngs[i%pngs.length];contentType='image/png'}
   else if(p.endsWith('/review')){const id=p.split('/').at(-2);if(failReview){failReview=false;code=503;reply={message:'审核服务暂不可用'}}else{Object.assign(task.slide_reviews.find(s=>s.id===id),{approved:data.approved});reply={ok:true}}}
-  else if(p.endsWith('/draft')||p.endsWith('/edit')){task.result=data.result;task.revision++;task.slide_reviews.forEach(s=>s.approved=false);reply={revision:task.revision}}
+  else if((p.endsWith('/draft')||p.endsWith('/edit'))&&failRecheck){failRecheck=false;code=503;reply={message:'页面检查暂不可用，当前内容已保留'}}
+  else if(p.endsWith('/draft')||p.endsWith('/edit')){task.result=data.result;task.result.page_checks=Object.fromEntries(task.result.slides.map(s=>[s.id,{content:'checked',visual:'checked',issues:[]}]));task.revision++;task.slide_reviews.forEach(s=>s.approved=false);reply={revision:task.revision}}
   else if(p.endsWith('/confirm')){assert.equal(data.accept_review,true);assert.ok(task.slide_reviews.every(s=>s.approved));task.status='succeeded';reply={ok:true}}
   else if(p.endsWith('/expand')){assert.ok(task.slide_reviews.every(s=>s.approved));task.status='awaiting_confirmation';reply={ok:true}}
   else{errors.push('Unexpected request '+request.method+' '+p);code=404;reply={message:'Missing fixture'}}
@@ -96,8 +97,29 @@ let browser,socket;
  assert.equal(await evaluate("document.querySelector('.studio-completion .primary').disabled"),true);await click('.studio-completion .consent input');await click('.studio-completion .primary');await wait("document.querySelector('.studio-adjust-heading h2').textContent==='交付与调整'");
  assert.equal(task.status,'succeeded');await click('.chat-mode button:last-child');assert.ok(await evaluate("document.querySelector('.chat-composer').textContent.includes('5积分')"));
  checks.push('Bulk review errors recover; expansion and explicit delivery consent retain their separate gates');
+ task.status='awaiting_preview';task.mode='live';liveReview=true;failRecheck=true;task.slide_reviews.forEach(r=>r.approved=false);task.result.page_checks=Object.fromEntries(task.result.slides.map(s=>[s.id,{content:'disabled',visual:'checked',issues:[{severity:'suggestion',object:'课堂结论',evidence:'建议核对教材表述',repair:'对照教材确认术语'}]}]));
+ await call('Page.reload');await wait("document.querySelectorAll('.studio-page-thumbnail').length===3");
+ const beforeRevision=task.revision,beforeDrafts=writes.filter(w=>w.path.endsWith('/draft')).length,beforeApprovals=writes.filter(w=>/\/(expand|confirm|review)$/.test(w.path)).length;
+ for(const width of [2048,1440,1024,390]){
+  await call('Emulation.setDeviceMetricsOverride',{width,height:1102,deviceScaleFactor:1,mobile:width===390});await sleep(100);
+  const boxes=await evaluate("[...document.querySelectorAll('.studio-page-thumbnail')].map(e=>{const a=e.getBoundingClientRect(),b=e.querySelector('small').getBoundingClientRect();return {a:{left:a.left,right:a.right,top:a.top,bottom:a.bottom},b:{left:b.left,right:b.right,top:b.top,bottom:b.bottom},text:e.querySelector('small').textContent}})");
+  await shot('checks-'+width+'.png');
+  assert.ok(boxes.every(({a,b})=>b.left>=a.left-1&&b.right<=a.right+1&&b.bottom<=a.bottom+1),'Verification labels must fit their own thumbnails at '+width+': '+JSON.stringify(boxes));
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'No document overflow at '+width);
+ }
+ assert.ok(await evaluate("document.querySelector('.inspector-quality-issues')?.textContent.includes('建议核对教材表述')"),'Review details expose the actual evidence and repair suggestion');
+ checks.push('Verification labels stay within individual thumbnails on desktop and mobile');
+ assert.ok(await evaluate("!!document.querySelector('.studio-recheck')"),'Old drafts must offer a way to rerun current content and visual checks');
+ await click('.studio-recheck');await wait("document.querySelector('.studio-canvas>.alert.error')?.textContent.includes('检查暂不可用')");
+ assert.equal(task.revision,beforeRevision,'Failed recheck retains the existing draft');
+ await click('.studio-recheck');
+ await wait("document.querySelector('.studio-canvas>.alert.success')?.textContent.includes('已重新检查')");
+ assert.equal(writes.filter(w=>w.path.endsWith('/draft')).length,beforeDrafts+2,'Rechecking unchanged drafts invokes existing save-and-check flow once');
+ assert.equal(writes.filter(w=>/\/(expand|confirm|review)$/.test(w.path)).length,beforeApprovals,'Rechecking neither approves nor expands or delivers');
+ assert.equal(task.revision,beforeRevision+1);assert.ok(Object.values(task.result.page_checks).every(c=>c.content==='checked'));
+ checks.push('Failed checks preserve the draft; unchanged legacy draft can retry checks without approving pages, expansion, or delivery');
  task.result.slides=Array.from({length:14},(_,i)=>({...structuredClone(deck.slides[i%3]),id:'slide-'+i}));task.slide_reviews=task.result.slides.map(s=>({id:s.id,hash:'h'+s.id,approved:false,vote:0}));task.status='awaiting_confirmation';
- await call('Page.reload');await wait("!!document.querySelector('.home-recent-work')");await click('.home-recent-work');await wait("document.querySelectorAll('.studio-page-thumbnail').length===14");
+ await call('Page.reload');await wait("document.querySelectorAll('.studio-page-thumbnail').length===14");
  assert.ok(await evaluate("(()=>{const t=document.querySelector('.studio-page-thumbnails');return t.scrollWidth>t.clientWidth&&t.getBoundingClientRect().height<130})()"),'Long decks use a compact horizontal page rail');
  await click('.studio-page-thumbnail:last-child');assert.equal(await evaluate("document.querySelector('.studio-slide.selected').dataset.slideId"),'slide-13');await shot('review-long-desktop.png');
  checks.push('Long deck page rail scrolls horizontally and selects the final page');
