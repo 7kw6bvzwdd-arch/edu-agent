@@ -1,5 +1,7 @@
 <script setup>
 import {ref,computed,watch,onUnmounted,nextTick} from 'vue'
+import MediaImage from './MediaImage.vue'
+import {uploadTeachingImage} from './media.js'
 import WorkspaceIcon from './WorkspaceIcon.vue'
 import examples from './animation-examples.json'
 const props=defineProps({initialBrief:Object,task:Object,api:Function,token:String,health:Object,available:Number,canCreate:Boolean,refresh:Function})
@@ -31,24 +33,21 @@ async function load(){
  if(!data.has_preview&&preview.value){URL.revokeObjectURL(preview.value);preview.value='';previewHash=''}
 }
 watch(()=>[props.task?.id,props.task?.revision,props.task?.status],()=>{load().catch(e=>{if(e.name!=='AbortError')error.value=e.message})},{immediate:true})
-watch(()=>props.task?.id,()=>{picture.value=props.task?.input?.animation_picture?.data_url||null;pictureCaption.value=props.task?.input?.animation_picture?.caption||'';pictureSource.value=props.task?.input?.animation_picture?.source||'教师自备素材';controller?.abort();if(preview.value)URL.revokeObjectURL(preview.value);preview.value='';previewHash='';state.value=null;selected.value='';pendingRequest=null},{immediate:true})
+watch(()=>props.task?.id,()=>{picture.value=props.task?.input?.animation_picture||null;pictureCaption.value=props.task?.input?.animation_picture?.caption||'';pictureSource.value=props.task?.input?.animation_picture?.source||'教师自备素材';controller?.abort();if(preview.value)URL.revokeObjectURL(preview.value);preview.value='';previewHash='';state.value=null;selected.value='';pendingRequest=null},{immediate:true})
 watch(()=>props.token,()=>{picture.value=null;pictureCaption.value='';pictureSource.value='教师自备素材';requestVersion++;controller?.abort();if(preview.value)URL.revokeObjectURL(preview.value);preview.value='';previewHash='';state.value=null;load().catch(()=>{})})
 const exportTimer=setInterval(()=>{if(props.task&&['pending','running'].includes(state.value?.export?.status)&&!busy.value&&!document.hidden)load().catch(e=>{if(e.name!=='AbortError')error.value=e.message})},2000)
 onUnmounted(()=>{clearInterval(exportTimer);requestVersion++;controller?.abort();if(preview.value)URL.revokeObjectURL(preview.value)})
 async function pickPicture(event){
- const target=props.task?.id,token=props.token,file=event.target.files?.[0];if(!file)return;pictureBusy.value=true;error.value='';let bitmap
+ const target=props.task?.id,token=props.token,file=event.target.files?.[0];if(!file)return;pictureBusy.value=true;error.value=''
  try{
-  if(!['image/png','image/jpeg'].includes(file.type)||file.size>8*1024*1024)throw Error('请选择8MB以内PNG或JPEG。')
-  bitmap=await createImageBitmap(file);if(Math.min(bitmap.width,bitmap.height)<32||bitmap.width*bitmap.height>24000000)throw Error('图片尺寸须至少32像素，且不超过2400万像素。')
-  const scale=Math.min(1,1200/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale)
-  if(Math.min(canvas.width,canvas.height)<32)throw Error('图片过窄，请先裁剪。')
-  const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);let data=canvas.toDataURL('image/png')
-  if(data.length>170000){ctx.globalCompositeOperation='destination-over';ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);for(const q of [.86,.72,.58,.42]){data=canvas.toDataURL('image/jpeg',q);if(data.length<=170000)break}}
-  if(data.length>170000)throw Error('图片压缩后仍过大，请裁剪后上传。')
-  if(target!==props.task?.id||token!==props.token)return;picture.value=data
- }catch(e){error.value=e.message}finally{bitmap?.close();pictureBusy.value=false;event.target.value=''}
+  if(!['image/png','image/jpeg'].includes(file.type))throw Error('教学动画配图请选择PNG或JPEG；GIF可用于课件放映。')
+  const asset=await uploadTeachingImage(file,token)
+  if(target!==props.task?.id||token!==props.token)return
+  picture.value={asset_id:asset.asset_id}
+ }catch(e){error.value=e.message}finally{pictureBusy.value=false;event.target.value=''}
 }
-function picturePayload(){if(!picture.value)return null;if(!pictureCaption.value.trim()||!pictureSource.value.trim())throw Error('请填写配图说明与出处。');return{data_url:picture.value,caption:pictureCaption.value.trim(),source:pictureSource.value.trim()}}
+function picturePayload(){if(!picture.value)return null;if(!pictureCaption.value.trim()||!pictureSource.value.trim())throw Error('请填写配图说明与出处。');return{...picture.value,caption:pictureCaption.value.trim(),source:pictureSource.value.trim()}}
+
 async function savePicture(){await run(async()=>{await props.api(path.value+'/set-picture','POST',{revision:state.value.revision,picture:picturePayload()});await props.refresh();await load()})}
 function useExample(item){topic.value=item.topic;subject.value=item.subject;requirements.value=item.requirements;example.value=''}
 async function create(){if(!ready.value||!topic.value.trim()||!requirements.value.trim()||pictureBusy.value)return;await run(async()=>{const v=await props.api('/tasks','POST',{type:'animation',animation_engine:'html',subject:subject.value,grade:grade.value,source_task_id:props.initialBrief?.source_task_id||'',topic:topic.value.trim(),requirements:requirements.value,animation_picture:picturePayload(),idempotency_key:createKey});createKey=crypto.randomUUID();emit('created',v.id)})}
@@ -64,14 +63,14 @@ async function download(format='html'){await run(async()=>{const blob=await file
    <header class="generator-heading"><h1>教学动画</h1><p>把一个知识点讲清楚，让图形变化、语音与字幕一起呈现。</p></header>
        <section class="anim-examples" aria-label="动画示例"><div class="anim-examples-heading"><h2>先看看画面，再开始设计</h2><span>固定示例 · 非实时 AI 生成 · 无真实语音</span></div><div class="anim-example-grid"><article v-for="item in examples" :key="item.id"><button type="button" class="anim-example-preview" @click="example=item.id" :aria-label="'预览示例：'+item.title"><img :src="item.image" :alt="item.alt"><span>播放示例 →</span></button><div><h3>{{item.title}}</h3><p>{{item.description}}</p><button type="button" @click="useExample(item)">用这个课题</button></div></article></div><section v-if="example" class="anim-example-player"><button type="button" @click="example=''">收起示例</button><iframe :src="'/animation-examples/'+example+'.html'" sandbox="allow-scripts" title="固定动画示例，无真实语音"></iframe></section></section>
 <div class="generator-form">
-    <div class="anim-scope-note"><WorkspaceIcon name="animation"/><p>各学科通用讲解 · 明亮课堂与示意配图<span>30秒–3分钟；一次函数与几何变换仍支持专用演示。</span></p></div>
+    <div class="anim-scope-note"><WorkspaceIcon name="animation"/><p>各学科通用讲解 · 明亮课堂与示意配图<span>30秒–3分钟；一次、二次、反比例函数与几何变换仍支持专用演示。</span></p></div>
     <fieldset class="generator-fields" :disabled="busy">
      <label>动画主题 <span class="generator-required">必填</span><input v-model="topic" maxlength="100" required aria-label="动画主题" placeholder="例如：矩形平移后面积是否改变"></label>
      <div class="generator-row"><label>年级<select v-model="grade" aria-label="动画年级"><option>七年级</option><option>八年级</option><option>九年级</option></select></label><label>学科<select v-model="subject" aria-label="动画学科" aria-describedby="anim-scope-help"><option v-for="name in ['语文','数学','英语','物理','化学','生物','历史','地理','道德与法治','信息科技','其他']" :key="name">{{name}}</option></select></label></div>
      <label>演示目标与教学要求 <span class="generator-required">必填</span><textarea v-model="requirements" maxlength="4000" rows="5" required aria-label="动画教学要求" placeholder="希望学生观察什么变化？哪些地方需要停下来思考？例如：固定 b，改变 k，对比直线方向与陡缓，并在结尾安排一道判断题。"></textarea></label>
      <p v-if="initialBrief?.source_task_id" class="anim-source-note"><WorkspaceIcon name="slides"/>已关联原课件，沿用本次页面的教学要求与资料快照。</p>
     </fieldset>
-         <details class="anim-picture-upload"><summary>添加教学配图（可选）</summary><p>上传与课题相关的图片，分镜根据说明选用。图片不会交给文本模型识图，请准确说明内容；仅使用你有权使用的素材。</p><label>PNG / JPEG<input type="file" accept="image/png,image/jpeg" @change="pickPicture" :disabled="busy||pictureBusy"></label><template v-if="picture"><img :src="picture" alt="待上传教学配图"><label>配图说明<input v-model="pictureCaption" maxlength="60" placeholder="例如：叶片结构，标注叶脉与叶肉"></label><label>出处<input v-model="pictureSource" maxlength="300"></label><button type="button" @click="picture=null">移除配图</button></template></details>
+         <details class="anim-picture-upload"><summary>添加教学配图（可选）</summary><p>上传与课题相关的图片，分镜根据说明选用。图片不会交给文本模型识图，请准确说明内容；仅使用你有权使用的素材。</p><label>PNG / JPEG<input type="file" accept="image/png,image/jpeg" @change="pickPicture" :disabled="busy||pictureBusy"></label><template v-if="picture"><MediaImage :picture="picture" alt="待上传教学配图"/><label>配图说明<input v-model="pictureCaption" maxlength="60" placeholder="例如：叶片结构，标注叶脉与叶肉"></label><label>出处<input v-model="pictureSource" maxlength="300"></label><button type="button" @click="picture=null">移除配图</button></template></details>
 <p id="anim-scope-help" class="anim-field-note">先生成可修改的分镜方案，再审核带语音的代表幕。AI 合成语音需核对发音与知识内容。</p>
     <details class="generator-options anim-delivery-info"><summary>交付与积分说明<small>离线 HTML / MP4 · 验收后结算</small></summary><div class="generator-options-body"><p>生成和修改方案暂不预留积分。确认方案时预留40积分，成品验收后结算；取消或失败释放预留。</p><p>交付后每幕一次免费局部修改，接受修改才计次。下载的 HTML 包含动画、语音与字幕，可离线播放。</p></div></details>
     <p v-if="error" class="alert error" role="alert">{{error}}</p>
@@ -97,7 +96,7 @@ async function download(format='html'){await run(async()=>{const blob=await file
      </div>
      <aside ref="actionsPanel" class="panel anim-actions" aria-label="动画审核与修改">
       <header class="anim-section-heading"><h2>{{state.status==='succeeded'?'交付与修改':'审核与调整'}}</h2></header>
-             <details v-if="state.status==='anim_plan'" class="anim-picture-upload"><summary>上传或替换方案配图</summary><p>先保存配图，再说明需要在哪一幕使用。更换后须按当前修订重新确认。</p><input type="file" accept="image/png,image/jpeg" @change="pickPicture" :disabled="busy||pictureBusy"><template v-if="picture"><img :src="picture" alt="方案教学配图"><label>说明<input v-model="pictureCaption" maxlength="60"></label><label>出处<input v-model="pictureSource" maxlength="300"></label><button type="button" @click="savePicture" :disabled="busy||pictureBusy">保存当前配图</button></template></details>
+             <details v-if="state.status==='anim_plan'" class="anim-picture-upload"><summary>上传或替换方案配图</summary><p>先保存配图，再说明需要在哪一幕使用。更换后须按当前修订重新确认。</p><input type="file" accept="image/png,image/jpeg" @change="pickPicture" :disabled="busy||pictureBusy"><template v-if="picture"><MediaImage :picture="picture" alt="方案教学配图"/><label>说明<input v-model="pictureCaption" maxlength="60"></label><label>出处<input v-model="pictureSource" maxlength="300"></label><button type="button" @click="savePicture" :disabled="busy||pictureBusy">保存当前配图</button></template></details>
 <template v-if="['anim_plan','anim_representative','anim_acceptance'].includes(state.status)"><label>告诉 AI 怎样调整方案<textarea v-model="instruction" rows="3" maxlength="2000" placeholder="例如：先平移矩形，再旋转直角三角形，比较面积。" :disabled="busy"></textarea></label><button class="anim-revise-button" :disabled="busy||!instruction.trim()" @click="action('revise-plan',{instruction})"><WorkspaceIcon name="edit"/>修改方案</button><p v-if="state.status!=='anim_plan'" class="anim-action-note">修改会释放当前预留并使成品确认失效。代表幕内容及依赖变化时，需重新审核。</p><details class="anim-json-editor"><summary>直接编辑结构化分镜</summary><textarea v-model="planJSON" rows="14" aria-label="结构化分镜JSON" :disabled="busy"></textarea><button @click="savePlan" :disabled="busy">校验并保存方案</button></details><div v-if="state.status==='anim_plan'" class="anim-confirm-block"><p>确认教学顺序与旁白后，先制作一幕供你试听、试看。</p><button class="primary" @click="action('confirm-plan')" :disabled="busy||available<40">确认方案，预留40积分并制作代表幕</button><p v-if="available<40" role="status">当前可用积分不足40，方案已保留。</p></div></template>
       <div v-if="state.status==='anim_representative'" class="anim-confirm-block"><label class="anim-consent"><input v-model="consent" type="checkbox" :disabled="busy"><span>我已播放当前代表幕，确认讲解、声音与动作。</span></label><button class="primary" :disabled="busy||!consent" @click="action('confirm-representative',{hash:state.representative_hash})">确认代表幕，生成其余幕</button></div>
       <div v-if="['anim_acceptance','anim_edit_acceptance'].includes(state.status)" class="anim-confirm-block"><label class="anim-consent"><input v-model="consent" type="checkbox" :disabled="busy"><span>我已完整观看当前版本并核对知识、发音、字幕和动作。</span></label><button class="primary" :disabled="busy||!consent" @click="action('accept',{hash:state.build_hash})">{{state.status==='anim_acceptance'?'验收并结算40积分':'接受修改，使用本幕免费修改次数'}}</button><button v-if="state.status==='anim_edit_acceptance'" :disabled="busy" @click="action('discard-edit')">放弃修改，保留已交付版本</button></div>

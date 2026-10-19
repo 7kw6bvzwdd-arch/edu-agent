@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { provide, ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { templates, layouts, slideLayout } from './templates.js';
 import CoursewareEvidence from './CoursewareEvidence.vue';
 import TeachingClaimSources from './TeachingClaimSources.vue';
@@ -22,6 +22,7 @@ const token = ref(sessionStorage.getItem('edu_token') || ''),
   tenants = ref([]),
   tenant = ref(0);
 const restoringSession = ref(!!token.value);
+provide('mediaToken', token);
 let sessionGeneration = 0;
 const page = ref('home'),
   tab = ref('outline'),
@@ -1951,6 +1952,8 @@ onUnmounted(() => {
                         v-if="task.type === 'courseware'"
                         :slide="sl"
                         :editable="canEdit"
+                        :task-id="task.id"
+                        :revision="task.revision"
                       />
                       <div class="slide-edit-options">
                         <label

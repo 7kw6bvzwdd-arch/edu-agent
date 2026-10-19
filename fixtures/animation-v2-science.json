@@ -1,0 +1,25 @@
+{
+ "version":"anim-v2","title":"科学图示演示（固定样例）","archetype":"lesson.explain@1","representative":"lens",
+ "scenes":[
+  {"id":"lens","title":"物距变化与凸透镜成像","intent":"观察物距变化与成像性质",
+   "objects":[{"id":"visual","type":"scientific","slot":"main","params":{"progress":0},"scientific":{"kind":"thin_lens","title":"理想凸透镜成像","focal_length_cm":10,"object_distance_cm":30,"object_height_cm":3,"animation":{"param":"object_distance_cm","to":5,"duration_ms":4000}}}],
+   "narration":[{"id":"lens-n1","display":"改变物距，观察实像、焦点状态与虚像。","speech":"改变物距，观察实像、焦点状态与虚像。"},{"id":"lens-n2","display":"这是理想薄透镜的计算示意，不是实测。","speech":"这是理想薄透镜的计算示意，不是实测。"}],
+   "actions":[{"id":"change","op":"tween","object":"visual","param":"progress","to":1,"at":{"sentence":"lens-n1","anchor":"begin","offset_ms":500},"duration_ms":4000}],
+   "holds":[{"id":"observe","type":"await","after":"lens-n2","ms":2000}]},
+  {"id":"molecule","title":"乙醇中的羟基","intent":"根据结构识别羟基",
+   "objects":[{"id":"visual","type":"scientific","slot":"main","params":{"progress":0},"scientific":{"kind":"molecule","title":"乙醇结构与羟基","smiles":"CCO","highlight_group":"hydroxyl","animation":{"param":"highlight","to":1,"duration_ms":2500}}}],
+   "narration":[{"id":"molecule-n1","display":"高亮的是乙醇中的羟基，数字是原子编号。","speech":"高亮的是乙醇中的羟基，数字是原子编号。"},{"id":"molecule-n2","display":"二维结构图不能代替反应条件和机理的验证。","speech":"二维结构图不能代替反应条件和机理的验证。"}],
+   "actions":[{"id":"change","op":"tween","object":"visual","param":"progress","to":1,"at":{"sentence":"molecule-n1","anchor":"begin","offset_ms":500},"duration_ms":2500}],
+   "holds":[{"id":"observe","type":"observe","after":"molecule-n2","ms":2000}]},
+  {"id":"cell","title":"植物细胞中的叶绿体","intent":"按结构编号辨认叶绿体",
+   "objects":[{"id":"visual","type":"scientific","slot":"main","params":{"progress":0},"scientific":{"kind":"cell","title":"典型植物细胞简图","cell_type":"plant","visible_parts":["cell_wall","cell_membrane","cytoplasm","nucleus","mitochondrion","chloroplast","vacuole"],"highlight_parts":["chloroplast"],"animation":{"param":"highlight","to":1,"duration_ms":2500}}}],
+   "narration":[{"id":"cell-n1","display":"观察高亮的叶绿体，比较其他结构的位置。","speech":"观察高亮的叶绿体，比较其他结构的位置。"},{"id":"cell-n2","display":"这是典型细胞的结构示意，不能当作显微照片。","speech":"这是典型细胞的结构示意，不能当作显微照片。"}],
+   "actions":[{"id":"change","op":"tween","object":"visual","param":"progress","to":1,"at":{"sentence":"cell-n1","anchor":"begin","offset_ms":500},"duration_ms":2500}],
+   "holds":[{"id":"observe","type":"observe","after":"cell-n2","ms":2000}]}
+ ,{"id":"general","title":"路径与位置（通用组合）","intent":"观察图形沿路径移动与标注出现",
+   "objects":[{"id":"visual","type":"scientific","slot":"main","params":{"progress":0},"scientific":{"kind":"scene","title":"沿路径移动（教学示意）","scene":{"duration_ms":3000,"objects":[{"id":"route","type":"path","points":[[0.2,0.5],[0.5,0.3],[0.8,0.5]],"color":"#60758a"},{"id":"particle","type":"ellipse","x":0.2,"y":0.5,"width":0.04,"height":0.06,"color":"#bc582b","fill":"#bc582b"},{"id":"label","type":"text","x":0.5,"y":0.82,"text":"观察路径与位置","font_size":28,"color":"#18324c"}],"actions":[{"object":"particle","op":"follow_path","path":"route","start_ms":0,"duration_ms":2500},{"object":"label","op":"show","start_ms":1500,"duration_ms":500}]}}}],
+   "narration":[{"id":"general-n1","display":"观察圆点沿路径移动，标注随后出现。","speech":"观察圆点沿路径移动，标注随后出现。"},{"id":"general-n2","display":"这是按结构化描述绘制的演示，不代表物理仿真。","speech":"这是按结构化描述绘制的演示，不代表物理仿真。"}],
+   "actions":[{"id":"change","op":"tween","object":"visual","param":"progress","to":1,"at":{"sentence":"general-n1","anchor":"begin","offset_ms":500},"duration_ms":3000}],
+   "holds":[{"id":"observe","type":"observe","after":"general-n2","ms":2000}]}
+ ]
+}

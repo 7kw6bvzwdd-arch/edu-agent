@@ -73,6 +73,7 @@ func (s *Server) coursewarePageRequest(ctx context.Context, a Actor, id string, 
 	batchInput := in
 	batchInput.Pages = count
 	base := coursewarePrompt(batchInput, sources) + instructions
+	base += "\n页面JSON可选字段image_need：仅在需要真实外部配图时返回{purpose,queries,constraints}；不得返回图片URL、data_url、作者或授权信息，图片由系统检索并由教师审核。"
 	base += fmt.Sprintf("\n整套目标%d页。本批只返回第%d至第%d页，slides恰好%d项。这是整堂课的一部分，不是独立完整课；只写本批教案，不重写已完成的教案和页面。lesson简洁，不复制slides正文。notes通常100–160字，例题保留关键推理与答案；非必要媒体字段省略。", in.Pages, start, start+count-1, count)
 	if start > 3 {
 		base += "\n根据当前规划的教学任务选择合适表达。图表必须有具体教学用途、有效数据或关系及可得结论，不凑版式和图表数量；例题、练习与讲解适合课时和学生基础。非对应教学位置不重复封面、导入或总结；当前规划确为总结或作业时必须生成该页，不能因已生成其他页面就返回空slides。"

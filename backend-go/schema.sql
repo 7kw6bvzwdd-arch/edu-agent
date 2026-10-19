@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS documents (
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS upload_path text NOT NULL DEFAULT '';
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS lease_until timestamptz;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS curriculum jsonb NOT NULL DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS media_assets (
+ id text PRIMARY KEY, tenant_id bigint NOT NULL, member_id bigint NOT NULL,
+ metadata jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id)
+);
 CREATE TABLE IF NOT EXISTS courseware_references (
  id text PRIMARY KEY, tenant_id bigint NOT NULL, member_id bigint NOT NULL,
  name text NOT NULL, profile jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
@@ -156,7 +161,7 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
  embedding vector(1536) NOT NULL,PRIMARY KEY(tenant_id,provider,model,content_hash)
 );
 DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['courseware_references','members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','usage_totals','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
+ FOREACH t IN ARRAY ARRAY['media_assets','courseware_references','members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','usage_totals','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t);
    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t);
    IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename=t AND policyname='tenant_isolation') THEN

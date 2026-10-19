@@ -166,6 +166,7 @@ func (s *Server) snapshotCourseware(ctx context.Context, path string, samplePage
 }
 
 func (s *Server) previewArtifact(ctx context.Context, a Actor, id string, d *Deck) (string, error) {
+	ctx = context.WithValue(ctx, mediaActorKey{}, a)
 	if err := validateDeckMinimum(*d, 3); err != nil {
 		return "", err
 	}

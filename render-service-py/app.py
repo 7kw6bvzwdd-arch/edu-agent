@@ -11,6 +11,8 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 from teaching_plots import add_plot
+from general_scene import DrawingScene
+from science_visuals import KINDS as SCIENCE_KINDS, CELL_PARTS, add_science, render_bundle, summary as science_summary, molecule
 from fastapi import FastAPI, HTTPException, UploadFile, Request
 from fastapi.responses import Response, JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -119,6 +121,12 @@ class FunctionSeries(BaseModel):
         if self.kind=='inverse':return self.k/x if x else None
         return self.k*x+self.b
 
+class FunctionAnimation(BaseModel):
+    series:int=Field(ge=0,le=3)
+    param:Literal['a','b','c','k']
+    to:FiniteFloat=Field(ge=-1000,le=1000)
+    duration_ms:int=Field(ge=1000,le=8000)
+
 class FunctionGraph(BaseModel):
     renderer:Literal['native','matplotlib']='native'
     title:str=Field(min_length=1,max_length=60)
@@ -127,9 +135,23 @@ class FunctionGraph(BaseModel):
     y_min:FiniteFloat=Field(ge=-1000,lt=0)
     y_max:FiniteFloat=Field(gt=0,le=1000)
     series:list[FunctionSeries]=Field(min_length=1,max_length=4)
+    animation:FunctionAnimation|None=None
 
     @model_validator(mode='after')
     def check_graph(self):
+        if self.animation:
+            m=self.animation
+            if m.series>=len(self.series):raise ValueError('Missing animated series')
+            f=self.series[m.series]
+            if m.param not in {'linear':['k','b'],'quadratic':['a','b','c'],'inverse':['k']}[f.kind]:raise ValueError('Invalid animated parameter')
+            if f.kind=='inverse' and f.k*m.to<=0 or f.kind=='quadratic' and m.param=='a' and m.to==0:raise ValueError('Degenerate animation endpoint')
+            start=getattr(f,m.param)
+            for i in range(1,25):
+                target=self.model_copy(deep=True);target.animation=None
+                setattr(target.series[m.series],m.param,start+(m.to-start)*i/24)
+                if f.kind=='quadratic' and m.param=='a' and target.series[m.series].a==0:
+                    target.series[m.series].kind='linear';target.series[m.series].k=f.b;target.series[m.series].b=f.c
+                target.check_graph()
         if not self.title.strip() or self.x_max-self.x_min<1 or self.y_max-self.y_min<1:
             raise ValueError('Invalid graph axes')
         for series in self.series:
@@ -184,10 +206,29 @@ class TeachingFigure(BaseModel):
                 raise ValueError('Interval positions must increase with finite span')
         return self
 
+class ImageProvenance(BaseModel):
+    provider:Literal['wikimedia_commons','web_page']
+    title:str=Field(max_length=250)
+    page_url:str=Field(max_length=2000)
+    original_url:str=Field(max_length=4000)
+    download_url:str=Field(max_length=4000)
+    author:str=Field(max_length=1500)
+    license:str=Field(max_length=100)
+    license_url:str=Field(default='',max_length=2000)
+    description:str=Field(default='',max_length=1500)
+    date:str=Field(default='',max_length=1500)
+    retrieved_at:str=Field(max_length=40)
+    sha256:str=Field(pattern=r'^[a-f0-9]{64}$')
+    rights_status:str=Field(default='',max_length=40)
+    rights_note:str=Field(default='',max_length=300)
+    rights_confirmed_at:str=Field(default='',max_length=40)
+
 class TeachingPicture(BaseModel):
-    data_url:str=Field(max_length=180000)
+    asset_id:str=Field(default="",pattern=r"^(?:[a-f0-9]{32})?$")
+    data_url:str=Field(max_length=12000000)
     caption:str=Field(min_length=1,max_length=60)
     source:str=Field(min_length=1,max_length=300)
+    provenance:ImageProvenance|None=None
 
     @model_validator(mode='after')
     def check_image(self):
@@ -195,12 +236,13 @@ class TeachingPicture(BaseModel):
         if not self.caption.strip() or not self.source.strip():raise ValueError('Missing attribution')
         try:
             header,encoded=self.data_url.split(',',1)
-            formats={'data:image/png;base64':'PNG','data:image/jpeg;base64':'JPEG'}
+            formats={'data:image/png;base64':'PNG','data:image/jpeg;base64':'JPEG','data:image/gif;base64':'GIF'}
             if header not in formats:raise ValueError('Unsupported image')
             raw=base64.b64decode(encoded,validate=True)
-            if len(raw)>128000:raise ValueError('Image too large')
+            if len(raw)>(8*1024*1024 if self.asset_id else 128000):raise ValueError('Image too large')
             with Image.open(io.BytesIO(raw)) as im:
-                if im.format!=formats[header] or min(im.size)<32 or max(im.size)>1600:raise ValueError('Invalid image dimensions')
+                if im.format!=formats[header] or min(im.size)<32 or max(im.size)>(4096 if self.asset_id else 1600) or im.width*im.height>16000000:raise ValueError('Invalid image dimensions')
+                if getattr(im,"n_frames",1)>120 or im.width*im.height*getattr(im,"n_frames",1)>80000000:raise ValueError("Animation too large")
                 im.verify()
         except Exception as e:
             raise ValueError('Invalid image') from e
@@ -211,8 +253,13 @@ class ForceVector(BaseModel):
     x:FiniteFloat=Field(ge=-1000,le=1000)
     y:FiniteFloat=Field(ge=-1000,le=1000)
 
+class ScienceAnimation(BaseModel):
+    param:Literal['object_distance_cm','highlight']
+    to:FiniteFloat
+    duration_ms:int=Field(default=2000,ge=1000,le=8000)
+
 class ScientificDiagram(BaseModel):
-    kind:Literal['triangle','forces','circuit']
+    kind:Literal['triangle','forces','circuit','thin_lens','molecule','cell','scene']
     title:str=Field(min_length=1,max_length=60)
     sides:list[FiniteFloat]=Field(default_factory=list,max_length=3)
     object:str=Field(default='',max_length=24)
@@ -223,11 +270,35 @@ class ScientificDiagram(BaseModel):
     resistances:list[FiniteFloat]=Field(default_factory=list,max_length=3)
     connection:Literal['','series','parallel']=''
     closed:bool=True
+    focal_length_cm:FiniteFloat=0
+    object_distance_cm:FiniteFloat=0
+    object_height_cm:FiniteFloat=3
+    animation:ScienceAnimation|None=None
+    smiles:str=Field(default='',max_length=300)
+    highlight_group:Literal['none','hydroxyl','carboxyl','amino','carbonyl','double_bond']='none'
+    cell_type:Literal['plant','animal']='plant'
+    visible_parts:list[str]=Field(default_factory=list,max_length=7)
+    highlight_parts:list[str]=Field(default_factory=list,max_length=7)
+    scene:DrawingScene|None=None
 
     @model_validator(mode='after')
     def check_science(self):
         if not self.title.strip():raise ValueError('Missing scientific purpose')
-        if self.kind=='triangle':
+        if self.animation and self.kind in ('triangle','forces','circuit'):raise ValueError('This tool only supports static drawings')
+        if self.kind=='scene':
+            if not self.scene or self.animation:raise ValueError('Scene uses its own timeline')
+        elif self.kind=='thin_lens':
+            if not 1<=self.focal_length_cm<=100 or not 1<=self.object_distance_cm<=300 or not .1<=self.object_height_cm<=10:raise ValueError('Invalid lens parameters')
+            if self.animation and (self.animation.param!='object_distance_cm' or not 1<=self.animation.to<=300):raise ValueError('Invalid lens motion')
+        elif self.kind=='molecule':
+            molecule(self)
+            if self.animation and (self.animation.param!='highlight' or self.animation.to!=1 or self.highlight_group=='none'):raise ValueError('Invalid molecular highlighting')
+        elif self.kind=='cell':
+            parts=set(self.visible_parts);highlights=set(self.highlight_parts)
+            if not parts or len(parts)!=len(self.visible_parts) or not parts<=CELL_PARTS.keys() or not highlights<=parts:raise ValueError('Invalid cell structures')
+            if self.cell_type=='animal' and parts & {'cell_wall','chloroplast','vacuole'}:raise ValueError('Plant structures in animal cell')
+            if self.animation and (self.animation.param!='highlight' or self.animation.to!=1 or not highlights):raise ValueError('Invalid cell highlighting')
+        elif self.kind=='triangle':
             if len(self.sides)!=3 or any(not 0<n<=1000 for n in self.sides):raise ValueError('Invalid side')
             a,b,c=self.sides
             if min(a+b-c,a+c-b,b+c-a)<=0:raise ValueError('Impossible triangle')
@@ -264,15 +335,17 @@ class CanvasObject(BaseModel):
     background:str=Field(default='',pattern=r'^(?:[A-Fa-f0-9]{6})?$')
     shape:Literal['rect','ellipse','line','arrow']='rect'
     line_width:FiniteFloat=Field(default=2,ge=.5,le=8)
-    data_url:str=Field(default='',max_length=180000)
+    asset_id:str=Field(default='',pattern=r'^(?:[a-f0-9]{32})?$')
+    data_url:str=Field(default='',max_length=12000000)
     caption:str=Field(default='',max_length=60)
+    provenance:ImageProvenance|None=None
 
     @model_validator(mode='after')
     def check_object(self):
         if self.x+self.width>1.000001 or self.y+self.height>1.000001:raise ValueError('Object outside page')
         if self.kind=='text' and not self.text.strip():raise ValueError('Empty text object')
-        if self.kind=='image':TeachingPicture(data_url=self.data_url,caption=self.caption or '教师配图',source='教师添加')
-        elif self.data_url:raise ValueError('Image payload on non-image object')
+        if self.kind=='image':TeachingPicture(asset_id=self.asset_id,data_url=self.data_url,caption=self.caption or '教师配图',source='教师添加')
+        elif self.data_url or self.asset_id:raise ValueError('Image payload on non-image object')
         return self
 
 
@@ -428,7 +501,7 @@ class Slide(BaseModel):
         ids=[obj.id for obj in self.canvas_objects]
         if len(ids)!=len(set(ids)) or len(self.canvas_order)!=len(set(self.canvas_order)):raise ValueError('Duplicate canvas IDs')
         if self.scientific and (self.graph or self.picture or self.chart or self.table or self.figure or self.diagram):raise ValueError('Scientific diagram requires own panel')
-        if self.graph and (self.picture or self.chart or self.table or self.figure or self.diagram):
+        if self.graph and (self.picture or self.chart or self.figure or self.diagram):
             raise ValueError('Function graph requires its own panel')
         if any(not term.strip() or len(term)>20 for term in self.emphasis):raise ValueError('Invalid emphasis')
         if self.picture and (self.chart or self.diagram or (self.table and self.figure)):
@@ -445,8 +518,9 @@ class Deck(BaseModel):
 
     @model_validator(mode='after')
     def check_total_images(self):
-        if sum((len(s.picture.data_url) if s.picture else 0)+sum(len(o.data_url) for o in s.canvas_objects) for s in self.slides)>1200000:
+        if sum((len(s.picture.data_url) if s.picture and not s.picture.asset_id else 0)+sum(len(o.data_url) for o in s.canvas_objects if not o.asset_id) for s in self.slides)>1200000:
             raise ValueError('Total image budget exceeded')
+        if sum((len(s.picture.data_url) if s.picture else 0)+sum(len(o.data_url) for o in s.canvas_objects) for s in self.slides)>90000000:raise ValueError('Resolved image budget exceeded')
         return self
 
 def rgb(h):return RGBColor.from_string(h)
@@ -696,7 +770,7 @@ def body(slide,data,layout,theme,x,y,w,h):
 
 def function_graph(slide,data,theme,x,y,w,h,show_coordinates=True):
     _,ink,accent,surface,soft,muted=THEMES[theme]
-    if data.renderer=='matplotlib':
+    if data.renderer=='matplotlib' or data.animation:
         box(slide,x+.2,y+.05,w-.4,.5,data.title,17,accent,True,minimum=14)
         add_plot(slide,data,THEMES[theme],mathtext_font(),x,y+.6,w,h-.6,True,show_coordinates)
         return
@@ -770,6 +844,10 @@ def function_graph(slide,data,theme,x,y,w,h,show_coordinates=True):
 
 
 def scientific_diagram(slide,data,theme,x,y,w,h):
+    if data.kind in SCIENCE_KINDS:
+        try:add_science(slide,data,mathtext_font(),x,y,w,h)
+        except ValueError:raise RenderError('scientific_invalid')
+        return
     _,ink,accent,_,soft,muted=THEMES[theme]
     box(slide,x+.1,y,w-.2,.5,data.title,20,accent,True,minimum=18)
     def line(name,x1,y1,x2,y2,arrow=False,color=accent):
@@ -1029,6 +1107,12 @@ def teaching_figure(slide,data,theme,x,y,w,h):
             box(slide,tx,ty+labelh+.06,tw,available-labelh-.06,item.detail,17 if horizontal and tw<3 else 20,muted,minimum=17)
 
 
+def image_source_notes(p):
+    label='Wikimedia Commons' if p.provider=='wikimedia_commons' else '网页配图'
+    rights=('\n使用权限状态：'+p.rights_status+'\n教师声明：'+p.rights_note+'\n确认时间：'+p.rights_confirmed_at) if p.rights_status else ''
+    return '\n图片来源（'+label+'）：'+p.title+'\n来源页：'+p.page_url+'\n作者：'+p.author+'\n许可：'+p.license+'\n许可链接：'+p.license_url+'\n原图：'+p.original_url+'\n采用图片：'+p.download_url+'\n来源说明：'+p.description+'\n来源日期：'+p.date+'\n抓取时间：'+p.retrieved_at+'\n图片SHA256：'+p.sha256+rights+'\n图片来源与许可按抓取时元数据记录；相关性筛选不等于史实或授权认证，请教师核对。'
+
+
 def teaching_picture(slide,data,theme,x,y,w,h):
     from PIL import Image
     _,ink,_,_,_,_=THEMES[theme]
@@ -1160,7 +1244,18 @@ def render(deck,start_index=0,total_pages=None):
             # shared equation row. Keep the complete expressions at readable
             # scale rather than squeezing them into the text column.
             wide_science_formula=bool(data.scientific and r'\quad' in data.formula)
-            if teaching_media:
+            if data.graph and data.table:
+                object_region(s,'title',box,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
+                caption='\n'.join(data.bullets)
+                captionh=text_lines(caption,11.9,19)*19*1.4/72+.08 if caption else 0
+                mediah=bottom-2.66-captionh-(.18 if caption else 0)
+                if mediah<2:raise RenderError('text_overflow')
+                field='graph'
+                object_region(s,'visual',visual,data,deck.theme,.7,2.55,7.15,mediah)
+                field='table'
+                object_region(s,'visual',teaching_table,data.table,deck.theme,8.2,2.55,4.4,mediah)
+                if caption:object_region(s,'body',box,.7,bottom-captionh,11.9,captionh,caption,21,ink,minimum=19)
+            elif teaching_media:
                 object_region(s,'title',box,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
                 field='bullets'
                 caption='\n'.join(data.bullets)
@@ -1227,9 +1322,18 @@ def render(deck,start_index=0,total_pages=None):
             box(s,.7,7.06,9,.25,'待核验草稿 · 请教师核对' if deck.needs_review else '教学资料 · 来源详见备注',10,muted)
             box(s,11.5,7.04,1.1,.3,f'{index+1:02} / {total_pages:02}',11,accent)
             s.notes_slide.notes_text_frame.text=data.notes
+            if data.scientific and data.scientific.kind in SCIENCE_KINDS:
+                s.notes_slide.notes_text_frame.text+='\n科学图示：'+science_summary(data.scientific)[0]
             if data.answer:s.notes_slide.notes_text_frame.text+='\n课堂答案（演示时由教师揭示）：\n'+data.answer
             if data.picture:
-                s.notes_slide.notes_text_frame.text+='\n配图说明：'+data.picture.caption+'\n图片来源（教师填写）：'+data.picture.source+'\n图片内容与使用权限请教师核对；文字评审未检查图片。'
+                s.notes_slide.notes_text_frame.text+='\n配图说明：'+data.picture.caption
+                if data.picture.provenance:
+                    s.notes_slide.notes_text_frame.text+=image_source_notes(data.picture.provenance)
+                else:
+                    s.notes_slide.notes_text_frame.text+='\n图片来源（教师填写）：'+data.picture.source+'\n图片内容与使用权限请教师核对；文字评审未检查图片。'
+            for obj in data.canvas_objects:
+                if obj.kind=='image' and obj.provenance:
+                    s.notes_slide.notes_text_frame.text+=image_source_notes(obj.provenance)
             if data.canvas_order:apply_canvas_order(s,data.canvas_order)
         except ValueError as e:
             code=e.code if isinstance(e,RenderError) else ('formula_invalid' if field=='formula' else 'content_invalid')
@@ -1239,7 +1343,7 @@ def render(deck,start_index=0,total_pages=None):
 
 
 @app.get('/health')
-def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v3','courseware_plot_version':'matplotlib-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1'}
+def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v3','courseware_plot_version':'matplotlib-v1','courseware_function_animation_version':'functions-v1','courseware_image_reference_version':'assets-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1','science_visuals_version':'science-visuals-v1'}
 
 @app.post('/render/object-map')
 async def object_map(request:Request,page:int=1):
@@ -1270,6 +1374,16 @@ async def object_map(request:Request,page:int=1):
 def pptx(deck:Deck):
     try:return Response(render(deck),media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation')
     except RenderError as e:raise HTTPException(422,{'code':e.code,'page':e.page,'field':e.field})
+
+class ScienceRequest(BaseModel):
+    diagram:ScientificDiagram
+    frames:bool=False
+
+@app.post('/render/scientific')
+def scientific_preview(request:ScienceRequest):
+    if request.diagram.kind not in SCIENCE_KINDS:raise HTTPException(422,'Unsupported scientific preview')
+    try:return render_bundle(request.diagram,mathtext_font(),request.frames)
+    except ValueError:raise HTTPException(422,{'code':'scientific_invalid','field':'scientific'})
 
 @app.post('/render/canvas-preview-pptx')
 def canvas_preview_pptx(deck:Deck,page:int=1):

@@ -1,5 +1,8 @@
 <script setup>
-import {ref,computed,watch,nextTick,onMounted,onUnmounted} from 'vue'
+import {ref,computed,watch,nextTick,onMounted,onUnmounted,inject} from 'vue'
+import MediaImage from './MediaImage.vue'
+import {uploadTeachingImage} from './media.js'
+const mediaToken=inject('mediaToken',ref(''))
 import {canvasTextIssue} from './canvas-text.js'
 const props=defineProps({slide:Object,objects:Array,image:String,editable:Boolean,complete:Boolean,preview:Function,previewKey:String})
 const stageWidth=ref(960)
@@ -113,29 +116,20 @@ async function upload(event){
  const file=event.target.files?.[0];event.target.value='';if(!file||!props.editable)return
  const target=props.slide,id=target.id,before=snapshot(),replace=replaceImage;uploading.value=true;message.value=''
  try{
-  if(!['image/png','image/jpeg'].includes(file.type)||file.size>20*1024*1024)throw Error('请选择20MB以内的PNG或JPEG图片。')
-  const bitmap=await createImageBitmap(file)
-  try{
-   if(Math.min(bitmap.width,bitmap.height)<32||bitmap.width*bitmap.height>40000000)throw Error('图片边长至少32像素，总像素不超过4000万。')
-   const canvas=document.createElement('canvas'),ratio=Math.min(1,1200/bitmap.width,1200/bitmap.height)
-   canvas.width=Math.round(bitmap.width*ratio);canvas.height=Math.round(bitmap.height*ratio)
-   if(Math.min(canvas.width,canvas.height)<32)throw Error('图片过于狭长，请裁切后再上传。')
-   const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0,canvas.width,canvas.height)
-   let data=canvas.toDataURL('image/png');if(data.length>170000){ctx.globalCompositeOperation='destination-over';ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);for(const quality of [.88,.72,.55,.4]){data=canvas.toDataURL('image/jpeg',quality);if(data.length<=170000)break}}
-   if(data.length>170000)throw Error('图片压缩后仍过大，请降低分辨率后重试。')
+  const asset=await uploadTeachingImage(file,mediaToken.value)
+  const imageWidth=asset.width,imageHeight=asset.height
    if(disposed||props.slide!==target||props.slide.id!==id||!props.editable)return
    if(snapshot()!==before)throw Error('读取图片期间页面已修改，请重新添加图片。')
    const existing=customs.value.find(o=>o.id===replace)
    if(existing?.locked)throw Error('图片已锁定，请先解锁。')
    if(!existing&&customs.value.length>=24)throw Error('本页最多添加24个对象。')
-   const width=Math.min(.3,.3*canvas.width/canvas.height*9/16),height=width*16/9*canvas.height/canvas.width
+   const width=Math.min(.3,.3*imageWidth/imageHeight*9/16),height=width*16/9*imageHeight/imageWidth
    const o=existing||{id:'object-'+crypto.randomUUID(),kind:'image',x:.35,y:.4,width,height,rotation:0,locked:false,caption:''}
-   const nextWidth=existing?existing.width:width,nextHeight=nextWidth*16/9*canvas.height/canvas.width
+   const nextWidth=existing?existing.width:width,nextHeight=nextWidth*16/9*imageHeight/imageWidth
    if(!inside({...o,width:nextWidth,height:nextHeight}))throw Error('替换图片会超出页面，请先缩小图片。')
-   o.data_url=data;o.width=nextWidth;o.height=nextHeight
+   delete o.data_url;o.asset_id=asset.asset_id;o.width=nextWidth;o.height=nextHeight
    if(!existing){props.slide.canvas_objects||=[];props.slide.canvas_objects.push(o)}
    baseSizes.set(o.id,{width:o.width,height:o.height});selected.value=[o.id];commit(before)
-  }finally{bitmap.close()}
  }catch(e){message.value=e.message}finally{uploading.value=false}
 }
 function duplicate(){change(()=>{
@@ -147,7 +141,7 @@ function duplicate(){change(()=>{
 function remove(){change(()=>{
  const ids=unlocked.value.filter(o=>o.id!=='title').map(o=>o.id)
  if(selected.value.includes('title'))message.value='页面标题需保留，可直接编辑文字。'
- for(const id of ids){if(id==='body')props.slide.bullets=[];else if(id==='visual'){for(const k of ['graph','scientific','picture','table','figure','chart'])delete props.slide[k];props.slide.diagram=''}else if(!id.startsWith('object-'))props.slide[id]='';delete props.slide.canvas_positions?.[id]}
+ for(const id of ids){if(id==='body')props.slide.bullets=[];else if(id==='visual'){if(props.slide.picture)props.slide.image_search={status:'removed',message:'教师已在画布移除配图，保存后生效。'};for(const k of ['graph','scientific','picture','table','figure','chart'])delete props.slide[k];props.slide.diagram=''}else if(!id.startsWith('object-'))props.slide[id]='';delete props.slide.canvas_positions?.[id]}
  props.slide.canvas_objects=customs.value.filter(o=>!ids.includes(o.id));props.slide.canvas_order=(props.slide.canvas_order||[]).filter(id=>!ids.includes(id));selected.value=selected.value.filter(id=>!ids.includes(id))
 })}
 function lock(){change(()=>{const value=chosen.value.some(o=>!o.locked);for(const o of chosen.value)objectData(o.id).locked=value})}
@@ -206,11 +200,11 @@ const newObject=o=>o.kind!=='native'&&!(props.objects||[]).some(saved=>saved.id=
    <template v-if="complete"><button @click="add('text')" :disabled="!editable">添加文本</button><button @click="chooseImage()" :disabled="!editable||uploading">{{uploading?'读取图片…':'添加图片'}}</button><select aria-label="添加图形" :disabled="!editable" @change="add('shape',$event.target.value);$event.target.value='' "><option value="">添加图形</option><option value="rect">矩形</option><option value="ellipse">椭圆</option><option value="line">直线</option><option value="arrow">箭头</option></select></template>
    <button @click="undoEdit" :disabled="!editable||(!textEditing&&!undo.length)">撤销</button><button @click="redoEdit" :disabled="!editable||!!textEditing||!redo.length">重做</button><label><input type="checkbox" v-model="grid">网格</label><label><input type="checkbox" v-model="snap">吸附</label><label>视图 <select v-model.number="zoom" aria-label="画布视图缩放"><option :value="100">适应</option><option :value="125">125%</option><option :value="150">150%</option><option :value="200">200%</option></select></label>
   </div>
-  <input ref="fileInput" class="canvas-file" type="file" accept="image/png,image/jpeg" aria-label="上传画布图片" @change="upload">
+  <input ref="fileInput" class="canvas-file" type="file" accept="image/png,image/jpeg,image/gif" aria-label="上传画布图片" @change="upload">
   <div class="canvas-scroll"><div ref="stage" :class="['object-stage',{'show-grid':grid}]" :style="{width:zoom+'%'}" tabindex="0" aria-label="课件画布，方向键移动选中对象" @pointerdown.self="finishText()&&(selected=[])" >
    <img :src="actual?previewImage:image" :alt="actual?'当前修改的实际PPT画面':'已保存版本的实际PPT画面'">
    <button v-for="o in objects" :key="o.id" type="button" :data-object-id="o.id" :data-kind="o.kind" :disabled="!editable" :aria-label="'移动'+o.label" :aria-pressed="selected.includes(o.id)" :class="{locked:o.locked}" :style="style(o)" @pointerdown="start($event,o)" @pointermove="update" @pointerup="stop" @pointercancel="cancelDrag" @lostpointercapture="stop" @focus="!selected.includes(o.id)&&(selected=[o.id])" @click="editText($event,o)">
-    <template v-if="!actual&&newObject(o)"><span v-if="o.kind==='text'" class="new-text" :style="{fontSize:o.font_size*stageWidth/960+'px',color:'#'+o.color,fontWeight:o.bold?'bold':'normal',textAlign:o.align,background:o.background?'#'+o.background:'transparent'}">{{o.text}}</span><img v-else-if="o.kind==='image'" class="new-image" :src="o.data_url" :alt="o.caption||'待保存图片'"><span v-else :class="['new-shape',o.shape]" :style="{borderColor:'#'+o.color,background:o.background?'#'+o.background:'transparent'}"></span></template>
+    <template v-if="!actual&&newObject(o)"><span v-if="o.kind==='text'" class="new-text" :style="{fontSize:o.font_size*stageWidth/960+'px',color:'#'+o.color,fontWeight:o.bold?'bold':'normal',textAlign:o.align,background:o.background?'#'+o.background:'transparent'}">{{o.text}}</span><MediaImage v-else-if="o.kind==='image'" class="new-image" :picture="o" :alt="o.caption||'待保存图片'"/><span v-else :class="['new-shape',o.shape]" :style="{borderColor:'#'+o.color,background:o.background?'#'+o.background:'transparent'}"></span></template>
     <span class="object-label">{{o.label}}{{o.locked?' · 锁定':''}}</span>
    </button>
    <button v-if="active&&!active.locked&&!textEditing" class="resize-handle" aria-label="拖动等比例缩放对象" :style="{left:(active.x+active.width)*100+'%',top:(active.y+active.height)*100+'%'}" :disabled="!editable" @pointerdown.stop="start($event,active,'resize')" @pointermove="update" @pointerup="stop" @pointercancel="cancelDrag" @lostpointercapture="stop">↘</button>

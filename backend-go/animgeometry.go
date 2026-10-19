@@ -317,7 +317,10 @@ func animRequestedArchetype(in TaskInput) string {
 		return "lesson.explain@1"
 	}
 	for _, text := range []string{in.Topic, in.Requirements} {
-		if strings.Contains(text, "一次函数") {
+		if animHasAny(text, "lesson.explain@1", "通用图形", "通用动画", "scientific", "透镜", "分子", "细胞") {
+			return "lesson.explain@1"
+		}
+		if animHasAny(text, "一次函数", "二次函数", "反比例函数") {
 			return "func.params@1"
 		}
 		if animHasAny(text, "平移", "旋转", "矩形", "直角三角形") {

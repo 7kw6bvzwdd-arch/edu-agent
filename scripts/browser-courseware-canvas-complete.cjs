@@ -13,7 +13,7 @@ let browser,socket;
  deck.slides[0].evidence=[{claim:'浮力方向竖直向上',source_id:'S1',source_hash:'fixture-hash',quote:'浮力方向竖直向上。'}];
  task.slide_reviews=deck.slides.map(s=>({id:s.id,hash:'hash-'+s.id,approved:false,vote:0}));
  const resume='已恢复逐页检查点，继续只处理问题页和未完成页；未变更页面的审核保留。';deck.notice='请教师核验。 '+resume.repeat(3);
- let previewDelay=0,previewFailure=false;let previews=0,polls=0,eventID=0,failBillingOnce=false,created=0,creation=null,saved=0,failSaveOnce=false,downloads=0; const reviews=new Map();const errors=[],checks=[];let reparsed=0;const documents=[{id:'document-fixture',name:'教材样例.pdf',original_available:true,status:'ready',chunks:3,created_at:'2026-10-13T12:00:00Z'}];
+ let mediaUploads=0;let previewDelay=0,previewFailure=false;let previews=0,polls=0,eventID=0,failBillingOnce=false,created=0,creation=null,saved=0,failSaveOnce=false,downloads=0; const reviews=new Map();const errors=[],checks=[];let reparsed=0;const documents=[{id:'document-fixture',name:'教材样例.pdf',original_available:true,status:'ready',chunks:3,created_at:'2026-10-13T12:00:00Z'}];
  function event(stage){task.events.push({id:++eventID,stage,message:stage})}
  event('batch_start_4_6');
  browser=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--remote-debugging-port=9286','--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(output,'browser-profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
@@ -40,6 +40,8 @@ let browser,socket;
   else if(p==='/api/courseware/materials/preview'){reply={pages:[{page:1,text:'第十九章 一次函数'},{page:2,text:'y=kx+b，k不为零'}],material_snapshot:{name:'教材样例.pdf',edition:'教师标注测试版次',chapter:'原文章节'},page_warnings:[{file_page:1,kind:'catalogue'}]}}
   else if(p==='/api/courseware/materials')reply=[{id:'textbook1',name:'人教版数学八年级.pdf',pages:2,curriculum:{subject:'物理',grade:'八年级',edition:'人教版'},chapters:[{title:'第十九章 一次函数',start:1,end:2}]}];
   else if(/\/materials\/[^/]+\/pages\/\d+\/image$/.test(p))reply={file_page:2,data_url:'data:image/png;base64,'+png.toString('base64'),name:'原始教材.pdf',original_hash:'fixture-original-hash'};
+  else if(p==='/api/media'&&request.method==='POST'){mediaUploads++;reply={asset_id:mediaUploads.toString(16).padStart(32,'0'),width:96,height:mediaUploads===1?96:48}}
+  else if(p.startsWith('/api/media/')){contentType='image/png';body=png}
   else if(p==='/api/courseware/references')reply=[];
   else if(request.method!=='GET'){errors.push('Unexpected write: '+p);code=400;reply={message:'No writes allowed'}}
   else if(p==='/api/health')reply={status:'ok',mode:'sample',courseware_canvas_version:'canvas-v3',courseware_studio_version:'studio-v1',courseware_media_version:'media-v1',courseware_material_images_version:'page-images-v1',document_reparse_version:'reparse-v1',teaching_features_version:'teaching-v1',works_view_version:'views-v1'};
@@ -123,7 +125,7 @@ let browser,socket;
  const replacement=await evaluate("(()=>{const c=document.createElement('canvas');c.width=96;c.height=48;const x=c.getContext('2d');x.fillStyle='#1b7858';x.fillRect(0,0,96,48);return c.toDataURL('image/png').split(',')[1]})()");await fs.writeFile(imagePath,Buffer.from(replacement,'base64'));
  await action('替换图片');await call('DOM.setFileInputFiles',{nodeId:node.nodeId,files:[imagePath]});await wait("parseFloat(document.querySelector('[data-kind=image]').style.height)<"+imageHeight);
  assert.equal(await evaluate("document.querySelector('[data-kind=image]').style.width"),imageWidth);assert.ok(Math.abs(await evaluate("parseFloat(document.querySelector('[data-kind=image]').style.height)")-imageHeight/2)<.001);
- checks.push('Local image decoding, bounded compression, aspect ratio, replacement and caption');
+ checks.push('Referenced upload, authenticated image display, aspect ratio, replacement and caption');
  const savesBefore=saved;previewDelay=300;await action('更新实际预览');await wait("document.querySelector('.canvas-preview-row').innerText.includes('当前修改已完成实际排版')");assert.equal(saved,savesBefore);
  assert.equal(await evaluate("document.querySelectorAll('.object-stage .new-image').length"),0);
  await input('图片说明','新说明');assert.ok(await evaluate("document.querySelector('.canvas-preview-row').innerText.includes('底图为已保存画面')"));
@@ -136,7 +138,7 @@ let browser,socket;
  failSaveOnce=true;await click('保存画布及其他修改');await wait("document.querySelector('.alert.error')?.innerText.includes('文字过密')");assert.equal(saved,savesBefore);assert.equal(await evaluate("document.querySelectorAll('[data-kind=image]').length"),1);
  await click('保存画布及其他修改');await wait("!document.querySelector('.unsaved-note')");assert.equal(task.result.slides[0].canvas_objects.length,3);assert.equal(task.result.slides[0].canvas_objects.find(o=>o.kind==='image').caption,'排版期间又修改');
  await wait("!!document.querySelector('[aria-label=\"移动第1页对象\"]')"); await evaluate("document.querySelector('[aria-label=\"移动第1页对象\"]').click()");await wait("document.querySelectorAll('[data-kind=image]').length===1");assert.equal(await evaluate("document.querySelectorAll('.object-stage .new-image').length"),0);
- assert.ok(task.result.slides[0].canvas_objects.find(o=>o.kind==='image').data_url.startsWith('data:image/png;base64,'));
+ assert.ok(task.result.slides[0].canvas_objects.find(o=>o.kind==='image').asset_id==='2'.padStart(32,'0')&&!task.result.slides[0].canvas_objects.find(o=>o.kind==='image').data_url);
  checks.push('Failed save keeps all objects; successful save/reopen retains geometry, layers and embedded image once');
  await layerSelect('图片 3');await action('删除对象');await action('撤销');assert.equal(await evaluate("document.querySelectorAll('[data-kind=image]').length"),1);await action('重做');assert.equal(await evaluate("document.querySelectorAll('[data-kind=image]').length"),0);
  await click('保存画布及其他修改');await wait("!document.querySelector('.unsaved-note')");assert.equal(task.result.slides[0].canvas_objects.length,2);assert.equal(JSON.stringify(task.result.slides[0]).includes('data:image/'),false);

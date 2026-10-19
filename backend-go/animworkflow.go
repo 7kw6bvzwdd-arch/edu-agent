@@ -91,7 +91,7 @@ func (s *Server) createHTMLAnimation(w http.ResponseWriter, r *http.Request, a A
 	if !s.htmlAnimationConfigured() {
 		return fail(503, "HTML动画需要真实动画模型和语音配置；当前未创建任务或预留积分")
 	}
-	if e := animValidatePicture(in.AnimationPicture); e != nil {
+	if e := s.validateAnimationPicture(r.Context(), a, in.AnimationPicture); e != nil {
 		return e
 	}
 	if !animRunes(in.Topic, 100) || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 128 {
@@ -269,7 +269,7 @@ func (s *Server) animationAction(w http.ResponseWriter, r *http.Request, a Actor
 		if t.Status != "anim_plan" {
 			return fail(409, "请在分镜方案阶段更换配图")
 		}
-		if e = animValidatePicture(in.Picture); e != nil {
+		if e = s.validateAnimationPicture(r.Context(), a, in.Picture); e != nil {
 			return e
 		}
 		if in.Picture == nil && animNeedsPicture(t.Flow.Script) {
@@ -871,6 +871,11 @@ func (s *Server) buildHTMLAnimation(ctx context.Context, a Actor, t *animTask) (
 		}
 	}
 	input := animPackageInput{Script: sc, Format: s.cfg.TTS.Format, Voice: animVoiceTTS, Audio: map[string][]byte{}}
+	var scienceErr error
+	input.Science, scienceErr = s.animScienceFrames(ctx, sc)
+	if scienceErr != nil {
+		return "", scienceErr
+	}
 	ms := map[string]int{}
 	bounds := map[string]AnimSpan{}
 	sceneHashes := map[string]string{}
@@ -941,6 +946,13 @@ func (s *Server) buildHTMLAnimation(ctx context.Context, a Actor, t *animTask) (
 		}
 	}
 	input.Picture = t.Input.AnimationPicture
+	if input.Picture != nil && input.Picture.AssetID != "" {
+		d, err := s.hydrateDeckAssets(context.WithValue(ctx, mediaActorKey{}, a), Deck{Slides: []Slide{{Picture: input.Picture}}})
+		if err != nil {
+			return "", err
+		}
+		input.Picture = d.Slides[0].Picture
+	}
 	repHash := sceneHashes[sc.Representative]
 	if t.Status == "anim_full_running" && (repHash == "" || t.Flow.RepConfirmed != repHash) {
 		return "", fmt.Errorf("代表幕构建内容已变化，旧确认不得继续使用")

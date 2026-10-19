@@ -79,7 +79,7 @@ func normalizeCoursewareSlide(sl map[string]any) {
 			}
 		}
 	}
-	for _, field := range []string{"table", "figure", "graph", "scientific", "chart", "picture", "scene"} {
+	for _, field := range []string{"table", "figure", "graph", "scientific", "chart", "picture", "scene", "image_need", "image_search"} {
 		empty := sl[field] == nil
 		switch v := sl[field].(type) {
 		case string:
@@ -174,6 +174,12 @@ func decodeCourseware(raw string, d *Deck) error {
 				return fmt.Errorf("第%d页必须是页面对象", i+1)
 			}
 			normalizeCoursewareSlide(sl)
+			// Model output may describe a need, but never supply an asset or provenance.
+			delete(sl, "picture")
+			delete(sl, "image_search")
+			delete(sl, "canvas_objects")
+			delete(sl, "canvas_order")
+			delete(sl, "canvas_positions")
 			var parsed Slide
 			if err := json.Unmarshal(asJSON(sl), &parsed); err != nil {
 				return coursewareTypeError(err, i+1)

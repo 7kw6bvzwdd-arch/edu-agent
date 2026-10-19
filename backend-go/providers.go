@@ -280,6 +280,9 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 		d.Notice = "本地示例内容，不是实时AI生成。请确认课题与示例内容相符。"
 	}
 	if s.cfg.Mode == "live" {
+		for i := range d.Slides {
+			s.addCoursewareImage(ctx, a, id, in, &d.Slides[i])
+		}
 		d = arrangeCourseware(d)
 		issues, err := s.coursewarePreflight(ctx, &d, in.Pages)
 		if err != nil {
@@ -305,6 +308,13 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 				return d, fail(422, "修复后的课件页数不符")
 			}
 			repaired.Notice = d.Notice
+			for i := range repaired.Slides {
+				repaired.Slides[i].Picture = d.Slides[i].Picture
+				repaired.Slides[i].ImageSearch = d.Slides[i].ImageSearch
+				if repaired.Slides[i].ImageNeed == nil {
+					repaired.Slides[i].ImageNeed = d.Slides[i].ImageNeed
+				}
+			}
 			repaired = arrangeCourseware(repaired)
 			if err := validateDeck(repaired); err != nil {
 				return d, err

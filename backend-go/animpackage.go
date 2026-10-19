@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const animRendererVersion = "classroom-illustrated-v1"
+const animRendererVersion = "science-visuals-v1"
+
+//go:embed animplayer/functions.js
+var teachingFunctionsJS string
 
 //go:embed animplayer/player.js
 var animPlayerJS string
@@ -27,6 +30,7 @@ const (
 )
 
 type animPackageInput struct {
+	Science  map[string]scienceRender
 	Picture  *TeachingPicture
 	Script   AnimScript
 	Timeline AnimTimeline
@@ -65,7 +69,7 @@ func cspHash(s string) string {
 
 // The HTML parser normalizes CRLF to LF inside inline elements, so hashes must be
 // computed over LF text or a CRLF checkout would silently block the player.
-var animPlayerJSLF, animPlayerCSSLF = strings.ReplaceAll(animPlayerJS, "\r\n", "\n"), strings.ReplaceAll(animPlayerCSS, "\r\n", "\n")
+var animPlayerJSLF, animPlayerCSSLF = strings.ReplaceAll(strings.ReplaceAll(teachingFunctionsJS, "export default TeachingFunctions;", "")+"\n"+animPlayerJS, "\r\n", "\n"), strings.ReplaceAll(animPlayerCSS, "\r\n", "\n")
 
 func buildAnimPackage(in animPackageInput) []byte {
 	mime := map[string]string{"mp3": "audio/mpeg", "wav": "audio/wav"}[in.Format]
@@ -75,7 +79,7 @@ func buildAnimPackage(in animPackageInput) []byte {
 	}
 	labels := animLabels(in)
 	// json.Marshal escapes <, > and &, so the data cannot close its script element.
-	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion, "picture": in.Picture}))
+	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion, "picture": in.Picture, "science": in.Science}))
 	csp := "default-src 'none'; script-src " + cspHash(animPlayerJSLF) + "; style-src " + cspHash(animPlayerCSSLF) + "; img-src data:; media-src data:; font-src data:; base-uri 'none'; form-action 'none'"
 	var tags strings.Builder
 	for _, l := range labels {

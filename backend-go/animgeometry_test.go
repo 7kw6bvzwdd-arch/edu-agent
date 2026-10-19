@@ -116,3 +116,17 @@ func TestAnimGeometryCannotChangeTopicDuringEdit(t *testing.T) {
 		t.Fatal("topic changed inside a local edit")
 	}
 }
+
+func TestAnimScientificAndFunctionTopicRouting(t *testing.T) {
+	for _, item := range []struct{ topic, notes, want string }{
+		{"二次函数的开口变化", "", "func.params@1"},
+		{"反比例函数的系数", "", "func.params@1"},
+		{"通用动画分拣过程", "组合矩形、路径和标注", "lesson.explain@1"},
+		{"细胞结构", "用矩形标注显示位置", "lesson.explain@1"},
+		{"使用lesson.explain@1组合矩形图形与旋转动作", "", "lesson.explain@1"},
+	} {
+		if got := animRequestedArchetype(TaskInput{Topic: item.topic, Requirements: item.notes}); got != item.want {
+			t.Errorf("%s routed to %s, want %s", item.topic, got, item.want)
+		}
+	}
+}

@@ -12,15 +12,16 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.font_manager import FontProperties
 from pptx.util import Inches
+from PIL import Image
 
 # Matplotlib/font caches are process-global; each request still owns its figure.
 _plot_lock=threading.Lock()
 
 
-def plot_png(data, width, height, colors, font, function=False, show_coordinates=True):
+def plot_png(data, width, height, colors, font, function=False, show_coordinates=True, dpi=220):
     background,ink,accent,_,soft,muted=colors
     with _plot_lock:
-        fig=Figure(figsize=(width,height),dpi=220,facecolor='#'+background,layout='constrained')
+        fig=Figure(figsize=(width,height),dpi=dpi,facecolor='#'+background,layout='constrained')
         FigureCanvasAgg(fig)
         ax=fig.add_subplot(facecolor='#'+background)
         labels=FontProperties(family=font,size=12)
@@ -41,7 +42,7 @@ def plot_png(data, width, height, colors, font, function=False, show_coordinates
                 xs=np.linspace(data.x_min,data.x_max,1201)
                 if series.kind=='quadratic':
                     ys=series.a*xs**2+series.b*xs+series.c
-                    expression=f'y = {series.a:g}x² {series.b:+g}x {series.c:+g}'
+                    expression=f'y = {series.a:g}x² {series.b:+g}x {series.c:+g}'+('（非二次函数）' if series.a==0 else '')
                 elif series.kind=='inverse':
                     with np.errstate(divide='ignore',invalid='ignore'):ys=series.k/xs
                     # Keep the two branches disconnected even when the grid misses zero.
@@ -73,13 +74,24 @@ def plot_png(data, width, height, colors, font, function=False, show_coordinates
             for axis in (ax.xaxis,ax.yaxis):axis.get_offset_text().set_color('#'+ink)
         for tick in ax.get_xticklabels()+ax.get_yticklabels():tick.set_fontproperties(labels)
         output=io.BytesIO()
-        fig.savefig(output,format='png',dpi=220,facecolor='#'+background)
+        fig.savefig(output,format='png',dpi=dpi,facecolor='#'+background)
         return output.getvalue()
 
 
 def add_plot(slide,data,colors,font,x,y,w,h,function=False,show_coordinates=True):
-    png=plot_png(data,w,h,colors,font,function,show_coordinates)
+    if function and data.animation:
+        motion=data.animation;frames=[]
+        start=getattr(data.series[motion.series],motion.param)
+        for value in np.linspace(start,motion.to,25):
+            frame=data.model_copy(deep=True);frame.animation=None
+            setattr(frame.series[motion.series],motion.param,float(value))
+            png=plot_png(frame,w,h,colors,font,True,show_coordinates,dpi=110)
+            with Image.open(io.BytesIO(png)) as im:frames.append(im.convert('RGB'))
+        output=io.BytesIO()
+        frames[0].save(output,format='GIF',save_all=True,append_images=frames[1:],duration=motion.duration_ms//25,loop=0)
+        png=output.getvalue()
+    else:png=plot_png(data,w,h,colors,font,function,show_coordinates)
     picture=slide.shapes.add_picture(io.BytesIO(png),Inches(x),Inches(y),width=Inches(w),height=Inches(h))
-    picture.name='matplotlib-function-plot' if function else 'matplotlib-data-plot'
+    picture.name='matplotlib-function-animation' if function and data.animation else 'matplotlib-function-plot' if function else 'matplotlib-data-plot'
     picture._element.nvPicPr.cNvPr.set('descr',json.dumps(data.model_dump(),ensure_ascii=False))
     return picture

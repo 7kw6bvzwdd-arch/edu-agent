@@ -286,7 +286,7 @@ func (s *Server) auth(permission string, fn func(http.ResponseWriter, *http.Requ
 		if permission != "" && !allowed(a, permission) {
 			return fail(403, "没有此操作权限")
 		}
-		return fn(w, r, a)
+		return fn(w, r.WithContext(context.WithValue(r.Context(), mediaActorKey{}, a)), a)
 	})
 }
 func (s *Server) token(uid, tid int64, session string) (string, error) {
@@ -418,7 +418,7 @@ func (s *Server) routes() {
 			}
 		}
 		_, _, coursewareModel := s.agentModel("courseware")
-		respond(w, 200, map[string]any{"status": "ok", "release_tag": releaseTag, "release_commit": releaseCommit, "courseware_brief_version": "conversation-stream-v1", "workspace_needs_version": "clarify-v1", "workspace_context_version": "rolling-summary-v1", "courseware_subjects_version": "all-subjects-v1", "workspace_brief_version": "tools-inline-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "parallel-reviews-v2", "courseware_classroom_version": "answer-steps-v2", "courseware_composition_prompt_version": "purpose-v2", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_review_policy": s.reviewPolicy(), "worker_pool_size": 2, "video_worker_pool_size": 1, "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled && s.reviewPolicy() != "none", "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "courseware_workflow_optimization_version": "bounded-drafts-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.htmlAnimationConfigured(), "animation_html_version": "workflow-v1", "animation_service_status": map[bool]string{true: "html_ready", false: "unconfigured"}[s.htmlAnimationConfigured()], "animation_service_message": "明亮课堂HTML动画支持通用讲解、教学示意图与教师配图，保留一次函数和几何专用演示", "animation_archetypes": []string{"func.params@1", "geo.transform@1", "lesson.explain@1"}, "animation_video_configured": animationVideoConfigured(), "animation_geometry_version": "geometry-v1", "animation_tts_configured": s.cfg.TTS.configured(), "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
+		respond(w, 200, map[string]any{"status": "ok", "release_tag": releaseTag, "release_commit": releaseCommit, "courseware_brief_version": "conversation-stream-v1", "workspace_needs_version": "clarify-v1", "workspace_context_version": "rolling-summary-v1", "courseware_subjects_version": "all-subjects-v1", "workspace_brief_version": "tools-inline-v1", "courseware_plot_version": "matplotlib-v1", "courseware_canvas_version": "canvas-v3", "courseware_canvas_text_version": "inline-v1", "courseware_generation_model": coursewareModel, "courseware_speed_version": "parallel-reviews-v2", "courseware_classroom_version": "answer-steps-v2", "courseware_composition_prompt_version": "purpose-v2", "courseware_review_roles_version": "roles-v1", "courseware_generation_guard_version": "quality-guard-v1", "dependencies": deps, "teaching_features_version": "teaching-v1", "workspace_management_version": "management-v2", "courseware_quality_configured": s.coursewareQualityConfigured(), "courseware_review_policy": s.reviewPolicy(), "worker_pool_size": 2, "video_worker_pool_size": 1, "courseware_content_review_enabled": !s.cfg.CoursewareContentReviewDisabled && s.reviewPolicy() != "none", "session_refresh_version": "session-v1", "courseware_media_version": "media-v1", "courseware_studio_version": "studio-v1", "works_view_version": "views-v1", "works_resource_version": "resources-v1", "courseware_skill_version": coursewareSkillVersion, "courseware_page_repair_version": coursewarePageRepairVersion, "courseware_auto_resume_version": "auto-resume-v1", "courseware_workflow_optimization_version": "bounded-drafts-v1", "visual_review_configured": s.cfg.VisionURL != "" && s.cfg.VisionKey != "" && s.cfg.VisionModel != "", "mode": s.cfg.Mode, "generation_configured": s.agentConfigured("courseware"), "courseware_configured": s.agentConfigured("courseware"), "animation_configured": s.htmlAnimationConfigured(), "animation_html_version": "workflow-v1", "animation_service_status": map[bool]string{true: "html_ready", false: "unconfigured"}[s.htmlAnimationConfigured()], "animation_service_message": "明亮课堂HTML动画支持通用讲解、教学示意图与教师配图，支持一次、二次、反比例函数和几何专用演示", "animation_archetypes": []string{"func.params@1", "geo.transform@1", "lesson.explain@1"}, "animation_video_configured": animationVideoConfigured(), "animation_function_version": "functions-v1", "courseware_image_reference_version": "assets-v1", "courseware_function_animation_version": "functions-v1", "animation_geometry_version": "geometry-v1", "animation_tts_configured": s.cfg.TTS.configured(), "search_configured": s.cfg.SearchKey != "", "embedding_configured": s.cfg.EmbeddingModel != ""})
 		return nil
 	}))
 	s.mux.HandleFunc("POST /api/auth/login", api(s.login))
@@ -426,6 +426,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/reset-password", api(s.resetPassword))
 	s.mux.HandleFunc("POST /api/auth/refresh", s.auth("", s.refreshSession))
 	s.mux.HandleFunc("POST /api/account/recovery-code", s.auth("", s.issueRecoveryCode))
+	s.mux.HandleFunc("POST /api/media", s.auth("", s.uploadMedia))
+	s.mux.HandleFunc("GET /api/media/{asset}", s.auth("", s.mediaFile))
+	s.mux.HandleFunc("GET /api/media/{asset}/metadata", s.auth("", s.mediaMetadata))
+	s.mux.HandleFunc("POST /api/tasks/{id}/images/search", s.auth("courseware.generate", s.coursewareImagesSearch))
+	s.mux.HandleFunc("POST /api/tasks/{id}/images/confirm", s.auth("courseware.generate", s.coursewareImageConfirm))
 	s.mux.HandleFunc("POST /api/courseware/brief", s.auth("courseware.generate", s.coursewareBrief))
 	s.mux.HandleFunc("POST /api/workspace/brief", s.auth("", s.coursewareBrief))
 	s.mux.HandleFunc("GET /api/tasks/{id}/animation", s.auth("", s.animationState))
@@ -433,6 +438,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/tasks/{id}/animation/{action}", s.auth("", s.animationAction))
 	s.mux.HandleFunc("GET /api/courseware/materials", s.auth("courseware.generate", s.coursewareMaterials))
 	s.mux.HandleFunc("POST /api/courseware/formula", s.auth("courseware.generate", s.coursewareFormula))
+	s.mux.HandleFunc("POST /api/courseware/scientific", s.auth("courseware.generate", s.coursewareScientific))
 	s.mux.HandleFunc("POST /api/courseware/materials/preview", s.auth("courseware.generate", s.materialPreview))
 	s.mux.HandleFunc("PATCH /api/documents/{id}/curriculum", s.auth("kb.manage", s.tagCurriculum))
 	s.mux.HandleFunc("GET /api/courseware/references", s.auth("courseware.generate", s.listReferences))

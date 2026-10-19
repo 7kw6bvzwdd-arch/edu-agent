@@ -1,0 +1,218 @@
+{
+  "version": "anim-v2",
+  "title": "函数族参数演示",
+  "archetype": "func.params@1",
+  "representative": "quadratic",
+  "scenes": [
+    {
+      "id": "quadratic",
+      "title": "二次函数的开口",
+      "intent": "比较参数与图像",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -5,
+            "xmax": 5,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "f",
+          "type": "function",
+          "kind": "quadratic",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "a": 1,
+            "b": -2,
+            "c": -1
+          }
+        },
+        {
+          "id": "eq",
+          "type": "equation",
+          "slot": "side",
+          "line": "f"
+        }
+      ],
+      "narration": [
+        {
+          "id": "quadratic-n",
+          "display": "观察参数变化与曲线，顶点和交点由程序计算。",
+          "speech": "观察参数变化与曲线，顶点和交点由程序计算。"
+        },
+        {
+          "id": "quadratic-n-q",
+          "display": "请说明图像发生了什么变化？",
+          "speech": "请说明图像发生了什么变化？"
+        }
+      ],
+      "actions": [
+        {
+          "id": "change",
+          "op": "tween",
+          "object": "f",
+          "param": "a",
+          "to": -1,
+          "at": {
+            "sentence": "quadratic-n",
+            "anchor": "begin",
+            "offset_ms": 500
+          },
+          "duration_ms": 4000
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "await",
+          "after": "quadratic-n-q",
+          "ms": 2000
+        }
+      ]
+    },
+    {
+      "id": "inverse",
+      "title": "反比例函数",
+      "intent": "比较参数与图像",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -5,
+            "xmax": 5,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "f",
+          "type": "function",
+          "kind": "inverse",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "k": 2
+          }
+        },
+        {
+          "id": "eq",
+          "type": "equation",
+          "slot": "side",
+          "line": "f"
+        }
+      ],
+      "narration": [
+        {
+          "id": "inverse-n",
+          "display": "观察参数变化前后，图像的位置和形状。",
+          "speech": "观察参数变化前后，图像的位置和形状。"
+        },
+        {
+          "id": "inverse-n-q",
+          "display": "请说明图像发生了什么变化？",
+          "speech": "请说明图像发生了什么变化？"
+        }
+      ],
+      "actions": [
+        {
+          "id": "change",
+          "op": "tween",
+          "object": "f",
+          "param": "k",
+          "to": 6,
+          "at": {
+            "sentence": "inverse-n",
+            "anchor": "begin",
+            "offset_ms": 500
+          },
+          "duration_ms": 4000
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "await",
+          "after": "inverse-n-q",
+          "ms": 2000
+        }
+      ]
+    },
+    {
+      "id": "linear",
+      "title": "一次函数",
+      "intent": "比较参数与图像",
+      "objects": [
+        {
+          "id": "ax",
+          "type": "axes",
+          "slot": "main",
+          "params": {
+            "xmin": -5,
+            "xmax": 5,
+            "ymin": -6,
+            "ymax": 6
+          }
+        },
+        {
+          "id": "f",
+          "type": "function",
+          "kind": "linear",
+          "slot": "main",
+          "axes": "ax",
+          "params": {
+            "k": 1,
+            "b": 1
+          }
+        },
+        {
+          "id": "eq",
+          "type": "equation",
+          "slot": "side",
+          "line": "f"
+        }
+      ],
+      "narration": [
+        {
+          "id": "linear-n",
+          "display": "观察参数变化前后，图像的位置和形状。",
+          "speech": "观察参数变化前后，图像的位置和形状。"
+        },
+        {
+          "id": "linear-n-q",
+          "display": "请说明图像发生了什么变化？",
+          "speech": "请说明图像发生了什么变化？"
+        }
+      ],
+      "actions": [
+        {
+          "id": "change",
+          "op": "tween",
+          "object": "f",
+          "param": "k",
+          "to": 3,
+          "at": {
+            "sentence": "linear-n",
+            "anchor": "begin",
+            "offset_ms": 500
+          },
+          "duration_ms": 4000
+        }
+      ],
+      "holds": [
+        {
+          "id": "observe",
+          "type": "await",
+          "after": "linear-n-q",
+          "ms": 2000
+        }
+      ]
+    }
+  ]
+}

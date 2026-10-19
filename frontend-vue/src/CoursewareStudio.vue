@@ -1306,7 +1306,12 @@ onUnmounted(() => {
                   >
                 </div>
                 <TeachingPlotEditor :slide="sl" :editable="editable" />
-                <CoursewareEvidence :slide="sl" :editable="editable" />
+                <CoursewareEvidence
+                  :slide="sl"
+                  :editable="editable"
+                  :task-id="task.id"
+                  :revision="editRevision"
+                />
                 <button
                   @click="run(persist)"
                   :disabled="!editable || !dirty || !!textIssue"

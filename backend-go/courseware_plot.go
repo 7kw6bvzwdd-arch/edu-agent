@@ -19,7 +19,7 @@ type teachingDataChart struct {
 }
 
 func usesMatplotlib(sl Slide) bool {
-	if sl.Graph != nil && sl.Graph.Renderer == "matplotlib" {
+	if sl.Graph != nil && (sl.Graph.Renderer == "matplotlib" || sl.Graph.Animation != nil) {
 		return true
 	}
 	var c teachingDataChart

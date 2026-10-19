@@ -8,6 +8,8 @@ const W = 1280, H = 720, HEAD = 96, SUB = 112, COLORS = ['#1767bf', '#b95b1c', '
 const $ = id => document.getElementById(id), clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ease = u => u < .5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
 const num = v => { const r = Math.round(v * 10) / 10; return String(Object.is(r, -0) ? 0 : r).replace('-', '−'); };
+const featureNum = v => String(Number(v.toPrecision(4))).replace('-', '−');
+const roundedFeature = v => Math.abs(v-Number(v.toPrecision(4)))>1e-7;
 const sentences = [], subtitles = T.scenes.flatMap(s => s.subtitles || s.sentences), display = {};
 T.scenes.forEach(s => s.sentences.forEach(x => sentences.push(x)));
 S.scenes.forEach(s => s.narration.forEach(n => { display[n.id] = n.display; }));
@@ -107,7 +109,16 @@ function drawSide(objs, box, st, colorOf) {
   let y = box.y + 8;
   for (const o of objs) {
     const s = st.objects[o.id], g = el('g', { opacity: s.opacity }); let lines, size;
-    if (o.type === 'equation') { const l = st.objects[o.line].params; lines = [formula(l.k, l.b)]; size = 40; }
+    if (o.type === 'equation') {
+      const obj=S.scenes[st.scene].objects.find(x=>x.id===o.line),l=st.objects[o.line].params,f={...l,kind:obj.kind};
+      lines=wrap(obj.type==='function'?TeachingFunctions.expression(f):formula(l.k,l.b),22);size=obj.type==='function'?24:40;
+      if(obj.type==='function') {
+        const features=TeachingFunctions.features(f);
+        if(Number.isFinite(features.axis))lines.push('对称轴 x '+(roundedFeature(features.axis)?'≈ ':'= ')+featureNum(features.axis));
+        features.points.forEach(p=>lines.push(p.label+(roundedFeature(p.x)||roundedFeature(p.y)?' ≈ ':' ')+'('+featureNum(p.x)+', '+featureNum(p.y)+')'));
+        if(obj.kind==='inverse')lines.push('x ≠ 0；与坐标轴无交点');
+      }
+    }
     else if (o.type === 'measure') { const shape=S.scenes[st.scene].objects.find(x=>x.id===o.shape),p=st.objects[o.shape].params,triangle=shape.type==='right_triangle';size=22;const area=Number((p.width*p.height/(triangle?2:1)).toFixed(5));lines=[triangle?'直角三角形':'矩形','底 '+geoNum(p.width)+' · 高 '+geoNum(p.height),'S = '+geoNum(p.width)+' × '+geoNum(p.height)+(triangle?' ÷ 2':'')+' = '+String(area),'面积 '+String(area)+' 平方单位','平移 ('+geoNum(p.tx)+', '+geoNum(p.ty)+') · 角度 '+geoNum(p.angle)+'°','中心 O ('+geoNum(p.cx+p.tx)+', '+geoNum(p.cy+p.ty)+')','虚线：本幕初始 · 实线：当前']; }
     else if (o.type === 'text') { size = 28; lines = wrap(o.text, Math.floor((box.w - 28) / size)); }
     else { size = 26; lines = []; o.items.forEach(it => wrap('• ' + it, Math.floor((box.w - 28) / size)).forEach(x => lines.push(x))); }
@@ -157,6 +168,13 @@ function drawIllustration(o, b, parent, st) {
   }
 }
 function drawLesson(sc, st, area) {
+  if(sc.objects.length===1&&sc.objects[0].type==='scientific'){
+    const o=sc.objects[0],state=st.objects[o.id],bundle=D.science?.[sc.id+'/'+o.id];
+    if(!bundle){el('text',{x:area.x+30,y:area.y+60,fill:'#a22','font-size':26},svg,'科学图示数据缺失，请重新生成');return}
+    const frames=bundle.frames?.length?bundle.frames:[bundle.image],index=Math.round(clamp(state.params.progress||0,0,1)*(frames.length-1));
+    el('image',{x:area.x,y:area.y,width:area.w,height:area.h,href:frames[index],preserveAspectRatio:'xMidYMid meet',opacity:state.opacity,'data-scientific':o.scientific.kind,'data-frame':index,'data-box':'science'},svg);
+    return;
+  }
   const count=sc.objects.length, gap=22, width=(area.w-gap*(count-1))/count;
   sc.objects.forEach((o,j)=>{
     const state=st.objects[o.id], x=area.x+j*(width+gap), g=el('g', {opacity:state.opacity,'data-lesson':o.id});
@@ -187,7 +205,7 @@ function render(t) {
   if (main.length && side.length) { mainBox = { ...area, w: area.w * .64 }; sideBox = { x: area.x + area.w * .67, y: area.y, w: area.w * .33, h: area.h }; }
   else if (!main.length) sideBox = { x: area.x + area.w * .2, y: area.y + 40, w: area.w * .6, h: area.h - 40 };
   svg.setAttribute('data-side', sideBox ? [sideBox.x, sideBox.y, sideBox.w, sideBox.h].join(',') : '');
-  const colorOf = {}; main.filter(o => o.type === 'line' || isShape(o.type)).forEach((o, i) => { colorOf[o.id] = COLORS[i % COLORS.length]; });
+  const colorOf = {}; main.filter(o => o.type === 'line' || o.type === 'function' || isShape(o.type)).forEach((o, i) => { colorOf[o.id] = COLORS[i % COLORS.length]; });
   if(S.archetype==='lesson.explain@1')drawLesson(sc,st,area);
   const ax = main.find(o => o.type === 'axes'), m = ax && drawAxes(ax, mainBox, st.objects[ax.id]);
   if (m) for (const o of main) {
@@ -196,9 +214,19 @@ function render(t) {
     else if (o.type === 'line') {
       const { k, b } = s.params;
       el('line', { x1: m.X(m.p.xmin), y1: m.Y(k * m.p.xmin + b), x2: m.X(m.p.xmax), y2: m.Y(k * m.p.xmax + b), stroke: colorOf[o.id], 'stroke-width': 4 + 4 * s.emph, 'stroke-linecap': 'round', 'clip-path': 'url(#plot)', opacity: s.opacity, 'data-line': o.id, 'data-k': k.toFixed(3) });
+    } else if (o.type === 'function') {
+      const f={...s.params,kind:o.kind},features=TeachingFunctions.features(f),color=colorOf[o.id];
+      const g=el('g',{opacity:s.opacity,'clip-path':'url(#plot)'});
+      el('path',{d:TeachingFunctions.path(f,m.p,m.X,m.Y),fill:'none',stroke:color,'stroke-width':4+4*s.emph,'data-function':o.id,'data-kind':o.kind,'data-params':JSON.stringify(s.params)},g);
+      if(Number.isFinite(features.axis)) el('line',{x1:m.X(features.axis),x2:m.X(features.axis),y1:m.Y(m.p.ymin),y2:m.Y(m.p.ymax),stroke:color,'stroke-dasharray':'7 6','data-symmetry':features.axis},g);
+      for(const pt of features.points) {
+        if(pt.x<m.p.xmin||pt.x>m.p.xmax||pt.y<m.p.ymin||pt.y>m.p.ymax)continue;
+        const dot=el('circle',{cx:m.X(pt.x),cy:m.Y(pt.y),r:5,fill:color,'data-feature':pt.label,'data-x':pt.x,'data-y':pt.y},g);
+        el('title',{},dot,pt.label+' ('+num(pt.x)+', '+num(pt.y)+')');
+      }
     } else if (o.type === 'point') {
-      const l = st.objects[o.line], x = s.params.x, y = l.params.k * x + l.params.b, op = Math.min(s.opacity, l.opacity);
-      if (y < m.p.ymin || y > m.p.ymax) continue;
+      const l = st.objects[o.line],obj=sc.objects.find(x=>x.id===o.line),x = s.params.x, y = TeachingFunctions.value({...l.params,kind:obj.kind||'linear'},x),op = Math.min(s.opacity, l.opacity);
+      if (!Number.isFinite(y)||x<m.p.xmin||x>m.p.xmax||y < m.p.ymin || y > m.p.ymax) continue;
       el('circle', { cx: m.X(x), cy: m.Y(y), r: 7 + 5 * s.emph, fill: colorOf[o.line], stroke: '#ffffff', 'stroke-width': 2, opacity: op });
       if (o.text) el('text', { x: m.X(x) + 14, y: m.Y(y) - 12, 'font-size': 20, fill: '#18324c', opacity: op }, svg, o.text);
     }

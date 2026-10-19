@@ -24,24 +24,26 @@ type CanvasOffset struct {
 }
 
 type CanvasObject struct {
-	ID         string  `json:"id"`
-	Kind       string  `json:"kind"`
-	X          float64 `json:"x"`
-	Y          float64 `json:"y"`
-	Width      float64 `json:"width"`
-	Height     float64 `json:"height"`
-	Rotation   float64 `json:"rotation,omitempty"`
-	Locked     bool    `json:"locked,omitempty"`
-	Text       string  `json:"text,omitempty"`
-	FontSize   float64 `json:"font_size,omitempty"`
-	Bold       bool    `json:"bold,omitempty"`
-	Align      string  `json:"align,omitempty"`
-	Color      string  `json:"color,omitempty"`
-	Background string  `json:"background,omitempty"`
-	Shape      string  `json:"shape,omitempty"`
-	LineWidth  float64 `json:"line_width,omitempty"`
-	DataURL    string  `json:"data_url,omitempty"`
-	Caption    string  `json:"caption,omitempty"`
+	ID         string           `json:"id"`
+	Kind       string           `json:"kind"`
+	X          float64          `json:"x"`
+	Y          float64          `json:"y"`
+	Width      float64          `json:"width"`
+	Height     float64          `json:"height"`
+	Rotation   float64          `json:"rotation,omitempty"`
+	Locked     bool             `json:"locked,omitempty"`
+	Text       string           `json:"text,omitempty"`
+	FontSize   float64          `json:"font_size,omitempty"`
+	Bold       bool             `json:"bold,omitempty"`
+	Align      string           `json:"align,omitempty"`
+	Color      string           `json:"color,omitempty"`
+	Background string           `json:"background,omitempty"`
+	Shape      string           `json:"shape,omitempty"`
+	LineWidth  float64          `json:"line_width,omitempty"`
+	AssetID    string           `json:"asset_id,omitempty"`
+	DataURL    string           `json:"data_url,omitempty"`
+	Caption    string           `json:"caption,omitempty"`
+	Provenance *ImageProvenance `json:"provenance,omitempty"`
 }
 
 var canvasID = regexp.MustCompile(`^object-[A-Za-z0-9-]{1,64}$`)
@@ -73,7 +75,7 @@ func validateCanvasObjects(sl Slide) error {
 			if len([]rune(o.Caption)) > 60 {
 				return fail(400, "图片说明最多60字")
 			}
-			if err := validateTeachingMedia(Slide{Picture: &TeachingPicture{DataURL: o.DataURL, Caption: "教师配图", Source: "教师添加"}}); err != nil {
+			if err := validateTeachingMedia(Slide{Picture: &TeachingPicture{AssetID: o.AssetID, DataURL: o.DataURL, Caption: "教师配图", Source: "教师添加"}}); err != nil {
 				return err
 			}
 		case "shape":
@@ -83,7 +85,7 @@ func validateCanvasObjects(sl Slide) error {
 		default:
 			return fail(400, "不支持的画布对象")
 		}
-		if o.Kind != "image" && o.DataURL != "" {
+		if o.Kind != "image" && (o.DataURL != "" || o.AssetID != "") {
 			return fail(400, "图片内容与对象类型不符")
 		}
 	}

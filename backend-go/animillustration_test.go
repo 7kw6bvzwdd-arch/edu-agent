@@ -56,6 +56,9 @@ func TestHTMLIllustrationPictureHTTP(t *testing.T) {
 		t.Fatal(e)
 	}
 	picture.DataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngData.Bytes())
+	inline := picture.DataURL
+	picture.AssetID = worksObject(t, mediaUpload(t, s, token, "teaching.png", pngData.Bytes(), 201))["asset_id"].(string)
+	picture.DataURL = ""
 	in := map[string]any{"type": "animation", "animation_engine": "html", "subject": "地理", "topic": "配图边界测试样例", "requirements": "根据教师图示讲解水循环", "animation_picture": picture, "idempotency_key": newID()}
 	worksCall(t, s, "POST", "/api/tasks", "", in, 401)
 	bad := *picture
@@ -63,6 +66,9 @@ func TestHTMLIllustrationPictureHTTP(t *testing.T) {
 	in["animation_picture"] = &bad
 	worksCall(t, s, "POST", "/api/tasks", token, in, 400)
 	in["animation_picture"] = picture
+	for _, foreign := range []string{other, admin} {
+		worksCall(t, s, "POST", "/api/tasks", foreign, in, 404)
+	}
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 	path := "/api/tasks/" + id + "/animation"
 	if e = s.workOne(context.Background()); e != nil {
@@ -107,7 +113,7 @@ func TestHTMLIllustrationPictureHTTP(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if !strings.Contains(html, picture.DataURL) || !strings.Contains(html, "classroom-illustrated-v1") {
+	if !strings.Contains(html, inline) || !strings.Contains(html, animRendererVersion) {
 		t.Fatal("Missing offline picture or classroom renderer")
 	}
 	for _, foreign := range []string{other, admin} {

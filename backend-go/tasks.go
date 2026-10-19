@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,6 +56,8 @@ type Slide struct {
 	Graph           *FunctionGraph          `json:"graph,omitempty"`
 	ID              string                  `json:"id,omitempty"`
 	Picture         *TeachingPicture        `json:"picture,omitempty"`
+	ImageNeed       *ImageNeed              `json:"image_need,omitempty"`
+	ImageSearch     *ImageSearchState       `json:"image_search,omitempty"`
 	Emphasis        []string                `json:"emphasis,omitempty"`
 	Focus           string                  `json:"focus,omitempty"`
 	Table           *TeachingTable          `json:"table,omitempty"`
@@ -801,6 +804,30 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 
 func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 	for _, sl := range d.Slides {
+		if sl.Graph != nil && sl.Graph.Animation != nil {
+			req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.RenderURL+"/health", nil)
+			if err != nil {
+				return nil, err
+			}
+			res, err := s.http.Do(req)
+			if err != nil {
+				return nil, fail(503, "函数动图排版服务暂不可用")
+			}
+			var health map[string]any
+			err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&health)
+			res.Body.Close()
+			if err != nil || health["courseware_function_animation_version"] != "functions-v1" {
+				return nil, fail(503, "请更新排版服务以支持函数GIF，参数已保留")
+			}
+			break
+		}
+	}
+	var err error
+	d, err = s.hydrateDeckAssets(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	for _, sl := range d.Slides {
 		if len(sl.CanvasPositions) > 0 || len(sl.CanvasObjects) > 0 || len(sl.CanvasOrder) > 0 {
 			req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.RenderURL+"/health", nil)
 			if err != nil {
@@ -819,8 +846,9 @@ func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 			break
 		}
 	}
-	needsScience := false
+	needsScience, needsNewScience := false, false
 	for _, sl := range d.Slides {
+		needsNewScience = needsNewScience || isScienceVisual(sl.Scientific)
 		needsScience = needsScience || sl.Scientific != nil
 		if sl.Graph != nil {
 			for _, series := range sl.Graph.Series {
@@ -844,6 +872,9 @@ func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
 		res.Body.Close()
 		if err != nil || health["scientific_diagrams_version"] != "science-v1" {
 			return nil, fail(503, "专业图示排版服务尚未更新，数据已保留")
+		}
+		if needsNewScience && health["science_visuals_version"] != "science-visuals-v1" {
+			return nil, fail(503, "请更新透镜、分子与细胞绘图服务；参数已保留")
 		}
 	}
 	needsMedia, needsGraph, needsPlot := d.Theme == "classroom", false, false

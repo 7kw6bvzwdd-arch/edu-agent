@@ -72,6 +72,12 @@ func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fix
 		return fmt.Errorf("本地打包没有教师配图，请通过工作台上传并生成")
 	}
 	in := animPackageInput{Script: sc, Format: "wav", Voice: voice, Fixture: fixture, Audio: map[string][]byte{}}
+	renderer := &Server{cfg: Config{RenderURL: env("RENDER_SERVICE_URL", "http://127.0.0.1:8000")}, http: &http.Client{Timeout: 45 * time.Second}}
+	var renderErr error
+	in.Science, renderErr = renderer.animScienceFrames(ctx, sc)
+	if renderErr != nil {
+		return renderErr
+	}
 	ms := map[string]int{}
 	cfg := ttsConfigFromEnv()
 	if voice == animVoiceTTS {

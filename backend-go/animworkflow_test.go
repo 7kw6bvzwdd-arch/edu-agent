@@ -20,6 +20,7 @@ import (
 func TestHTMLAnimationWorkflowHTTP(t *testing.T)     { testHTMLAnimationWorkflow(t, "linear") }
 func TestHTMLGeometryWorkflowHTTP(t *testing.T)      { testHTMLAnimationWorkflow(t, "geometry") }
 func TestHTMLGeneralLessonWorkflowHTTP(t *testing.T) { testHTMLAnimationWorkflow(t, "lesson") }
+func TestHTMLScienceWorkflowHTTP(t *testing.T)       { testHTMLAnimationWorkflow(t, "science") }
 func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 	if kind == "lesson" {
 		t.Setenv("ANIMATION_EXPORT_SCRIPT", filepath.Join("..", "animation-video", "export.mjs"))
@@ -63,6 +64,35 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 			scene.Actions = []AnimAction{{ID: "reveal", Op: "show", Object: "idea", At: AnimTrigger{Sentence: scene.Narration[0].ID}}}
 		}
 	}
+	if kind == "science" {
+		if os.Getenv("SCIENCE_RENDER_URL") == "" {
+			t.Skip("requires real scientific renderer")
+		}
+		s.cfg.RenderURL = os.Getenv("SCIENCE_RENDER_URL")
+		raw, err := os.ReadFile("../fixtures/animation-v2-science.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var science AnimScript
+		if err = json.Unmarshal(raw, &science); err != nil {
+			t.Fatal(err)
+		}
+		script.Archetype = "lesson.explain@1"
+		script.Title = "科学图示集成验收"
+		for i := range script.Scenes {
+			scene := &script.Scenes[i]
+			source := science.Scenes[i%len(science.Scenes)]
+			scene.Title = source.Title
+			scene.Intent = source.Intent
+			scene.Objects = source.Objects
+			for j := range scene.Narration {
+				text := fmt.Sprintf("观察第%d幕第%d句图示中的条件与变化，再解释本幕的教学关系。", i+1, j+1)
+				scene.Narration[j].Display = text
+				scene.Narration[j].Speech = text
+			}
+			scene.Actions = []AnimAction{{ID: "change", Op: "tween", Object: scene.Objects[0].ID, Param: "progress", To: f64(1), At: AnimTrigger{Sentence: scene.Narration[0].ID}, DurationMS: 2500}}
+		}
+	}
 	token := worksLogin(t, s, "teacher")
 	// Each workflow has its own public simulated purchase; combined runs must
 	// not consume a preceding workflow's seed balance.
@@ -79,6 +109,11 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 		in.Subject = "历史"
 		in.Topic = "梳理历史事件的先后顺序"
 		in.Requirements = "用时间线讲解，不编造史料"
+	}
+	if kind == "science" {
+		in.Subject = "物理"
+		in.Topic = "科学图示集成验收"
+		in.Requirements = "透镜、分子、细胞与通用图形受控演示"
 	}
 	worksCall(t, s, "POST", "/api/tasks", "", in, 401)
 	before := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
@@ -207,6 +242,9 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 		t.Fatal("wrong settlement", billing)
 	}
 	delivered := worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", token, nil, 200).Body.String()
+	if kind == "science" && !strings.Contains(delivered, "data:image/png;base64,") {
+		t.Fatal("scientific frames missing from delivered HTML")
+	}
 	if kind == "geometry" && !strings.Contains(delivered, "geo.transform@1") {
 		t.Fatal("geometry task produced a different archetype")
 	}

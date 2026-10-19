@@ -45,7 +45,7 @@ func gradeGuidance(in TaskInput) string {
 func coursewarePrompt(in TaskInput, sources []Source) string {
 	prompt := fmt.Sprintf(`根据需求和来源编写可直接授课的教案与课件；讲解默认中文，外语原文、对话与术语按教师目标保留，本次生成%d页；整套长度服从已确认教学规划，不用空泛口号或重复页凑数。
 输出JSON：title,theme,lesson(Markdown教案),slides,needs_review。
-每页字段：title,layout,section(可选章节名，最多80字),bullets(1–5条简明要点，每条最多80字),notes(教师讲解和答案),formula(可选LaTex),diagram(可选buoyancy或triangle),focus,table,figure,graph(可选真实数值函数坐标图)。
+每页字段：title,layout,section(可选章节名，最多80字),bullets(1–5条简明要点，每条最多80字),notes(教师讲解和答案),formula(可选LaTex),diagram(可选buoyancy或triangle),focus,table,figure,graph(可选真实数值函数坐标图),image_need(需要真实图片时使用)。image_need={purpose:"1至60字具体教学用途",queries:["1至2组中英文检索词，每组最多100字"],constraints:"人物/年代/地点等限制，最多300字"}；不需要图片就省略。不生成picture、asset_id、URL、作者或授权，图片由系统实际检索。图形、图表和流程已有程序绘图，不用网络图片替代。图片计划页为真实图片保留空间，可与表格或流程图组合，不同时放其他大图形。联网关闭时省略image_need。
 字段类型必须一致：lesson与notes都是单个字符串（分段使用转义换行），不能写成对象或数组；needs_review为JSON布尔值true/false，不加引号。bullets和emphasis是字符串数组，不能使用{text:...}对象。table/figure/chart是不为空的对象，不使用时直接省略，不能填空字符串或空数组；figure.items每项为{label:"文字",detail:"文字"}，interval.values为数字数组。可选字符串字段可省略或用空串。页面要点短而清晰，完整推导、实验步骤和答案留在notes。
 封面bullets写2条有意义的短句，分别说明核心问题与学习收获；所有页面的bullets不得为空数组，也不得包含空串或纯空白要点。
 按知识点选择可编辑diagram或chart：diagram仅buoyancy或triangle，不适合则省略；chart为对象{labels:[短标签，1–8个],values:[与labels一一对应的有限数值],title:图表标题,style:"bar"或"line"}。类别对比选bar；等间隔的时间、实验条件或函数取值变化可选line；不等间隔数值不得用等距line误导。标题或标签说明单位。示意或模拟数据在图表标题及notes明确标“示意数据，非实测”，不得冒充实测；无合适数据时省略chart，不返回null。
@@ -69,6 +69,7 @@ theme只表示颜色和视觉风格，不是教学主题；forest不代表森林
 
 // Courseware owns research, lesson design, editable PPTX and optional evaluation.
 func (s *Server) runCoursewareAgent(ctx context.Context, a Actor, id, stage string, in TaskInput, d Deck) error {
+	ctx = context.WithValue(ctx, mediaActorKey{}, a)
 	in.Type = "courseware"
 	if in.PreviewFirst && stage == "expanding" {
 		return s.expandCourseware(ctx, a, id, in, d)

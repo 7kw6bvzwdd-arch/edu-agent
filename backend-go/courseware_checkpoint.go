@@ -235,7 +235,7 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 		in.Theme = d.Theme
 	}
 	prompt := coursewarePageRepairSkill + coursewarePageContext(d, page)
-	prompt += "\n表达由本页教学任务决定：观察关系突出实际学科图，计算推导保留关键步骤，对照突出同一比较条件，独立练习突出完整题设。每个图表必须让学生读出本页所需的量、关系或证据，在notes简述具体读图路径；没有具体任务或数据就不生成装饰图、占位表或空色块。相邻页重复图像时突出本页新增的对象/问题，必要复习保留；不为凑版式而换色、换题或拆页。"
+	prompt += "\n表达由本页教学任务决定：观察关系突出实际学科图，计算推导保留关键步骤，对照突出同一比较条件，独立练习突出完整题设。每个图表必须让学生读出本页所需的量、关系或证据，在notes简述具体读图路径；围绕本页学习任务给出视觉表达；概念关系、文本批注和史料配图不要求数值数据，图片与表格可互补组合；避免无教学用途的装饰图、占位表或空色块。相邻页重复图像时突出本页新增的对象/问题，必要复习保留；不为凑版式而换色、换题或拆页。"
 	prompt += "\n独立练习所有上屏字段（bullets、focus、formula和图示）都不得提前给出待求答案；focus只能追问或提示方法，formula只能保留题设已给原式。要求配方、求顶点或最值时，不在formula追加配方结果或顶点式；完整推导与答案放answer和notes；answer按实际解题顺序每行一步，用换行分隔，供教师逐步揭示，不用分号自动拆解。题设已给顶点式、验证给定恒等式及例题讲解允许显示相应公式。读图题保留给定图像，独立作图题不提前画答案曲线。"
 	if in.Subject == "物理" {
 		prompt += "\n受力平衡不能代替浸入状态条件：F浮=G可能是漂浮或悬浮，不能据此推出V排=V物。只有全浸没才有V排=V物，漂浮通常V排<V物；题目及教师解释都须正确区分。"
@@ -296,6 +296,7 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 }
 
 func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, in TaskInput, sources []Source, d Deck, page int, issue, phase string) (Slide, string, string, error) {
+	ctx = context.WithValue(ctx, mediaActorKey{}, a)
 	in, prompt, position, err := s.coursewarePageInstructions(ctx, a, id, in, d, page, issue, phase)
 	if err != nil {
 		return Slide{}, "", "", err
@@ -326,12 +327,29 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 			next.EditableFormulas = true
 		}
 		next.Theme = in.Theme
+		// Models describe the need; only teacher data or verified retrieval may supply pictures.
+		next.Slides[0].Picture = nil
+		next.Slides[0].ImageSearch = nil
+		if d.Plan != nil {
+			for _, planned := range d.Plan.Pages {
+				if planned.Position == position && planned.ImageNeed != nil {
+					next.Slides[0].ImageNeed = planned.ImageNeed
+					break
+				}
+			}
+		}
 		if d.Title != "" {
 			next.Title = d.Title
 		}
-		if page <= len(d.Slides) && d.Slides[page-1].Picture != nil {
-			next.Slides[0].Picture = d.Slides[page-1].Picture
+		if page <= len(d.Slides) {
+			old := d.Slides[page-1]
+			next.Slides[0].Picture, next.Slides[0].ImageSearch = old.Picture, old.ImageSearch
+			next.Slides[0].CanvasObjects, next.Slides[0].CanvasPositions, next.Slides[0].CanvasOrder = old.CanvasObjects, old.CanvasPositions, old.CanvasOrder
+			if old.ImageNeed != nil {
+				next.Slides[0].ImageNeed = old.ImageNeed
+			}
 		}
+		s.addCoursewareImage(ctx, a, id, in, &next.Slides[0])
 		if next.Lesson == "" {
 			next.Lesson = "教学路线按实际学科与已确认规划组织，具体教学任务与反馈详见每页讲解备注。"
 		}

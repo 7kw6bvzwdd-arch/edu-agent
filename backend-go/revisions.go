@@ -325,6 +325,7 @@ func (s *Server) rewriteTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	return nil
 }
 func (s *Server) processRevision(ctx context.Context, a Actor, id string, in TaskInput, d Deck) error {
+	ctx = context.WithValue(ctx, mediaActorKey{}, a)
 	original := d
 	original.Slides = append([]Slide{}, d.Slides...)
 	if in.SlideIndex < 0 || in.SlideIndex >= len(d.Slides) {
@@ -370,6 +371,7 @@ func (s *Server) processRevision(ctx context.Context, a Actor, id string, in Tas
 		slide := parsed.Slides[0]
 		slide.Notes += "\nAI修改内容须教师核验。"
 		slide.Picture = originalPicture
+		slide.ImageNeed, slide.ImageSearch = d.Slides[in.SlideIndex].ImageNeed, d.Slides[in.SlideIndex].ImageSearch
 		slide.CanvasPositions = d.Slides[in.SlideIndex].CanvasPositions
 		slide.CanvasObjects = d.Slides[in.SlideIndex].CanvasObjects
 		slide.CanvasOrder = d.Slides[in.SlideIndex].CanvasOrder
