@@ -543,6 +543,9 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if old.NeedsReview && !in.AcceptReview {
 		return fail(400, "资料不足，请明确确认继续生成待核验课件")
 	}
+	if err := s.normalizeImageCandidates(r.Context(), a, &in.Result); err != nil {
+		return err
+	}
 	in.Result.NeedsReview = old.NeedsReview || in.Result.NeedsReview
 	in.Result.Evaluation = nil
 	in.Result.Script = ""

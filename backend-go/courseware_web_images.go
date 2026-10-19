@@ -48,14 +48,19 @@ func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task strin
 	}
 	if len(out.Candidates) > 0 || out.Status == "needs_confirmation" {
 		out.Status = "needs_confirmation"
-		out.Message = "已找到相关网页图片，但使用权限不明确；备用 Commons 未提供可用图片。请在配图编辑区检索并确认使用权限。"
+		out.Message = "已保留相关候选图，请确认使用权限后选择，或上传、跳过配图。"
+		if backup.Status == "unavailable" {
+			out.Message += "备用 Commons 暂时无法访问或未完成检索，不代表没有图片。"
+		} else {
+			out.Message += "备用 Commons 未找到可直接采用的图片。"
+		}
 		return out
 	}
 	if out.Status == "not_found" && backup.Status == "not_found" {
 		out.Message = "网页及备用 Commons 均未找到合适图片，可修改检索词或上传。"
 	} else {
 		out.Status = "unavailable"
-		out.Message = "网页检索未取得可用图片，备用 Commons 也未取得可用图片；课件内容已保留。"
+		out.Message = "网页检索未取得可用图片；备用 Commons 暂时无法访问或未完成检索，不代表没有图片。可上传配图或稍后重试，课件内容已保留。"
 	}
 	return out
 }
@@ -311,12 +316,6 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 				if !relevant {
 					continue
 				}
-				// Automatic creation does not persist unknown-rights candidates.
-				manual, _ := ctx.Value(coursewareManualReviewKey{}).(bool)
-				if p.RightsStatus == "pending_confirmation" && !manual {
-					out.Status = "needs_confirmation"
-					continue
-				}
 				p.RetrievedAt = time.Now().UTC().Format(time.RFC3339)
 				p.SHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
 				asset, err := s.storeCoursewareImage(ctx, a, p, raw, cfg, mime)
@@ -382,7 +381,7 @@ func (s *Server) coursewareImageConfirm(w http.ResponseWriter, r *http.Request, 
 		if st.Revision != in.Revision {
 			return Slide{}, fail(409, "课件已更新，请刷新后确认")
 		}
-		if st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" {
+		if st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" && !pausedCourseware(st) {
 			return Slide{}, fail(409, "请等待课件生成完成")
 		}
 		for _, sl := range st.Deck.Slides {

@@ -36,7 +36,10 @@ watch(
   () => [props.slide.id, props.taskId, props.revision, token.value],
   () => {
     cancel();
-    candidates.value = [];
+    candidates.value =
+      props.slide.picture || props.slide.image_search?.status === 'removed'
+        ? []
+        : JSON.parse(JSON.stringify(props.slide.image_search?.candidates || []));
     rightsNotes.value = {};
     message.value = '';
     error.value = '';
@@ -125,6 +128,11 @@ async function search() {
     message.value = result.message;
     candidates.value = result.candidates || [];
     slide.image_need = need;
+    slide.image_search = {
+      status: result.status,
+      message: result.message,
+      candidates: JSON.parse(JSON.stringify(candidates.value))
+    };
   } catch (e) {
     if (current === version) {
       if (request.signal.reason === 'timeout')
@@ -149,6 +157,19 @@ function choose(candidate) {
     status: 'selected',
     message: '教师已选择网络配图，保存后需重新审核本页。'
   };
+}
+function skip() {
+  if (!props.editable || busy.value) return;
+  cancel();
+  candidates.value = [];
+  rightsNotes.value = {};
+  props.slide.picture = null;
+  props.slide.image_search = {
+    status: 'removed',
+    message: '已选择跳过本页配图，保存后生效；继续制作不会自动重新检索。'
+  };
+  message.value = '已跳过配图，请保存本页。';
+  error.value = '';
 }
 async function confirmRights(candidate) {
   if (!props.editable || busy.value || !compatible.value) return;
@@ -191,6 +212,10 @@ async function confirmRights(candidate) {
       return;
     if (!response.ok) throw Error(result.message || '图片权限确认失败，请重试。');
     Object.assign(candidate, result);
+    slide.image_search = {
+      ...slide.image_search,
+      candidates: JSON.parse(JSON.stringify(candidates.value))
+    };
     message.value = '使用权限依据已记录，可选择图片并保存本页。';
   } catch (e) {
     if (current === version) {
@@ -206,7 +231,7 @@ async function confirmRights(candidate) {
 <template>
   <section class="commons-image-search" aria-label="检索真实配图">
     <p v-if="slide.image_search" role="status">{{ slide.image_search.message }}</p>
-    <details v-if="taskId && editable">
+    <details v-if="taskId && editable" :open="candidates.length > 0">
       <summary>检索真实配图 · 网页优先，Commons 备用</summary>
       <label
         >配图教学用途<input
@@ -237,6 +262,7 @@ async function confirmRights(candidate) {
         {{ busy ? '正在检索并审核图片…' : '检索并审核候选图片' }}
       </button>
       <button v-if="busy" type="button" @click="cancel">停止等待</button>
+      <button type="button" :disabled="busy" @click="skip">跳过本页配图</button>
       <p v-if="message" role="status">{{ message }}</p>
       <p v-if="error" role="alert" class="image-error">{{ error }}</p>
       <article

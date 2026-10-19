@@ -4,7 +4,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const puppeteer=require('../animation-video/node_modules/puppeteer-core');
 (async()=>{
- const web=process.env.TEST_IMAGE_SOURCE==='web';
+ const web=process.env.TEST_IMAGE_SOURCE==='web',paused=process.env.TEST_PAUSED_IMAGES==='1';
  const out=path.resolve(__dirname,web?'../work/web-images':'../work/commons-images');await fs.mkdir(out,{recursive:true});
  const browser=await puppeteer.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,args:['--disable-background-networking'],defaultViewport:{width:1440,height:1080}});
  const errors=[],checks=[];let page;
@@ -14,6 +14,7 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
   const provenance={provider:'wikimedia_commons',title:'File:Great Wall fixture.png',author:'Test Photographer',license:'CC BY-SA 4.0',page_url:'https://commons.wikimedia.org/wiki/File:Great_Wall.png',license_url:'https://creativecommons.org/licenses/by-sa/4.0/',description:'明确标注的来源测试响应',retrieved_at:'2026-10-19T06:00:00Z',sha256:'a'.repeat(64)};
   if(web)Object.assign(provenance,{provider:'web_page',title:'网页照片固定验收',page_url:'https://museum.example/collection/wall',license:'使用权限待确认',license_url:'',rights_status:'pending_confirmation'});
+  if(paused){task.status='failed';task.result.slides=task.result.slides.slice(0,1);task.result.generation={version:'page-checkpoint-v3',phase:'preview',repair_page:1,issue:'固定验收：待修复草稿',page_attempts:{1:3}};task.result.slides[0].image_search={status:'needs_confirmation',message:'已保留候选图；备用 Commons 暂时无法访问',candidates:[{picture:{asset_id:'a'.repeat(32),caption:need.purpose,source:'网页配图 · 使用权限待确认'},provenance,reason:'固定相关性筛选候选'}]};}
   let saved=0,searches=0,confirmations=0,delay=false;
   page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);
   page.on('request',async r=>{
@@ -49,7 +50,9 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   await page.waitForFunction(()=>document.body.innerText.includes('手动编辑内容'));await click('手动编辑内容');
   await page.waitForSelector(scope+' .commons-image-search');
   const openSearch=async()=>{await page.waitForSelector(scope+' .commons-image-search details');await page.$eval(scope+' .commons-image-search details',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});};
-  await openSearch();await click('检索并审核候选图片',scope);
+  await openSearch();
+  if(!paused)await click('检索并审核候选图片',scope);
+  else{assert.equal(searches,0);assert.equal(await page.$eval(scope+' .approve-page',b=>b.disabled),true);checks.push('Paused one-page draft retains candidates without searching and blocks approval');await page.reload();await page.waitForSelector('.studio-slide.selected');await click('手动编辑内容');await openSearch();assert.equal(searches,0);}
   await page.waitForSelector(scope+' .commons-candidate img');
   if(web){
    assert.equal(await page.$$eval(scope+' .commons-candidate button',els=>els.find(e=>e.textContent.trim()==='使用此图').disabled),true);
@@ -81,7 +84,7 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));
   assert.equal(task.result.slides[0].picture.asset_id,'b'.repeat(32));assert.equal(task.result.slides[0].picture.source,'教师上传测试文件');
   checks.push('Upload replacement clears inherited Commons attribution');
-  assert.deepEqual(errors,[]);assert.equal(saved,3);assert.equal(searches,3);
+  await openSearch();await click('跳过本页配图',scope);await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));assert.equal(task.result.slides[0].picture,null);assert.equal(task.result.slides[0].image_search.status,'removed');checks.push('Skip persists without generation, points or automatic re-search');assert.deepEqual(errors,[]);assert.equal(saved,4);assert.equal(searches,paused?2:3);
   if(web)assert.equal(confirmations,1);
   await fs.writeFile(path.join(out,'browser.json'),JSON.stringify({scope:'Real Vue UI; mocked business APIs',checks,saved,searches,confirmations,errors},null,2));
   console.log(JSON.stringify({checks,saved,searches}));

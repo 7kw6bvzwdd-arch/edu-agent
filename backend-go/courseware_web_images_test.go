@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/png"
@@ -181,6 +182,99 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 			t.Fatal("private URL or redirect allowed")
 		}
 	}
+	t.Run("paused-draft", func(t *testing.T) {
+		previousMode := s.cfg.Mode
+		s.cfg.Mode = "live"
+		defer func() { s.cfg.Mode = previousMode }()
+		variant.Store(1)
+		pausedID := worksFixture(t, s, teacher, "courseware", "failed", "长城配图暂停草稿", TaskInput{PreviewFirst: true})
+		pausedRoute := "/api/tasks/" + pausedID
+		paused := worksObject(t, worksCall(t, s, "GET", pausedRoute, teacher, nil, 200))
+		deck := paused["result"].(map[string]any)
+		first := deck["slides"].([]any)[0].(map[string]any)
+		first["bullets"] = []string{"观察城墙与敌台如何连接。"}
+		first["notes"] = "固定验收样例：观察城墙与敌台的连接，具体年代与用途需要教师核对。"
+		deck["slides"] = []any{first}
+		checkpoint := map[string]any{"version": coursewarePageRepairVersion, "phase": "preview", "repair_page": 1, "issue": "尚未通过内容审核", "page_attempts": map[string]int{"1": 3}}
+		deck["generation"] = checkpoint
+		var actor Actor
+		json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", teacher, nil, 200).Body.Bytes(), &actor)
+		tx, err := s.tx(context.Background(), actor.TenantID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(context.Background(), "UPDATE tasks SET result=$1,charge_state='released',mode='live' WHERE id=$2", asJSON(deck), pausedID)
+		if err == nil {
+			err = tx.Commit(context.Background())
+		} else {
+			tx.Rollback(context.Background())
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := map[string]any{"revision": paused["revision"], "slide_id": first["id"], "need": ImageNeed{Purpose: "观察长城建筑", Queries: []string{"长城"}}}
+		worksCall(t, s, "POST", pausedRoute+"/images/search", other, q, 404)
+		result := worksObject(t, worksCall(t, s, "POST", pausedRoute+"/images/search", teacher, q, 200))
+		items, ok := result["candidates"].([]any)
+		if !ok || len(items) != 1 || result["status"] != "needs_confirmation" {
+			t.Fatalf("paused live draft lost candidate: %v", result)
+		}
+		candidate := items[0].(map[string]any)
+		first["image_search"] = map[string]any{"status": "needs_confirmation", "message": result["message"], "candidates": items}
+		retained := map[string]any{"revision": paused["revision"], "result": deck}
+		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, retained, 200)
+		paused = worksObject(t, worksCall(t, s, "GET", pausedRoute, teacher, nil, 200))
+		deck = paused["result"].(map[string]any)
+		first = deck["slides"].([]any)[0].(map[string]any)
+		state := first["image_search"].(map[string]any)
+		if first["picture"] != nil || len(state["candidates"].([]any)) != 1 || paused["status"] != "failed" || paused["charge_state"] != "released" {
+			t.Fatal("pending candidate was discarded, inserted or restarted task")
+		}
+		first["picture"] = candidate["picture"]
+		save := map[string]any{"revision": paused["revision"], "result": deck}
+		worksCall(t, s, "POST", pausedRoute+"/draft", "", save, 401)
+		worksCall(t, s, "POST", pausedRoute+"/draft", other, save, 404)
+		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 400)
+		confirm := map[string]any{"revision": paused["revision"], "slide_id": first["id"], "asset_id": candidate["picture"].(map[string]any)["asset_id"], "rights_note": "固定验收：已获得作者教学使用许可"}
+		approved := worksObject(t, worksCall(t, s, "POST", pausedRoute+"/images/confirm", teacher, confirm, 200))
+		first["picture"] = approved["picture"]
+		deck["generation"] = nil // Client cannot erase the recovery checkpoint.
+		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 200)
+		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 409)
+		after := worksObject(t, worksCall(t, s, "GET", pausedRoute, teacher, nil, 200))
+		if after["status"] != "failed" || after["charge_state"] != "released" {
+			t.Fatal("image edit restarted or charged paused task")
+		}
+		current := after["result"].(map[string]any)
+		if string(asJSON(current["generation"])) != string(asJSON(checkpoint)) {
+			t.Fatal("recovery checkpoint changed")
+		}
+		if len(current["slides"].([]any)) != 1 {
+			t.Fatal("partial draft expanded")
+		}
+		preview := worksCall(t, s, "GET", pausedRoute+"/preview-pptx", teacher, nil, 200).Body.Bytes()
+		z, e := zip.NewReader(bytes.NewReader(preview), int64(len(preview)))
+		if e != nil {
+			t.Fatal(e)
+		}
+		found := false
+		notes := ""
+		for _, f := range z.File {
+			r, _ := f.Open()
+			b, _ := io.ReadAll(r)
+			r.Close()
+			if strings.HasPrefix(f.Name, "ppt/media/") && bytes.Equal(b, pngBytes.Bytes()) {
+				found = true
+			}
+			if strings.HasPrefix(f.Name, "ppt/notesSlides/") {
+				notes += string(b)
+			}
+		}
+		if !found || !strings.Contains(notes, confirm["rights_note"].(string)) {
+			t.Fatal("paused draft PPTX lost image or rights declaration")
+		}
+		worksCall(t, s, "POST", pausedRoute+"/confirm", teacher, map[string]any{"revision": after["revision"], "result": current, "accept_review": true}, 400)
+	})
 	if worksCall(t, s, "GET", "/api/billing", teacher, nil, 200).Body.String() != bill {
 		t.Fatal("web image selection charged generation credits")
 	}

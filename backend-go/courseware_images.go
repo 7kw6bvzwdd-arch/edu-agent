@@ -57,8 +57,9 @@ type ImageSearchResult struct {
 }
 
 type ImageSearchState struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status     string           `json:"status"`
+	Message    string           `json:"message"`
+	Candidates []ImageCandidate `json:"candidates,omitempty"`
 }
 
 func compatibleImageSlide(sl Slide) bool {
@@ -71,7 +72,7 @@ func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, i
 	if sl.ImageNeed == nil || sl.Picture != nil || sl.ImageSearch != nil && sl.ImageSearch.Status == "removed" {
 		return
 	}
-	set := func(status, message string) { sl.ImageSearch = &ImageSearchState{status, message} }
+	set := func(status, message string) { sl.ImageSearch = &ImageSearchState{Status: status, Message: message} }
 	if err := validateImageNeed(sl.ImageNeed); err != nil {
 		set("invalid", "配图需求格式无效，请在编辑页修正用途和检索词。")
 		return
@@ -88,10 +89,16 @@ func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, i
 		set("conflict", "此页已有冲突图形，未自动添加图片；请先调整视觉内容。")
 		return
 	}
+	if sl.ImageSearch != nil && sl.ImageSearch.Status == "needs_confirmation" && len(sl.ImageSearch.Candidates) > 0 {
+		return
+	}
 	s.coursewareEvent(ctx, a, task, "image_search", "正在检索本页配图并核对来源、许可和教学相关性")
 	result := s.searchCoursewareImages(ctx, a, task, *sl.ImageNeed, *sl, 1)
 	set(result.Status, result.Message)
-	if len(result.Candidates) > 0 {
+	if result.Status == "needs_confirmation" {
+		sl.ImageSearch.Candidates = result.Candidates
+	}
+	if result.Status == "found" && len(result.Candidates) > 0 {
 		p := result.Candidates[0].Picture
 		sl.Picture = &p
 	}
@@ -133,7 +140,7 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 	if st.Revision != in.Revision {
 		return fail(409, "课件已更新，请刷新后重新检索")
 	}
-	if st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" {
+	if st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" && !pausedCourseware(st) {
 		return fail(409, "请等待课件生成完成后检索配图")
 	}
 	var slide *Slide
@@ -499,4 +506,38 @@ func (s *Server) reviewCoursewareImage(ctx context.Context, a Actor, task string
 		return
 	}
 	return *result.Relevant, result.Reason, nil
+}
+
+// Candidate snapshots can be previewed while pending, but cannot become selected pictures.
+func (s *Server) normalizeImageCandidates(ctx context.Context, a Actor, d *Deck) error {
+	for i := range d.Slides {
+		state := d.Slides[i].ImageSearch
+		if state == nil {
+			continue
+		}
+		if len(state.Candidates) > 2 {
+			return fail(400, "每页最多保留两张候选图")
+		}
+		for j := range state.Candidates {
+			candidate := &state.Candidates[j]
+			asset, err := s.ownedMedia(ctx, a, candidate.Picture.AssetID)
+			if err != nil {
+				return err
+			}
+			if asset.Provenance == nil {
+				return fail(400, "候选图缺少实际来源记录")
+			}
+			caption := candidate.Picture.Caption
+			if strings.TrimSpace(caption) == "" {
+				caption = d.Slides[i].Title
+			}
+			candidate.Picture = TeachingPicture{AssetID: asset.ID, Caption: caption, Source: imageAttribution(asset.Provenance)}
+			if len([]rune(candidate.Picture.Caption)) > 60 {
+				candidate.Picture.Caption = string([]rune(candidate.Picture.Caption)[:60])
+			}
+			candidate.Provenance = *asset.Provenance
+			candidate.Reason = plainImageMetadata(candidate.Reason, 300)
+		}
+	}
+	return nil
 }

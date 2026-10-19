@@ -24,7 +24,13 @@ type coursewareState struct {
 	Sources            []Source
 	Status, Mode, Path string
 	Revision           int
+	Leased             bool
 }
+
+func pausedCourseware(st coursewareState) bool {
+	return st.Status == "failed" && st.Input.PreviewFirst && st.Deck.Generation != nil && len(st.Deck.Slides) > 0 && !st.Leased
+}
+
 type slideReview struct {
 	ID       string `json:"id"`
 	Hash     string `json:"hash"`
@@ -36,7 +42,7 @@ type slideReview struct {
 func ownedCourseware(ctx context.Context, tx pgx.Tx, a Actor, id, lock string) (coursewareState, error) {
 	var st coursewareState
 	var kind string
-	err := tx.QueryRow(ctx, "SELECT type,result,input,sources,status,mode,pptx_path,revision FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL "+lock, id, a.MemberID).Scan(&kind, &st.Deck, &st.Input, &st.Sources, &st.Status, &st.Mode, &st.Path, &st.Revision)
+	err := tx.QueryRow(ctx, "SELECT type,result,input,sources,status,mode,pptx_path,revision,coalesce(lease_until>now(),false) FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL "+lock, id, a.MemberID).Scan(&kind, &st.Deck, &st.Input, &st.Sources, &st.Status, &st.Mode, &st.Path, &st.Revision, &st.Leased)
 	if err == nil && kind != "courseware" {
 		err = fail(409, "此功能仅支持课件")
 	}
@@ -167,7 +173,11 @@ func (s *Server) snapshotCourseware(ctx context.Context, path string, samplePage
 
 func (s *Server) previewArtifact(ctx context.Context, a Actor, id string, d *Deck) (string, error) {
 	ctx = context.WithValue(ctx, mediaActorKey{}, a)
-	if err := validateDeckMinimum(*d, 3); err != nil {
+	minimum := 3
+	if d.Generation != nil {
+		minimum = 1
+	}
+	if err := validateDeckMinimum(*d, minimum); err != nil {
 		return "", err
 	}
 	threePages := len(d.Slides) == 3
@@ -199,14 +209,35 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 	if err != nil {
 		return err
 	}
-	if !st.Input.PreviewFirst || (st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation") || st.Revision != body.Revision {
+	paused := pausedCourseware(st)
+	if !st.Input.PreviewFirst || (st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && !paused) || st.Revision != body.Revision {
 		return fail(409, "课件正在制作、内容已更新或不在草稿阶段，请刷新后重试")
 	}
 	body.Result.Notice, body.Result.NeedsReview, body.Result.Evaluation = st.Deck.Notice, true, nil
 	body.Result.Script = ""
 	body.Result.Generation = nil
+	minimum := 3
+	if paused {
+		if len(body.Result.Slides) != len(st.Deck.Slides) {
+			return fail(409, "暂停草稿只能修改已有页面，不能增删或排序")
+		}
+		for i, sl := range body.Result.Slides {
+			if sl.ID != st.Deck.Slides[i].ID {
+				return fail(409, "暂停草稿不能替换页面身份或顺序")
+			}
+		}
+		var checkpoint CoursewareCheckpoint
+		json.Unmarshal(asJSON(st.Deck.Generation), &checkpoint)
+		body.Result.Generation = &checkpoint
+		minimum = 1
+	}
+	if err := s.normalizeImageCandidates(r.Context(), a, &body.Result); err != nil {
+		return err
+	}
 	preserveCoursewareChecks(&body.Result, st.Deck)
-	body.Result = arrangeCourseware(body.Result)
+	if !paused {
+		body.Result = arrangeCourseware(body.Result)
+	}
 	if st.Status == "awaiting_preview" && len(body.Result.Slides) != 3 {
 		return fail(422, "预览阶段仅保存前三页；复杂内容请分配到剩余页面，不丢弃数据")
 	}
@@ -219,7 +250,7 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		return err
 	}
 	assignSlideIDs(&body.Result)
-	if err := validateDeckMinimum(body.Result, 3); err != nil {
+	if err := validateDeckMinimum(body.Result, minimum); err != nil {
 		return err
 	}
 	if _, err := s.renderCoursewareAvailable(r.Context(), body.Result); err != nil {
@@ -242,7 +273,7 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 	if err != nil {
 		return err
 	}
-	if current.Revision != body.Revision || current.Status != st.Status {
+	if current.Revision != body.Revision || current.Status != st.Status || paused && !pausedCourseware(current) {
 		return fail(409, "草稿已更新或已进入生成阶段；当前修改没有覆盖旧版")
 	}
 	if err := coursewareChatIdle(r.Context(), tx, r.PathValue("id"), ""); err != nil {
@@ -433,7 +464,7 @@ func (s *Server) coursewarePreviewDownload(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return err
 	}
-	if st.Path == "" || (st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded") {
+	if st.Path == "" || (st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" && !pausedCourseware(st)) {
 		return fail(404, "预览文件尚未就绪")
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=preview.pptx")

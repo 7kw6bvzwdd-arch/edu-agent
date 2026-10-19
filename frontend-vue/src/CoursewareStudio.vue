@@ -61,7 +61,17 @@ const textIssue = computed(() => {
   return imageSize > 1200000 ? '整套课件图片总量过大，请减少图片或降低分辨率后再保存。' : '';
 });
 const pendingMessage = computed(() => messages.value.some((m) => m.status === 'pending'));
-const editable = computed(() => ready.value && !working.value && !pendingMessage.value);
+const paused = computed(
+  () =>
+    props.task?.status === 'failed' &&
+    props.task?.input?.preview_first &&
+    !!props.task?.result?.generation &&
+    !!props.task?.result?.slides?.length
+);
+const structureLocked = computed(() => prefix.value || paused.value);
+const editable = computed(
+  () => (ready.value || paused.value) && !working.value && !pendingMessage.value
+);
 const approvedCount = computed(
   () => (props.task?.slide_reviews || []).filter((m) => m.approved && m.vote >= 0).length
 );
@@ -459,6 +469,11 @@ async function editSlide(id) {
   await selectSlide(id);
   editing.value = editing.value === id ? '' : id;
   if (editing.value) {
+    await nextTick();
+    const search = canvas.value?.querySelector('.studio-slide.selected .commons-image-search');
+    if (search)
+      for (let node = search; node && node !== canvas.value; node = node.parentElement)
+        if (node.tagName === 'DETAILS') node.open = true;
     await reveal('.studio-slide.selected .studio-slide-editor');
     canvas.value
       ?.querySelector('.studio-slide.selected .studio-slide-editor input')
@@ -638,7 +653,7 @@ async function download(preview = false, version, format = 'pptx') {
   });
 }
 function addSlide(index) {
-  if (!editable.value || prefix.value) return;
+  if (!editable.value || structureLocked.value) return;
   const slide = {
     id: crypto.randomUUID(),
     title: '新页面',
@@ -651,7 +666,7 @@ function addSlide(index) {
   editing.value = slide.id;
 }
 function duplicateSlide(index) {
-  if (!editable.value || prefix.value) return;
+  if (!editable.value || structureLocked.value) return;
   const slide = JSON.parse(JSON.stringify(local.value.slides[index]));
   slide.id = crypto.randomUUID();
   slide.title += ' · 副本';
@@ -660,7 +675,11 @@ function duplicateSlide(index) {
   editing.value = slide.id;
 }
 function removeSlide(index) {
-  if (!editable.value || prefix.value || local.value.slides.length <= (local.value.plan ? 3 : 8))
+  if (
+    !editable.value ||
+    structureLocked.value ||
+    local.value.slides.length <= (local.value.plan ? 3 : 8)
+  )
     return;
   if (!window.confirm('删除本页？保存后会形成新版本，已保存的旧版本保留。')) return;
   const [removed] = local.value.slides.splice(index, 1);
@@ -672,7 +691,7 @@ function removeSlide(index) {
 function moveSlide(index, step) {
   if (
     !editable.value ||
-    prefix.value ||
+    structureLocked.value ||
     index + step < 0 ||
     index + step >= local.value.slides.length
   )
@@ -768,7 +787,7 @@ onUnmounted(() => {
           </div>
         </details>
         <button
-          v-if="local && ready"
+          v-if="local && (ready || paused)"
           @click="download(!finished)"
           :disabled="working"
           class="primary"
@@ -944,7 +963,7 @@ onUnmounted(() => {
           ><button
             type="button"
             @click="approve(current.id, !meta(current.id).approved)"
-            :disabled="!editable"
+            :disabled="!editable || !ready"
             :class="{ approved: meta(current.id).approved }"
           >
             <WorkspaceIcon name="check" />{{
@@ -1039,7 +1058,12 @@ onUnmounted(() => {
           <b>{{ title }}</b>
           <p v-if="prefix">确认这三页的内容与风格后，再制作其余页面。</p>
           <p v-else-if="task.status === 'awaiting_confirmation'">核对每页内容后，确认完整交付。</p>
-          <p v-else-if="task.status === 'failed'">{{ task.error }}</p>
+          <p v-else-if="task.status === 'failed'">
+            {{ task.error
+            }}<template v-if="paused">
+              可先手动修改内容、确认配图或上传替换，保存后再继续制作；保存不重启任务、不重新预留积分。</template
+            >
+          </p>
           <p v-else>{{ task.events?.at(-1)?.message || '正在准备课件，页面会自动更新。' }}</p>
           <div v-if="!ready" class="studio-progress">
             <div>
@@ -1159,7 +1183,7 @@ onUnmounted(() => {
               </button>
               <div class="slide-tools">
                 <button
-                  v-if="canvasAvailable && imageURLs[sl.id]"
+                  v-if="canvasAvailable && !paused && imageURLs[sl.id]"
                   @click="openObjectCanvas(sl)"
                   :disabled="!editable"
                   :aria-label="'移动第' + (i + 1) + '页对象'"
@@ -1176,36 +1200,56 @@ onUnmounted(() => {
                   <WorkspaceIcon name="edit" />编辑</button
                 ><button
                   @click="moveSlide(i, -1)"
-                  :disabled="!editable || prefix || i === 0"
+                  :disabled="!editable || structureLocked || i === 0"
                   :aria-label="'上移第' + (i + 1) + '页'"
                 >
                   <WorkspaceIcon name="up" /></button
                 ><button
                   @click="moveSlide(i, 1)"
-                  :disabled="!editable || prefix || i === local.slides.length - 1"
+                  :disabled="!editable || structureLocked || i === local.slides.length - 1"
                   :aria-label="'下移第' + (i + 1) + '页'"
                 >
                   <WorkspaceIcon name="down" /></button
                 ><button
                   @click="addSlide(i)"
-                  :disabled="!editable || prefix || local.slides.length >= 100"
+                  :disabled="!editable || structureLocked || local.slides.length >= 100"
                   :aria-label="'在第' + (i + 1) + '页后添加'"
                 >
                   <WorkspaceIcon name="plus" /></button
                 ><button
                   @click="duplicateSlide(i)"
-                  :disabled="!editable || prefix || local.slides.length >= 100"
+                  :disabled="!editable || structureLocked || local.slides.length >= 100"
                   :aria-label="'复制第' + (i + 1) + '页'"
                 >
                   <WorkspaceIcon name="copy" /></button
                 ><button
                   @click="removeSlide(i)"
-                  :disabled="!editable || prefix || local.slides.length <= (local.plan ? 3 : 8)"
+                  :disabled="
+                    !editable || structureLocked || local.slides.length <= (local.plan ? 3 : 8)
+                  "
                   :aria-label="'删除第' + (i + 1) + '页'"
                 >
                   <WorkspaceIcon name="trash" />
                 </button>
               </div>
+            </div>
+            <div
+              v-if="
+                !sl.picture &&
+                sl.image_search &&
+                ['needs_confirmation', 'unavailable', 'not_found'].includes(sl.image_search.status)
+              "
+              class="studio-image-attention"
+              role="status"
+            >
+              <p>{{ sl.image_search.message }}</p>
+              <button type="button" :disabled="!editable" @click="editSlide(sl.id)">
+                {{
+                  sl.image_search.candidates?.length
+                    ? '查看候选图并处理配图'
+                    : '检索、上传或跳过配图'
+                }}
+              </button>
             </div>
             <button
               v-if="objectEditing !== sl.id"
@@ -1231,7 +1275,9 @@ onUnmounted(() => {
             <small v-if="objectEditing !== sl.id" class="actual-preview-caption">{{
               imageURLs[sl.id]
                 ? '实际PPTX渲染截图 · 修改保存后更新'
-                : '当前环境无实际截图；上方是布局示意，不冒充PPT截图'
+                : paused
+                  ? '待修复草稿，当前版本暂无真实PPT截图；上方为布局示意'
+                  : '当前版本暂无真实PPT截图；上方为布局示意'
             }}</small>
             <template
               v-if="objectEditing === sl.id && objectMaps[sl.id]?.length && imageURLs[sl.id]"
@@ -1341,11 +1387,12 @@ onUnmounted(() => {
                 </button>
               </div>
               <div>
-                <button @click="discussSlide(sl.id)" :disabled="!editable">对话修改本页</button
+                <button @click="discussSlide(sl.id)" :disabled="!editable || !ready">
+                  对话修改本页</button
                 ><button
                   class="approve-page"
                   @click="approve(sl.id, !meta(sl.id).approved)"
-                  :disabled="!editable"
+                  :disabled="!editable || !ready"
                   :class="{ approved: meta(sl.id).approved }"
                 >
                   <WorkspaceIcon name="check" />{{

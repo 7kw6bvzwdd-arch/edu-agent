@@ -237,10 +237,14 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 	commons := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/web-page" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			io.WriteString(w, `<html><head><title>长城建筑</title><meta name="author" content="Test Photographer"></head><body><figure><img src="/web-photo.png" alt="长城城墙与敌台"><figcaption><a rel="license" href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></figcaption></figure></body></html>`)
+			license := `<a rel="license" href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>`
+			if r.URL.Query().Get("pending") == "1" {
+				license = ""
+			}
+			io.WriteString(w, `<html><head><title>长城建筑</title><meta name="author" content="Test Photographer"></head><body><figure><img src="/web-photo.png" alt="长城城墙与敌台"><figcaption>`+license+`</figcaption></figure></body></html>`)
 			return
 		}
-		if r.URL.Query().Get("gsrsearch") == "outage" {
+		if r.URL.Query().Get("gsrsearch") == "outage" || r.URL.Query().Get("gsrsearch") == "web-pending" {
 			w.WriteHeader(503)
 			return
 		}
@@ -261,7 +265,7 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 		web           bool
 		query, status string
 	}{
-		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"disabled", false, "Great Wall", "disabled"}, {"outage", true, "outage", "unavailable"},
+		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"web-pending", true, "web-pending", "needs_confirmation"}, {"disabled", false, "Great Wall", "disabled"}, {"outage", true, "outage", "unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			need := &ImageNeed{Purpose: "观察城墙的连接", Queries: []string{tc.query}, Constraints: "实际建筑照片"}
@@ -278,8 +282,12 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				}
 				json.NewDecoder(r.Body).Decode(&req)
 				if len(req.Messages) == 0 {
-					if tc.name == "web-primary" {
-						respond(w, 200, map[string]any{"results": []any{map[string]string{"title": "长城建筑", "url": "https://museum.example/web-page"}}})
+					if tc.name == "web-primary" || tc.name == "web-pending" {
+						pageURL := "https://museum.example/web-page"
+						if tc.name == "web-pending" {
+							pageURL += "?pending=1"
+						}
+						respond(w, 200, map[string]any{"results": []any{map[string]string{"title": "长城建筑", "url": pageURL}}})
 						return
 					}
 					respond(w, 200, map[string]any{"results": []any{}})
@@ -340,6 +348,22 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				}
 				if tc.status != "found" && sl.Picture != nil {
 					t.Fatal("failure must not invent a picture")
+				}
+			}
+			if tc.name == "web-pending" {
+				data := got["result"].(map[string]any)["slides"].([]any)[0].(map[string]any)
+				state := data["image_search"].(map[string]any)
+				candidates, ok := state["candidates"].([]any)
+				if !ok || len(candidates) != 1 {
+					t.Fatalf("automatic search discarded pending image: %v", state)
+				}
+				candidate := candidates[0].(map[string]any)
+				asset := candidate["picture"].(map[string]any)["asset_id"].(string)
+				worksCall(t, s, "GET", "/api/media/"+asset, token, nil, 200)
+				other := worksLogin(t, s, "other")
+				worksCall(t, s, "GET", "/api/media/"+asset, other, nil, 404)
+				if !strings.Contains(state["message"].(string), "无法访问") {
+					t.Fatal("backup outage hidden", state)
 				}
 			}
 			if tc.status == "found" {

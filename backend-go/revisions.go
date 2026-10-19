@@ -51,6 +51,9 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 	if revision != in.Revision {
 		return fail(409, "内容已更新，请刷新")
 	}
+	if err := s.normalizeImageCandidates(r.Context(), a, &in.Result); err != nil {
+		return err
+	}
 	in.Result.Notice = old.Notice
 	preserveCoursewareChecks(&in.Result, old)
 	in.Result = arrangeCourseware(in.Result)

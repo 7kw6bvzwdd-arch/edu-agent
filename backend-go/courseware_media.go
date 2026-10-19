@@ -50,6 +50,11 @@ func (s *Server) requireTeachingMediaRenderer(ctx context.Context, graph ...bool
 
 // Text-only model calls never receive uploaded binary data or mutate the original.
 func slideForTextModel(sl Slide) Slide {
+	if sl.ImageSearch != nil {
+		state := *sl.ImageSearch
+		state.Candidates = nil
+		sl.ImageSearch = &state
+	}
 	sl.CanvasPositions = nil
 	sl.CanvasOrder = nil
 	sl.CanvasObjects = append([]CanvasObject(nil), sl.CanvasObjects...)
