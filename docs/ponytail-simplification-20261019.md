@@ -25,8 +25,17 @@
 
 运行切换前：104条任务、执行中0、队列0、待教师审核1、异常预留0。教师可见13条任务，余额940、预留20、可用920。
 
-先从本地完整commit构建一致产物，准备Python和视频运行依赖后切换。运行后结果待切换验收补充；本条不表示已发布。
+已于2026-10-19 09:56（Asia/Shanghai）切换本机8080/8000，运行代码commit为0f0bfaa7557f67acfa72a0a21fd410cfae560eae，固定产物目录work/releases/commit-0f0bfaa7557f。目录及兼容元数据中的commit前缀只是发布标识，未创建Git tag。
 
-证据位于 work/ponytail-20261019/：http-final-results.json、go-final.jsonl、go-vet.log、frontend-format.log、frontend-build.log、render-after.log、office-after.log、mp4-after.log、各浏览器日志。
+- 88个产物文件校验通过，后端报告commit、实际前端HTML及两份JS/CSS资产哈希与manifest一致。
+- PostgreSQL、Redis、MinIO、Milvus均健康；仍为DeepSeek deepseek-flash、重点内容核验开启、2个制作worker及1个视频worker。
+- 重启后104条任务、执行中0、队列0、待教师审核1、异常预留0；教师可见13条任务，余额940、预留20、可用920，与切换前完全一致。
+- 已有PPTX下载仍为89001字节，SHA256 f78519520246d191f4fb6c1f82ef2f93f5ed83533a5f265d327de314dfc7a226，切换前后相同。匿名任务、额度、SSE和下载入口拒绝访问。
+- 真实账号浏览器：未发送草稿刷新恢复、hash恢复旧课件工作台、实际历史预览下载通过；任务与额度未改变，无付费需求对话或生成。
+- 当前运行的8000渲染接口新生成3页真实PPTX（47864字节），包内页数检查通过。
+- 启动后后端和renderer日志无ERROR/panic/Traceback标记。
+- 生产只读核验及上述渲染检查未创建正式任务、未消费模型额度。真实模型全学科内容质量不在本次技术验收结论内。
+
+证据位于 work/ponytail-20261019/：http-final-results.json、go-final.jsonl、go-vet.log、frontend-format.log、frontend-build.log、render-after.log、office-after.log、mp4-after.log、各浏览器日志；production-after.json、production-browser.json、database-after.json及service-switch.log记录运行后证据。
 
 未新增或推送Git tag，未推送GitHub。此次为技术运行验收，不代表真实AI全学科课堂内容已由教师验收。
