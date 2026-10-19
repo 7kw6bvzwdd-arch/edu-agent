@@ -14,6 +14,7 @@ import (
 // fixture is the external provider. No production tasks or credits are used.
 func TestWorkspaceContextCompactionHTTP(t *testing.T) {
 	s := worksServer(t)
+	s.cfg.Mode = "live"
 	token := worksLogin(t, s, "teacher")
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
 	tasks := worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String()
@@ -47,7 +48,6 @@ func TestWorkspaceContextCompactionHTTP(t *testing.T) {
 		}
 	}))
 	defer provider.Close()
-	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "test", "test"
 	body := map[string]any{"compact_context": true, "context_summary": "上轮记忆：不要显示学生真实姓名；分组表演已取消。", "input": TaskInput{Topic: "中国近代史", UseWeb: true}, "messages": []map[string]string{{"role": "user", "content": "保留史料讨论，不要开始制作。"}}}
 	worksCall(t, s, "POST", "/api/workspace/brief", "", body, 401)
@@ -95,10 +95,10 @@ func TestLiveWorkspaceContextCompactionHTTP(t *testing.T) {
 		t.Skip("live provider opt-in required")
 	}
 	s := worksServer(t)
+	s.cfg.Mode = "live"
 	token := worksLogin(t, s, "teacher")
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
 	tasks := worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String()
-	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 	body := map[string]any{"stream": true, "compact_context": true, "context_summary": "当前在准备中国近代史复习课。已确认保留史料讨论。分组表演已经取消，不要再安排。上一作品的制作指令已经结束，当前没有开始制作授权。", "input": TaskInput{Topic: "中国近代史", Subject: "历史", UseWeb: true, Theme: "coral", Requirements: "只整理需求，保留史料讨论，取消分组表演。"}, "messages": []map[string]string{{"role": "user", "content": "补充：学生基础薄弱，答案放在教师备注。先不要开始制作，整理这些要求就好。"}}}
 	stream := worksCall(t, s, "POST", "/api/workspace/brief", token, body, 200).Body.String()

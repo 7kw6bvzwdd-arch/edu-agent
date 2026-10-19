@@ -85,8 +85,14 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await evaluate(`window.__briefResult=${JSON.stringify(result)};window.__event('delta',{text:'再安排练习。'});for(const block of window.__briefResult.blocks)window.__event('block',block);window.__event('done',window.__briefResult);window.__end()`);
  await wait("!document.querySelector('.brief-composer textarea').disabled&&document.querySelectorAll('.brief-requirement-block').length===2");
  assert.equal(await evaluate("document.querySelector('.brief-topic input').value"),'二次函数');assert.equal(await evaluate("document.querySelectorAll('.brief-requirement-block table').length"),2);
- assert.equal(await evaluate("document.querySelector('article.brief-bubble.assistant img')"),null,'Model output must remain escaped text');assert.equal(writes.length,0);await shot('requirements-desktop');
- checks.push('Text arrives before completion; validated settings update after completion; requirement tables render as escaped blocks without creating tasks');
+ assert.equal(await evaluate("document.querySelector('article.brief-bubble.assistant img')"),null,'Model output must remain escaped text');assert.equal(writes.length,0);await shot('requirements-expanded-desktop');await click('.brief-current-requirements>summary');await shot('requirements-desktop');await click('.brief-current-requirements>summary');
+ assert.equal(await evaluate("[...document.querySelectorAll('.brief-messages table')].filter(e=>e.getBoundingClientRect().height>0).length"),0,'A chat reply cannot expand the full requirements form');
+ assert.equal(await evaluate("document.querySelectorAll('.brief-current-requirements').length"),1,'One current requirements editor serves the conversation');
+ assert.equal(await evaluate("document.querySelector('.brief-current-requirements').open"),false,'The full requirements editor starts collapsed');
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble table').length"),0,'Replies never contain repeated settings tables');
+ await click('.brief-current-requirements>summary');
+ assert.ok(await evaluate("document.querySelector('[aria-label=修改课题]').checkVisibility()"),'Opening the current brief exposes its editor');
+ checks.push('Streamed replies stay compact; one collapsed live brief provides editable settings without repeated tables');
  await fill('[aria-label="修改课题"]','中国近代史');await fill('[aria-label="修改学科"]','历史');
  assert.equal(await evaluate("document.querySelector('[aria-label=修改学科]').tagName"),'INPUT','The subject editor cannot restrict a history lesson to a science-only select');
  assert.equal(await evaluate("document.querySelector('[aria-label=修改学科]').value"),'历史');
@@ -105,7 +111,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await wait("document.querySelectorAll('.brief-question').length===1");
  assert.equal(writes.length,0,'An unanswered question cannot execute generation');
  assert.ok(await evaluate("document.querySelector('.brief-understanding').innerText.includes('已理解的教学要求')"));
- assert.ok(await evaluate("document.querySelector('.brief-assumptions').innerText.includes('暂按人教版')"));
+ assert.equal(await evaluate("document.querySelector('.brief-assumptions').open"),false,'Suggestions stay optional and collapsed');await click('.brief-assumptions summary');assert.ok(await evaluate("document.querySelector('.brief-assumptions').innerText.includes('暂按人教版')"));
  await click('.brief-question-options button:first-child');
  assert.ok(await evaluate("document.querySelector('.brief-composer textarea').value.includes('先示范再独立练习')"));
  assert.equal(writes.length,0,'Choosing an option drafts an answer without starting or charging');
@@ -117,7 +123,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  assert.equal(await evaluate("getComputedStyle(document.querySelector('.home-recent')).display"),'none');
  await fill('[aria-label="修改课题"]','二次函数的图像');
  await fill('[aria-label="修改课时（分钟）"]','5');
- await click('.brief-block-actions button');
+ await click('.brief-direct');
  assert.equal(writes.length,0);assert.ok(await evaluate("document.querySelector('.brief-composer .error')?.textContent.includes('10–180')"));
  await fill('[aria-label="修改课时（分钟）"]','50');
  assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble').length"),2,'Editing topic preserves the transcript');
@@ -153,6 +159,9 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await wait("!document.querySelector('.brief-composer textarea').disabled");
  assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"修改课题\"]').length"),1,'Only the latest accepted table can edit current settings');
  assert.equal(await evaluate("document.querySelector('article.brief-bubble.assistant').querySelector('.brief-requirement-block input')"),null,'Historical tables remain snapshots');
+ assert.equal(await evaluate("document.querySelectorAll('.brief-questions').length"),0,'Answered past questions stop repeating');
+ assert.ok(await evaluate("[...document.querySelectorAll('.brief-past-requirements')].every(e=>!e.open)"),'Past requirements snapshots start folded');
+ assert.ok(await evaluate("[...document.querySelectorAll('.brief-change-note')].at(-1).textContent.includes('教学目标')"),'Reply calls out only fields changed this turn');
  await fill('[aria-label="修改教材版本"]','人教版（教师核对）');
  await fill('[aria-label="修改教学目标"]','解释图像变化，并完成两道独立练习。');
  await evaluate("(()=>{const e=document.querySelector('[aria-label=\"修改内容详略\"]');e.value='concise';e.dispatchEvent(new Event('change',{bubbles:true}))})()");
@@ -190,6 +199,16 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
   await fill('.brief-composer textarea',turn===0?'新的历史课件：保留史料讨论，取消分组表演。':'继续补充历史课件要求'+turn);
   await click('.brief-composer button[type=submit]');await wait("!!document.querySelector('.stream-cursor')");
   const request=await evaluate('window.__briefRequests.at(-1)');
+  if(turn===13){
+   await evaluate("(()=>{const el=document.querySelector('.brief-messages');el.style.scrollBehavior='auto';el.scrollTop=0;el.dispatchEvent(new Event('scroll'))})()");
+   await wait("!!document.querySelector('.brief-latest')");
+   await evaluate("window.__event('delta',{text:'正在补充本轮要求。'})");
+   await sleep(100);
+   assert.ok(await evaluate("document.querySelector('.brief-messages').scrollTop<5"),'Streaming cannot drag a teacher away from history');
+   await click('.brief-latest');
+   await wait("!document.querySelector('.brief-latest')");
+   assert.ok(await evaluate("(()=>{const el=document.querySelector('.brief-messages');return el.scrollHeight-el.scrollTop-el.clientHeight<5})()"),'Return-to-latest resumes following');
+  }
   if(request.compact_context)assert.ok(request.messages.length<=31,'Compaction respects the server request limit');
   await evaluate(`window.__briefResult={reply:'已记录历史课件要求。',tool:'courseware',action:'discuss',mode:'live',settings:{},requirements:'保留史料讨论，取消分组表演。',questions:[],assumptions:[],blocks:[],...(window.__briefRequests.at(-1).compact_context?{context_summary:'当前历史课件；保留史料讨论；已取消分组表演；没有制作授权。'}:{})};window.__event('done',window.__briefResult);window.__end()`);
   await wait("!document.querySelector('.brief-composer textarea').disabled");
@@ -219,11 +238,24 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await evaluate("window.__event('done',{reply:'已记录。',tool:'courseware',action:'discuss',mode:'live',requirements:'保留史料讨论，取消分组表演。',settings:{},questions:[],blocks:[],context_summary:'当前历史课件；史料讨论；分组表演已取消。'});window.__end()");await wait("!document.querySelector('.brief-composer textarea').disabled");
  assert.equal(writes.filter(w=>w.path==='/api/tasks').length,2);
  checks.push('Missing compaction summary preserves accepted settings, input and previous memory; retry completes without task creation');
+  assert.ok(await evaluate("[...document.querySelectorAll('article.brief-bubble')].some(e=>!e.checkVisibility())"),'Long chat folds older dialogue');
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble table').length"),0,'Many turns cannot accumulate requirement tables');
+ assert.equal(await evaluate("document.querySelectorAll('.brief-current-requirements').length"),1);
+ const bubbleCount=await evaluate("document.querySelectorAll('article.brief-bubble').length");
+ await click('.brief-history-toggle');
+ assert.ok(await evaluate("[...document.querySelectorAll('article.brief-bubble')].every(e=>e.checkVisibility())"),'History expands intact');
+ await click('.brief-history-toggle');
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble').length"),bubbleCount);
+ assert.equal(await evaluate("document.querySelectorAll('.home-tool-result').length"),2,'Folding history keeps both tool results mounted');
+ checks.push('Long chat folds old turns reversibly while preserving embedded works and a single current brief');
+ checks.push('Reading history during streaming stays in place; explicit return resumes following');
  const transcriptBefore=await evaluate("document.querySelector('.courseware-setup').textContent");
  const requestsBeforeReload=writes.filter(w=>w.path==='/api/tasks').length;
  await fill('.brief-composer textarea','刷新保留的草稿');
  await call('Page.reload',{ignoreCache:true});await wait("!!document.querySelector('.brief-composer textarea')");
  assert.equal(await evaluate("document.querySelector('.brief-composer textarea').value"),'刷新保留的草稿');
+ assert.equal(await evaluate("document.querySelector('.brief-current-requirements').open"),false,'Refresh keeps the current brief compact');
+ assert.equal(await evaluate("document.querySelectorAll('article.brief-bubble table').length"),0,'Restored old conversations cannot reintroduce repeated tables');
  assert.ok(await evaluate("document.querySelector('.courseware-setup').textContent.includes('保留史料讨论')"));
  assert.equal(writes.filter(w=>w.path==='/api/tasks').length,requestsBeforeReload);
  checks.push('Refreshing restores member-scoped conversation, unsent input, settings and embedded works without a new charge');

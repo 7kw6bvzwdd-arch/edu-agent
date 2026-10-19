@@ -18,6 +18,7 @@ import (
 // A completed response split into delayed characters would fail this check.
 func TestCoursewareBriefStreamsBeforeCompletionHTTP(t *testing.T) {
 	s := worksServer(t)
+	s.cfg.Mode = "live"
 	token := worksLogin(t, s, "teacher")
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
 	tasks := worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String()
@@ -47,7 +48,6 @@ func TestCoursewareBriefStreamsBeforeCompletionHTTP(t *testing.T) {
 		fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":40}}\n\ndata: [DONE]\n\n")
 	}))
 	defer provider.Close()
-	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "brief-test", "deepseek-flash"
 	server := httptest.NewServer(s.Handler())
 	defer server.Close()

@@ -7,14 +7,13 @@ const props=defineProps({form:Object,api:Function,mode:String,disabled:Boolean,r
 const emit=defineEmits(['update:requirements','confirmed','changed'])
 const subjectList=useId()
 const text=props.session?toRef(props.session,'text'):ref(''),messages=props.session?toRef(props.session,'messages'):ref([]),summary=props.session?toRef(props.session,'summary'):ref('')
-const busy=ref(false),error=ref(''),accepted=ref(false),chat=ref(null)
+const busy=ref(false),error=ref(''),accepted=ref(false),chat=ref(null),showHistory=ref(false),followChat=ref(true)
 const additionalRequirements=ref('')
 if(props.session&&props.session.understanding===undefined)props.session.understanding=''
 const understanding=props.session?toRef(props.session,'understanding'):ref('')
 if(props.session&&!props.session.contextMemory)props.session.contextMemory={text:'',through:0}
 const contextMemory=props.session?toRef(props.session,'contextMemory'):ref({text:'',through:0})
 const selectedTool=props.session?toRef(props.session,'selectedTool'):ref(''),suggestedTool=props.session?toRef(props.session,'suggestedTool'):ref('courseware')
-const toolName=tool=>tool==='animation'?'教学动画':'课件制作'
 const currentTool=computed(()=>selectedTool.value||suggestedTool.value)
 let controller
 onUnmounted(()=>controller?.abort())
@@ -23,6 +22,18 @@ const rowFields={'课题':'topic','学科':'subject','年级':'grade','课时（
 const fieldLimits={topic:100,subject:40,grade:40,textbook:100,student_level:400,objectives:1000}
 const rowOptions=computed(()=>({detail:[['auto','按教学需求安排'],['concise','精简'],['default','适中'],['detailed','详细']]}))
 const editableMessage=computed(()=>{const index=messages.value.findLastIndex(m=>m.role==='assistant'&&!m.pending&&!m.failed&&(m.blocks?.length||m.requirements||m.questions?.length));return messages.value[index]?.execution?-1:index})
+// A single live editor, independent of the model's historical display snapshots.
+const currentBlocks=[
+ {title:'这堂课的安排',rows:['课题','学科','年级','课时（分钟）','教材版本'].map(label=>({label}))},
+ {title:'教学重点',rows:['学生基础','教学目标','内容详略'].map(label=>({label}))},
+]
+const currentOverview=computed(()=>[props.form.topic||'课题待补充',props.form.subject,props.form.grade,props.form.lesson_minutes?props.form.lesson_minutes+'分钟':''].filter(Boolean).join(' · '))
+const historyCutoff=computed(()=>Math.max(0,messages.value.length-6))
+const archivedCount=computed(()=>messages.value.slice(0,historyCutoff.value).filter((m,i)=>!m.execution&&i!==editableMessage.value).length)
+function messageVisible(message,index){return showHistory.value||index>=historyCutoff.value||!!message.execution||index===editableMessage.value}
+function trackScroll(){const el=chat.value;if(el)followChat.value=el.scrollHeight-el.scrollTop-el.clientHeight<120}
+async function toggleHistory(){showHistory.value=!showHistory.value;await nextTick();if(chat.value)chat.value.scrollTop=0;trackScroll()}
+async function latest(){followChat.value=true;await scrollChat()}
 function fieldError(field){
  const value=props.form[field]
  if(field==='lesson_minutes'&&value!==''&&value!==0&&(!Number.isInteger(value)||value<10||value>180))return '课时请输入10–180之间的整数。'
@@ -34,7 +45,6 @@ function editRow(row,value){
  const field=rowFields[row.label]
  if(!field||busy.value||props.disabled)return
  props.form[field]=field==='lesson_minutes'?(value===''?'':Number(value)):value
- row.value=rowOptions.value[field]?.find(([key])=>key===value)?.[1]??String(value)
  accepted.value=false;error.value='';emit('update:requirements','')
 }
 function validateSettings(){
@@ -50,7 +60,7 @@ const requirementsText=computed(()=>(summary.value.startsWith(context.value)?sum
 watch(()=>props.disabled,value=>{if(!value)accepted.value=false})
 watch(understanding,()=>{accepted.value=false;emit('update:requirements','')})
 watch(summary,()=>{accepted.value=false;emit('update:requirements','')})
-async function scrollChat(){await nextTick();if(!chat.value)return;const nearEnd=chat.value.scrollHeight-chat.value.scrollTop-chat.value.clientHeight<200;if(nearEnd||busy.value)chat.value.scrollTo({top:chat.value.scrollHeight,behavior:'instant'})}
+async function scrollChat(){await nextTick();if(chat.value&&followChat.value)chat.value.scrollTo({top:chat.value.scrollHeight,behavior:'instant'})}
 async function send(intent='discuss'){
  if(busy.value||props.disabled||!text.value.trim())return false
  if(!validateSettings())return false
@@ -59,7 +69,7 @@ async function send(intent='discuss'){
  const recent=[...history.slice(contextMemory.value.through),{role:'user',content}]
  const compactContext=props.mode==='live'&&(recent.length>=25||recent.reduce((size,m)=>size+[...m.content].length,0)>12000)
  const user={role:'user',content},assistant={role:'assistant',content:'',blocks:[],pending:true}
- busy.value=true;error.value='';controller=new AbortController()
+ busy.value=true;followChat.value=true;error.value='';controller=new AbortController()
  const append=async()=>{messages.value.push(user,assistant);await nextTick()}
  if(props.workspace&&!messages.value.length&&document.startViewTransition&&!matchMedia('(prefers-reduced-motion: reduce)').matches){await document.startViewTransition(append).updateCallbackDone}else await append()
  const current=messages.value.at(-1),currentUser=messages.value.at(-2)
@@ -75,6 +85,8 @@ async function send(intent='discuss'){
   if(snapshot!==JSON.stringify(props.form))throw Error('教学设置已改变，请重新发送；本次需求保留。')
   if(compactContext&&(!v.context_summary?.trim()||[...v.context_summary].length>3200))throw Error('对话摘要未完整返回，已保留本轮输入，请重试。')
   if(props.workspace){if(!['courseware','animation'].includes(v.tool)||!['discuss','generate'].includes(v.action))throw Error('工具选择未完成，请重新发送需求。');current.tool=v.tool;suggestedTool.value=v.tool}
+  current.changes=Object.entries(rowFields).filter(([,key])=>v.settings?.[key]!==undefined&&v.settings[key]!==props.form[key]).map(([label])=>label)
+  if(v.requirements?.trim()&&v.requirements.trim()!==understanding.value.trim())current.changes.push('教学要求')
   // Only the completed, validated reply can change teaching settings.
   const fields=['topic','subject','grade','textbook','lesson_minutes','student_level','objectives','detail']
   for(const key of fields)if(v.settings?.[key]!==undefined)props.form[key]=v.settings[key]
@@ -112,7 +124,6 @@ function launch(message,tool){
  message.execution={input,key:crypto.randomUUID(),taskId:''};error.value='';emit('changed')
 }
 function newResultWork(){selectedTool.value='';text.value='';nextTick(()=>document.querySelector('.brief-composer textarea')?.focus())}
-function editUnderstanding(message,value){if(busy.value||props.disabled)return;message.requirements=value;understanding.value=value}
 function answerQuestion(question,option){if(busy.value||props.disabled)return;const answer=`关于“${question}”，我选择：${option}`;text.value=text.value.trim()?text.value.trim()+'\n'+answer:answer;nextTick(()=>document.querySelector('.brief-composer textarea')?.focus())}
 function animationFromResult({task,slide}){
  const input={type:'animation',animation_engine:'html',topic:task.input.topic,subject:task.input.subject,grade:task.input.grade,source_task_id:task.id,requirements:[slide.title,...(slide.bullets||[]),slide.notes||''].join('；').slice(0,4000)}
@@ -149,36 +160,46 @@ function animationFromResult({task,slide}){
   <div class="brief-heading"><h2>说说你想做的课件</h2><p>先聊一聊，也可以按当前需求直接制作。</p></div>
   <div class="brief-grid">
    <div class="brief-conversation">
-    <div class="brief-messages" ref="chat" role="log" aria-label="需求对话记录" aria-live="polite" :aria-busy="busy">
-     <div v-if="!messages.length" class="brief-welcome"><p>从一个课题开始，任何学科都可以；教学资料与设置按需补充。</p></div>
-     <article v-for="(m,i) in messages" :key="i" :class="['brief-bubble',m.role,{incomplete:m.failed}]">
-      <b>{{m.role==='user'?'我的要求':workspace?'备课助手':'课件助手'}}<span v-if="m.role==='assistant'&&m.mode==='sample'"> · 本地示例</span></b>
-      <p v-if="m.content">{{m.content}}<span v-if="m.pending" class="stream-cursor" aria-hidden="true">▍</span></p><p v-else-if="m.pending" class="brief-thinking" role="status">正在理解你的需求…</p>
-      <section v-if="m.role==='assistant'&&!m.pending&&!m.failed&&m.requirements&&!m.execution" class="brief-understanding" aria-label="已理解的教学要求"><h3>已理解的教学要求</h3><textarea v-if="i===editableMessage" :value="m.requirements" aria-label="修改已理解的教学要求" maxlength="2400" rows="4" :disabled="busy||disabled" @input="editUnderstanding(m,$event.target.value)"></textarea><p v-else>{{m.requirements}}</p></section>
-      <section v-if="m.role==='assistant'&&!m.pending&&!m.failed&&m.assumptions?.length&&!m.execution" class="brief-assumptions"><h3>暂定安排 · 可继续调整</h3><ul><li v-for="item in m.assumptions" :key="item">{{item}}</li></ul></section>
-      <section v-if="m.role==='assistant'&&!m.pending&&!m.failed&&m.questions?.length&&!m.execution" class="brief-questions"><h3>还需要你确认<small>可选择、自由补充，也可直接制作</small></h3><div v-for="question in m.questions" :key="question.question" class="brief-question"><p>{{question.question}}</p><div class="brief-question-options"><button v-for="option in question.options" :key="option" type="button" :disabled="busy||disabled||i!==editableMessage" @click="answerQuestion(question.question,option)">{{option}}</button></div></div></section>
-      <details v-if="m.execution&&m.blocks?.length" class="home-result-requirements"><summary>查看本次制作需求</summary><p v-for="block in m.blocks" :key="block.title"><strong>{{block.title}}</strong><br>{{block.rows.map(row=>row.label+'：'+row.value).join(' · ')}}</p></details>
-      <section v-for="(block,j) in m.blocks" v-show="!m.execution" :key="j" class="brief-requirement-block" :aria-label="block.title">
-       <h3>{{block.title}}<small v-if="i===editableMessage">点击内容即可修改</small></h3>
+    <details v-if="editableMessage>=0" class="brief-current-requirements">
+     <summary><span><strong>当前制作需求</strong><span class="brief-current-overview">{{currentOverview}}</span></span><small><span class="brief-current-closed">展开修改</span><span class="brief-current-open">收起需求</span></small></summary>
+     <div class="brief-current-body">
+      <section class="brief-understanding" aria-label="已理解的教学要求"><h3>已理解的教学要求</h3><textarea :value="understanding" aria-label="修改已理解的教学要求" maxlength="2400" rows="3" :disabled="busy||disabled" placeholder="已确认的教学要求会随对话更新，也可在这里修改。" @input="understanding=$event.target.value"></textarea></section>
+      <section v-for="(block,j) in currentBlocks" :key="j" class="brief-requirement-block" :aria-label="block.title">
+       <h3>{{block.title}}<small>点击内容即可修改</small></h3>
        <table><caption class="sr-only">{{block.title}}</caption><colgroup><col class="brief-row-label"><col></colgroup><tbody>
         <tr v-for="(row,k) in block.rows" :key="k"><th scope="row">{{row.label}}</th><td>
-         <template v-if="i===editableMessage&&rowFields[row.label]">
+         <template v-if="rowFields[row.label]">
           <select v-if="rowOptions[rowFields[row.label]]" :value="form[rowFields[row.label]]" :aria-label="'修改'+row.label" :disabled="busy||disabled" @change="editRow(row,$event.target.value)"><option v-for="[value,label] in rowOptions[rowFields[row.label]]" :key="value" :value="value">{{label}}</option></select>
-          <textarea v-else-if="['student_level','objectives'].includes(rowFields[row.label])" :value="form[rowFields[row.label]]" :maxlength="fieldLimits[rowFields[row.label]]" :aria-label="'修改'+row.label" :disabled="busy||disabled" rows="2" placeholder="未指定，采用当前年级常规安排" @input="editRow(row,$event.target.value)"></textarea>
+          <textarea v-else-if="['student_level','objectives'].includes(rowFields[row.label])" :value="form[rowFields[row.label]]" :maxlength="fieldLimits[rowFields[row.label]]" :aria-label="'修改'+row.label" :disabled="busy||disabled" rows="2" placeholder="未指定，可继续聊或按需填写" @input="editRow(row,$event.target.value)"></textarea>
           <input v-else :type="rowFields[row.label]==='lesson_minutes'?'number':'text'" :list="rowFields[row.label]==='subject'?subjectList:undefined" :placeholder="rowFields[row.label]==='subject'?'选择或输入学科，例如历史':undefined" :value="form[rowFields[row.label]]" :maxlength="fieldLimits[rowFields[row.label]]" :min="rowFields[row.label]==='lesson_minutes'?10:undefined" :max="rowFields[row.label]==='lesson_minutes'?180:undefined" :step="rowFields[row.label]==='lesson_minutes'?1:undefined" :aria-label="'修改'+row.label" :aria-invalid="!!fieldError(rowFields[row.label])" :disabled="busy||disabled" @input="editRow(row,$event.target.value)">
           <small v-if="fieldError(rowFields[row.label])" class="brief-field-error">{{fieldError(rowFields[row.label])}}</small>
          </template><template v-else>{{row.value}}</template>
         </td></tr>
        </tbody></table>
       </section>
+     <details class="brief-summary-editor"><summary>补充或修改手工摘要</summary><label>可编辑摘要<textarea v-model="summary" rows="5" maxlength="8000" :disabled="busy||disabled" aria-label="课件需求摘要"></textarea></label></details>
+     </div>
+    </details>
+    <div class="brief-messages" ref="chat" role="log" aria-label="需求对话记录" aria-live="polite" :aria-busy="busy" @scroll.passive="trackScroll">
+     <div v-if="!messages.length" class="brief-welcome"><p>从一个课题开始，任何学科都可以；教学资料与设置按需补充。</p></div>
+     <button v-if="archivedCount" type="button" class="brief-history-toggle" :aria-expanded="showHistory" @click="toggleHistory">{{showHistory?'收起较早对话':`查看较早 ${archivedCount} 条对话`}}<small>记录保留，可随时翻阅</small></button>
+     <article v-for="(m,i) in messages" v-show="messageVisible(m,i)" :key="i" :class="['brief-bubble',m.role,{incomplete:m.failed}]">
+      <b>{{m.role==='user'?'我的要求':workspace?'备课助手':'课件助手'}}<span v-if="m.role==='assistant'&&m.mode==='sample'"> · 本地示例</span></b>
+      <p v-if="m.content">{{m.content}}<span v-if="m.pending" class="stream-cursor" aria-hidden="true">▍</span></p><p v-else-if="m.pending" class="brief-thinking" role="status">正在理解你的需求…</p>
+      <p v-if="m.changes?.length&&!m.pending&&!m.failed&&!m.execution" class="brief-change-note">本轮更新：{{m.changes.join('、')}}</p>
+      <details v-if="m.role==='assistant'&&!m.pending&&!m.failed&&i!==editableMessage&&!m.execution&&(m.requirements||m.blocks?.length)" class="brief-past-requirements"><summary>本轮需求快照</summary><p v-if="m.requirements">{{m.requirements}}</p><p v-for="block in m.blocks" :key="block.title">{{block.rows.map(row=>row.label+'：'+row.value).join(' · ')}}</p><p v-for="q in m.questions||[]" :key="q.question">当时待确认：{{q.question}}</p><p v-for="item in m.assumptions||[]" :key="item">当时建议：{{item}}</p></details>
+      <details v-if="i===editableMessage&&!m.pending&&m.assumptions?.length&&!m.execution" class="brief-assumptions"><summary>备课建议（{{m.assumptions.length}}）· 尚未确认</summary><ul><li v-for="item in m.assumptions" :key="item">{{item}}</li></ul></details>
+      <section v-if="i===editableMessage&&!m.pending&&m.questions?.length&&!m.execution" class="brief-questions"><h3>接下来确认一下<small>点选后可补充，再发送；也可直接制作</small></h3><div v-for="question in m.questions" :key="question.question" class="brief-question"><p>{{question.question}}</p><div class="brief-question-options"><button v-for="option in question.options" :key="option" type="button" :disabled="busy||disabled||i!==editableMessage" @click="answerQuestion(question.question,option)">{{option}}</button></div></div></section>
+      <details v-if="m.execution&&m.blocks?.length" class="home-result-requirements"><summary>查看本次制作需求</summary><p v-for="block in m.blocks" :key="block.title"><strong>{{block.title}}</strong><br>{{block.rows.map(row=>row.label+'：'+row.value).join(' · ')}}</p></details>
       <p v-if="m.failed&&m.role==='assistant'" class="fine">{{m.error||'本次回复未完成，尚未应用到制作需求。'}}</p>
-      <div v-if="i===editableMessage&&!m.execution" class="brief-block-actions"><small>修改立即用于后续对话和制作，也可以继续补充。</small><button type="button" @click="confirm" :disabled="busy||disabled||(!workspace&&!ready)" class="primary">{{workspace?`制作${toolName(currentTool)}`:'按这个需求制作'}}</button></div>
+
       <HomeToolResult v-if="m.execution" :execution="m.execution" :api="api" :token="token" :health="health" :available="available" :can-animation="canAnimation" @changed="emit('changed')" @new-work="newResultWork" @animation="animationFromResult"/>
      </article>
     </div>
+    <button v-if="!followChat&&messages.length" type="button" class="brief-latest" @click="latest">回到最新回复 ↓</button>
     <form @submit.prevent="send('discuss')" class="brief-composer"><div v-if="workspace" class="home-tool-switch" aria-label="选择对话工具"><button v-for="option in [{id:'',name:'自动选择'},{id:'courseware',name:'课件制作'},{id:'animation',name:'教学动画'}]" :key="option.id" type="button" :aria-pressed="selectedTool===option.id" :disabled="busy||disabled||(option.id==='courseware'&&!canCourseware)||(option.id==='animation'&&!canAnimation)" @click="selectedTool=option.id"><WorkspaceIcon v-if="option.id" :name="option.id==='animation'?'animation':'slides'"/>{{option.name}}</button></div><label>提出你的需求<textarea v-model="text" rows="3" maxlength="1200" :disabled="busy||disabled" :placeholder="workspace?'告诉我想做的课件或教学动画，例如：制作一次函数课件，再用动画演示斜率变化。':'告诉我想做哪一课，例如：九年级二次函数，45分钟。'" aria-label="生成前需求输入" @keydown.ctrl.enter.prevent="send('discuss')"></textarea></label><div class="brief-actions"><small>{{mode==='sample'?'本地需求引导，不调用模型':'沟通需求不扣制作积分'}}<br>{{workspace?'课件预留20积分；动画先出方案，确认后预留40积分。':'直接制作将预留20积分，先生成三页供你审核。'}}</small><div class="brief-action-buttons"><button v-if="busy" type="button" @click="controller?.abort()">停止回复</button><template v-else><button type="button" class="brief-direct" @click="confirm" :disabled="disabled||(!workspace&&!ready)||(!text.trim()&&!form.topic.trim())">{{accepted?'正在开始制作…':workspace?'开始制作':'直接制作三页预览'}}</button><button type="submit" :disabled="disabled||!text.trim()" class="primary">发送 ↑</button></template></div></div><p v-if="error" class="alert error" role="alert">{{error}}</p></form>
    </div>
-   <div class="brief-summary"><slot name="appearance" :busy="busy"/><small v-if="contextMemory.text" class="brief-memory-note" role="status">较早对话已压缩，聊天记录保留，最新修改优先。</small><slot name="parameters" :busy="busy"/><details class="brief-summary-editor"><summary>查看或手动修改需求摘要</summary><label>可编辑摘要<textarea v-model="summary" rows="12" maxlength="8000" :disabled="busy||disabled" aria-label="课件需求摘要"></textarea></label></details><p v-if="!qualityReady" class="alert" role="status">真实画面审核尚未配置完成，请联系管理员准备好后制作。</p><p v-else-if="!ready&&!workspace" class="fine">制作需开通基础套餐、至少20可用积分，并保留至少一种资料来源。可以先继续聊需求。</p></div>
+   <div class="brief-summary"><slot name="appearance" :busy="busy"/><small v-if="contextMemory.text" class="brief-memory-note" role="status">对话记忆已整理，较早约定仍会保留，最新修改优先。</small><slot name="parameters" :busy="busy"/><details v-if="editableMessage<0" class="brief-summary-editor"><summary>查看或手动修改需求摘要</summary><label>可编辑摘要<textarea v-model="summary" rows="12" maxlength="8000" :disabled="busy||disabled" aria-label="课件需求摘要"></textarea></label></details><p v-if="!qualityReady" class="alert" role="status">真实画面审核尚未配置完成，请联系管理员准备好后制作。</p><p v-else-if="!ready&&!workspace" class="fine">制作需开通基础套餐、至少20可用积分，并保留至少一种资料来源。可以先继续聊需求。</p></div>
   </div>
   </template>
  </section>

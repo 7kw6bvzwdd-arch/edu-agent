@@ -109,6 +109,7 @@ func TestWorkspaceBriefPermissionHTTP(t *testing.T) {
 // Clarification is an HTTP contract; the provider is isolated at its API boundary.
 func TestWorkspaceBriefClarifiesBeforeGeneratingHTTP(t *testing.T) {
 	s := worksServer(t)
+	s.cfg.Mode = "live"
 	token := worksLogin(t, s, "teacher")
 	actor := worksObject(t, worksCall(t, s, "GET", "/api/auth/me", token, nil, 200))
 	tx, err := s.tx(context.Background(), int64(actor["tenant_id"].(float64)))
@@ -125,11 +126,26 @@ func TestWorkspaceBriefClarifiesBeforeGeneratingHTTP(t *testing.T) {
 	tasks := worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String()
 	responseAction := "generate"
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		prompt := ""
+		for _, message := range request.Messages {
+			prompt += message.Content
+		}
+		if !strings.Contains(prompt, "后续只回应本轮新增或修改") || !strings.Contains(prompt, "追问和选项只放questions") {
+			t.Error("brief did not instruct incremental replies with separate questions")
+		}
 		result := map[string]any{"reply": "已了解你想讲浮力，先确认这节课的用途。", "tool": "courseware", "action": responseAction, "settings": map[string]string{"topic": "浮力"}, "requirements": "面向基础薄弱学生，保留实验观察，避免先堆公式。", "questions": []any{map[string]any{"question": "这节课主要用于哪种教学？", "options": []string{"新课探究", "复习巩固", "习题讲评"}}}, "assumptions": []string{"课时暂按45分钟，可修改"}}
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(result))}}}})
 	}))
 	defer provider.Close()
-	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = provider.URL, "test", "test"
 	body := map[string]any{"input": TaskInput{Topic: "浮力", UseWeb: true}, "messages": []map[string]string{{"role": "user", "content": "想做浮力课件，学生基础弱，想多做实验"}}}
 	v := worksObject(t, worksCall(t, s, "POST", "/api/workspace/brief", token, body, 200))
@@ -237,9 +253,9 @@ func TestLiveWorkspaceNeedsHTTP(t *testing.T) {
 		t.Skip("live provider opt-in required")
 	}
 	s := worksServer(t)
+	s.cfg.Mode = "live"
 	token := worksLogin(t, s, "admin")
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
-	s.cfg.Mode = "live"
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = os.Getenv("COURSEWARE_LLM_BASE_URL"), os.Getenv("COURSEWARE_LLM_API_KEY"), os.Getenv("COURSEWARE_LLM_MODEL")
 	s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")
 	in := TaskInput{Topic: "浮力", Subject: "物理", Grade: "八年级", LessonMinutes: 45, UseWeb: true}

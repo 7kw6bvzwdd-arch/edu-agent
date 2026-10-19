@@ -74,3 +74,28 @@
 .app-shell .brief-assumptions ul{margin:0;padding-left:18px;font-size:12px;line-height:1.7}.app-shell .brief-question p{margin:0 0 8px;font-size:12px}.app-shell .brief-question-options{display:flex;gap:6px;flex-wrap:wrap}.app-shell .brief-question-options button{border:1px solid var(--line);background:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px}
 .app-shell .home-tool-result .studio-body:not(:has(.studio-page-rail)){grid-template-columns:minmax(0,1fr) 252px}
 @media(max-width:850px){.app-shell:has(.conversation-home .has-messages){display:flex;flex-direction:column}.app-shell:has(.conversation-home .has-messages) .sidebar{flex:none;height:auto}.app-shell:has(.conversation-home .has-messages) main{flex:1}.app-shell .home-tool-result .studio-body:not(:has(.studio-page-rail)){grid-template-columns:1fr}}
+
+/* One live brief above the transcript; past turns remain lightweight. */
+.app-shell .brief-current-requirements{flex:none;min-width:0;margin:0 auto 8px;width:min(100%,1120px);border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.app-shell .brief-current-requirements>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;cursor:pointer;list-style:none;min-width:0;font-size:12px}
+.app-shell .brief-current-requirements>summary::-webkit-details-marker{display:none}
+.app-shell .brief-current-requirements>summary>span{display:flex;gap:12px;align-items:center;min-width:0}
+.app-shell .brief-current-requirements>summary strong{flex:none;color:var(--am-700);font-weight:600}
+.app-shell .brief-current-overview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3)}
+.app-shell .brief-current-requirements>summary>small{flex:none;color:var(--am-700)}
+.app-shell .brief-current-requirements[open]>summary{border-bottom:1px solid var(--line)}
+.app-shell .brief-current-body{padding:0 14px 14px;max-height:36dvh;overflow:auto;overscroll-behavior:contain}
+.app-shell .brief-current-body .brief-summary-editor{margin-top:12px;font-size:12px}
+.app-shell .brief-current-body .brief-summary-editor textarea{min-height:100px;margin-top:8px}
+.app-shell .brief-current-body .brief-understanding{border:0;padding:0}
+.app-shell .brief-past-requirements{margin-top:8px;font-size:12px;color:var(--ink-3)}
+.app-shell .brief-past-requirements summary,.app-shell .brief-assumptions summary{cursor:pointer;font-size:12px;color:var(--ink-3)}
+.app-shell .brief-bubble .brief-change-note{font-size:11px;color:var(--am-700);margin-top:8px}
+.app-shell .brief-history-toggle{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;width:100%;margin:0 0 16px;padding:8px;border:0;background:transparent;color:var(--am-700);font-size:12px;box-shadow:none}
+.app-shell .brief-history-toggle small{font-size:11px;color:var(--ink-3)}
+.app-shell .brief-latest{align-self:center;flex:none;margin:0 0 6px;padding:5px 12px;font-size:12px;color:var(--am-700);border-color:var(--am-200)}
+.app-shell .brief-questions h3 small{display:block;font-size:11px;font-weight:400;color:var(--ink-3);margin-top:4px}
+@media(max-width:560px){.app-shell .brief-current-requirements>summary{padding:8px 10px;gap:8px}.app-shell .brief-current-requirements>summary>span{display:block}.app-shell .brief-current-overview{display:block;max-width:200px;font-size:11px}.app-shell .brief-current-body{padding-inline:10px;max-height:30dvh}.app-shell .brief-current-body .brief-row-label{width:86px}}
+
+.app-shell .brief-current-requirements .brief-current-open,.app-shell .brief-current-requirements[open] .brief-current-closed{display:none}
+.app-shell .brief-current-requirements[open] .brief-current-open{display:inline}
