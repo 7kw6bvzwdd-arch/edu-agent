@@ -139,9 +139,6 @@ func (s *Server) hydrateDeckAssets(ctx context.Context, d Deck) (Deck, error) {
 			return "", err
 		}
 		metadata[id] = asset
-		if asset.Provenance != nil && asset.Provenance.RightsStatus == "pending_confirmation" {
-			return "", fail(400, "此网页图片使用权限待确认，请先确认权限再插入课件")
-		}
 		total += asset.Bytes
 		if total > 64<<20 {
 			return "", fail(400, "本次导出图片总量超过64MB，请缩减图片尺寸或拆分课件")

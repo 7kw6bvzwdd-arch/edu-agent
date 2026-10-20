@@ -430,7 +430,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/media/{asset}", s.auth("", s.mediaFile))
 	s.mux.HandleFunc("GET /api/media/{asset}/metadata", s.auth("", s.mediaMetadata))
 	s.mux.HandleFunc("POST /api/tasks/{id}/images/search", s.auth("courseware.generate", s.coursewareImagesSearch))
-	s.mux.HandleFunc("POST /api/tasks/{id}/images/confirm", s.auth("courseware.generate", s.coursewareImageConfirm))
 	s.mux.HandleFunc("POST /api/courseware/brief", s.auth("courseware.generate", s.coursewareBrief))
 	s.mux.HandleFunc("POST /api/workspace/brief", s.auth("", s.coursewareBrief))
 	s.mux.HandleFunc("GET /api/tasks/{id}/animation", s.auth("", s.animationState))

@@ -14,7 +14,7 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
   if(goalReview){task.result.plan={summary:'固定目标映射验收',learning_goals:[{id:'g1',text:'观察结构',core:true},{id:'g2',text:'解释连接',core:true}],pages:task.result.slides.map((s,i)=>({position:i+1,goal:s.title,task:'比较与解释',minutes:3,preview:true,goal_refs:['g1'],checks_goals:[],depends_on:[]}))};task.result.slides.forEach((s,i)=>s.order=i+1);task.result.deck_check={status:'blocked',summary:'固定验收：第1页图注缺少依据',issues:[{pages:[1],object:'图注年代',severity:'missing_evidence',evidence:'固定来源未提供该年代',repair:'补充来源或删除具体年代',source_ids:[]}]};}
   const provenance={provider:'wikimedia_commons',title:'File:Great Wall fixture.png',author:'Test Photographer',license:'CC BY-SA 4.0',page_url:'https://commons.wikimedia.org/wiki/File:Great_Wall.png',license_url:'https://creativecommons.org/licenses/by-sa/4.0/',description:'明确标注的来源测试响应',retrieved_at:'2026-10-19T06:00:00Z',sha256:'a'.repeat(64)};
-  if(web)Object.assign(provenance,{provider:'web_page',title:'网页照片固定验收',page_url:'https://museum.example/collection/wall',license:'使用权限待确认',license_url:'',rights_status:'pending_confirmation'});
+  if(web)Object.assign(provenance,{provider:'web_page',title:'网页照片固定验收',page_url:'https://museum.example/collection/wall',license:'来源未标明许可',license_url:'',rights_status:'not_declared'});
   if(paused){task.status='failed';task.result.slides=task.result.slides.slice(0,1);task.result.generation={version:'page-checkpoint-v3',phase:'preview',repair_page:1,issue:'固定验收：待修复草稿',page_attempts:{1:3}};task.result.slides[0].image_search={status:'needs_confirmation',message:'已保留候选图；备用 Commons 暂时无法访问',candidates:[{picture:{asset_id:'a'.repeat(32),caption:need.purpose,source:'网页配图 · 使用权限待确认'},provenance,reason:'固定相关性筛选候选'}]};}
   let saved=0,searches=0,confirmations=0,delay=false;
   page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);
@@ -23,7 +23,6 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
    const p=new URL(r.url()).pathname;let data=[],body,contentType='application/json',status=200;
    try{
     if(p.endsWith('/images/search')){const q=JSON.parse(r.postData());assert.equal(q.allow_web,true);assert.equal(q.slide_id,'slide-1');assert.equal(q.revision,task.revision);assert.ok(q.need.purpose);searches++;if(delay)await new Promise(resolve=>setTimeout(resolve,1200));data={status:'found',message:'固定检索候选',candidates:[{picture:{asset_id:'a'.repeat(32),caption:q.need.purpose,source:'Wikimedia Commons · CC BY-SA 4.0'},provenance,reason:'固定相关性审核结果'}]};}
-    else if(p.endsWith('/images/confirm')){const q=JSON.parse(r.postData());assert.equal(q.revision,task.revision);assert.equal(q.slide_id,'slide-1');assert.ok(q.rights_note.length>=5);confirmations++;Object.assign(provenance,{rights_status:'teacher_confirmed',rights_note:q.rights_note,rights_confirmed_at:'2026-10-19T08:00:00Z',license:'教师确认使用权限（非平台授权认证）'});data={picture:{asset_id:'a'.repeat(32),caption:need.purpose,source:'网页配图 · 教师确认使用权限'},provenance,reason:'固定权限确认响应'};}
     else if(p==='/api/media'&&r.method()==='POST')data={asset_id:'b'.repeat(32),width:320,height:240};
     else if(p.startsWith('/api/media/')&&p.endsWith('/metadata'))data=p.includes('b'.repeat(32))?{asset_id:'b'.repeat(32)}:{asset_id:'a'.repeat(32),provenance};
     else if(p.startsWith('/api/media/')){body=png;contentType='image/png';}
@@ -50,34 +49,29 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   await click('我的作品');await page.waitForSelector('.task-open');await page.click('.task-open');
   await page.waitForFunction(()=>document.body.innerText.includes('手动编辑内容'));await click('手动编辑内容');
   await page.waitForSelector(scope+' .commons-image-search');
-  const openSearch=async()=>{await page.waitForSelector(scope+' .commons-image-search details');await page.$eval(scope+' .commons-image-search details',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});await page.$eval(scope+' .commons-image-search',e=>{const consent=e.querySelector('input[type=checkbox]'),search=[...e.querySelectorAll('button')].find(b=>b.textContent.includes('检索并审核'));if(!consent)throw Error('Missing offline consent');if(!consent.checked){if(!search.disabled)throw Error('Offline search enabled before consent');consent.click();}});};
+  const openSearch=async()=>{await page.waitForSelector(scope+' .commons-image-search details');await page.$eval(scope+' .commons-image-search details',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});await page.$eval(scope+' .commons-image-search',e=>{const consent=e.querySelector('input[type=checkbox]'),search=[...e.querySelectorAll('button')].find(b=>/自动配图|自动换一张/.test(b.textContent));if(!consent)throw Error('Missing offline consent');if(!consent.checked){if(!search.disabled)throw Error('Offline search enabled before consent');consent.click();}});};
   checks.push('Offline image search requires explicit consent and sends allow_web');
   await openSearch();
-  if(!paused)await click('检索并审核候选图片',scope);
-  else{assert.equal(searches,0);assert.equal(await page.$eval(scope+' .approve-page',b=>b.disabled),true);checks.push('Paused one-page draft retains candidates without searching and blocks approval');await page.reload();await page.waitForSelector('.studio-slide.selected');await click('手动编辑内容');await openSearch();assert.equal(searches,0);}
-  await page.waitForSelector(scope+' .commons-candidate img');
-  if(web){
-   assert.equal(await page.$$eval(scope+' .commons-candidate button',els=>els.find(e=>e.textContent.trim()==='使用此图').disabled),true);
-   await page.$eval(scope+' .image-rights textarea',e=>{e.value='已取得作者用于教学课件及下载分发的许可';e.dispatchEvent(new Event('input',{bubbles:true}));});
-   await click('记录使用权限依据',scope);
-   await page.waitForFunction(scope=>[...document.querySelectorAll(scope+' .commons-candidate button')].some(e=>e.textContent.trim()==='使用此图'&&!e.disabled),{},scope);
-   checks.push('Unknown webpage rights block selection until teacher declaration is recorded');
-  }
-  await click('使用此图',scope);
+  if(paused){assert.equal(searches,0);assert.equal(await page.$eval(scope+' .approve-page',b=>b.disabled),true);checks.push('Paused one-page draft retains candidates without searching and blocks approval');await page.reload();await page.waitForSelector('.studio-slide.selected');await click('手动编辑内容');await openSearch();assert.equal(searches,0);}
+  await click('自动配图',scope);
+  await page.waitForSelector(scope+' .commons-attribution');
+  assert.equal(await page.$$eval(scope+' .commons-candidate',es=>es.length),0);
+  assert.equal(await page.$$eval(scope+' .image-rights',es=>es.length),0);
+  checks.push('Search automatically inserts relevant image without candidate selection or rights declaration');
   await page.waitForSelector(scope+' .commons-attribution');
   await page.$eval(scope+' .commons-attribution',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});
   assert.ok((await page.$eval(scope+' .commons-attribution',e=>e.innerText)).includes('Test Photographer'));
   await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));
   assert.equal(task.result.slides[0].picture.asset_id,'a'.repeat(32));assert.equal(task.result.slides[0].image_search.status,'selected');
-  checks.push('Search, authenticated preview, choose, trusted attribution and save reference');
+  checks.push('Automatic matching, authenticated preview, trusted attribution and saved reference');
   await page.waitForSelector(scope+' .commons-attribution');await page.$eval(scope+' .commons-attribution',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});await openSearch();await (await page.$(scope+' .commons-image-search')).screenshot({path:path.join(out,'commons-editor.png')});
   await click('移除图片',scope);await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));
   assert.equal(task.result.slides[0].picture,null);assert.equal(task.result.slides[0].image_search.status,'removed');
   checks.push('Remove image persists explicit teacher decision');
-  await openSearch();delay=true;await click('检索并审核候选图片',scope);await click('停止等待',scope);await new Promise(resolve=>setTimeout(resolve,1500));
+  await openSearch();delay=true;await click('自动配图',scope);await click('停止等待',scope);await new Promise(resolve=>setTimeout(resolve,1500));
   assert.equal(await page.$$eval(scope+' .commons-candidate',e=>e.length),0);delay=false;
   checks.push('Stopped search cannot apply late candidates');
-  await click('检索并审核候选图片',scope);await page.waitForSelector(scope+' .commons-candidate');await click('使用此图',scope);await page.waitForSelector(scope+' .commons-attribution');
+  await click('自动配图',scope);await page.waitForSelector(scope+' .commons-attribution');
   const file=path.join(out,'upload-fixture.png');await fs.writeFile(file,png);
   const input=await page.$(scope+' .evidence-edit-section input[type=file]');await input.uploadFile(file);
   await page.waitForFunction(scope=>!document.querySelector(scope+' .commons-attribution'),{},scope);
@@ -86,8 +80,8 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));
   assert.equal(task.result.slides[0].picture.asset_id,'b'.repeat(32));assert.equal(task.result.slides[0].picture.source,'教师上传测试文件');
   checks.push('Upload replacement clears inherited Commons attribution');
-  await openSearch();await click('跳过本页配图',scope);await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));assert.equal(task.result.slides[0].picture,null);assert.equal(task.result.slides[0].image_search.status,'removed');checks.push('Skip persists without generation, points or automatic re-search');assert.deepEqual(errors,[]);assert.equal(saved,4);assert.equal(searches,paused?2:3);
-  if(web)assert.equal(confirmations,1);
+  await openSearch();await click('跳过本页配图',scope);await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));assert.equal(task.result.slides[0].picture,null);assert.equal(task.result.slides[0].image_search.status,'removed');checks.push('Skip persists without generation, points or automatic re-search');assert.deepEqual(errors,[]);assert.equal(saved,4);assert.equal(searches,3);
+  assert.equal(confirmations,0);
   if(goalReview){
    await page.$$eval('.studio-reference-details details',es=>es.forEach(e=>e.open=true));
    await page.$eval('.studio-reference-details',e=>e.open=true);

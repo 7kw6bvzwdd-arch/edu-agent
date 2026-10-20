@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,7 +21,7 @@ import (
 type coursewareImageReviewBudgetKey struct{}
 
 // Search uses the existing configured service; actual pages supply image URLs.
-// Unknown rights stay as preview-only candidates until a teacher confirms.
+// The system selects relevant images; source metadata never invents permission.
 func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task string, need ImageNeed, slide Slide, maxCandidates int) ImageSearchResult {
 	if s.cfg.VisionURL == "" || s.cfg.VisionKey == "" || s.cfg.VisionModel == "" {
 		return ImageSearchResult{Status: "unavailable", Message: "配图视觉审核未配置，未自动采用网络图片。", Candidates: []ImageCandidate{}}
@@ -38,11 +37,7 @@ func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task strin
 		return out
 	}
 	if *budget >= 3 {
-		out.Message = "本次各来源合计3次图片视觉审核预算已用完，未再等待备用 Commons；可修改检索词后重新检索、上传或跳过。"
-		if len(out.Candidates) > 0 {
-			out.Status = "needs_confirmation"
-			out.Message = "已保留相关候选图，请确认使用权限后选择。" + out.Message
-		}
+		out.Message = "本次各来源合计3次图片视觉审核预算已用完，未再等待备用 Commons；未找到合适配图时保留本页内容。"
 		return out
 	}
 	// A failed secondary source must not leave the UI waiting for 90 seconds.
@@ -55,18 +50,8 @@ func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task strin
 		return backup
 	}
 	if backup.Status == "found" {
-		backup.Message = "网页未找到可直接采用的图片，已从备用 Commons 找到配图；请教师核对。"
+		backup.Message = "已自动从备用 Commons 选取相关配图，来源已记录。"
 		return backup
-	}
-	if len(out.Candidates) > 0 || out.Status == "needs_confirmation" {
-		out.Status = "needs_confirmation"
-		out.Message = "已保留相关候选图，请确认使用权限后选择，或上传、跳过配图。"
-		if backup.Status == "unavailable" {
-			out.Message += "备用 Commons 暂时无法访问或未完成检索，不代表没有图片。"
-		} else {
-			out.Message += "备用 Commons 未找到可直接采用的图片。"
-		}
-		return out
 	}
 	if out.Status == "not_found" && backup.Status == "not_found" {
 		out.Message = "网页及备用 Commons 均未找到合适图片，可修改检索词或上传。"
@@ -208,7 +193,7 @@ func webPageImages(raw []byte, pageURL, title string) []ImageProvenance {
 		if creator == "" {
 			creator = author
 		}
-		p := ImageProvenance{Provider: "web_page", Title: plainImageMetadata(title, 250), PageURL: pageURL, OriginalURL: src, DownloadURL: src, Author: creator, Description: plainImageMetadata(desc, 1500), License: "使用权限待确认", RightsStatus: "pending_confirmation"}
+		p := ImageProvenance{Provider: "web_page", Title: plainImageMetadata(title, 250), PageURL: pageURL, OriginalURL: src, DownloadURL: src, Author: creator, Description: plainImageMetadata(desc, 1500), License: "来源未标明许可", RightsStatus: "not_declared"}
 		// Only an explicit image/figure license is accepted automatically; a
 		// page footer's general copyright statement does not license photos.
 		license = resolve(license)
@@ -273,7 +258,6 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 	if shared == nil {
 		shared = new(int)
 	}
-	pending := []ImageCandidate{}
 	for _, query := range need.Queries {
 		client := *s.http
 		client.Timeout = 10 * time.Second
@@ -341,13 +325,7 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 					continue
 				}
 				candidate := ImageCandidate{Picture: TeachingPicture{AssetID: asset.ID, Caption: need.Purpose, Source: imageAttribution(asset.Provenance)}, Provenance: *asset.Provenance, Reason: reason}
-				if p.RightsStatus == "pending_confirmation" {
-					if len(pending) < maxCandidates {
-						pending = append(pending, candidate)
-					}
-				} else {
-					out.Candidates = append(out.Candidates, candidate)
-				}
+				out.Candidates = append(out.Candidates, candidate)
 				if len(out.Candidates) >= maxCandidates {
 					break
 				}
@@ -362,94 +340,7 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 	}
 	if len(out.Candidates) > 0 {
 		out.Status = "found"
-		out.Message = "已从网页找到相关配图，图片声明的许可及出处已记录；请教师核对。"
-	} else if len(pending) > 0 {
-		out.Candidates = pending
-		out.Status = "needs_confirmation"
+		out.Message = "已自动选取与本页用途相关的网页配图，实际来源与许可信息已记录。"
 	}
 	return out
-}
-
-func (s *Server) coursewareImageConfirm(w http.ResponseWriter, r *http.Request, a Actor) error {
-	var in struct {
-		Revision   int    `json:"revision"`
-		SlideID    string `json:"slide_id"`
-		AssetID    string `json:"asset_id"`
-		RightsNote string `json:"rights_note"`
-	}
-	if err := decode(r, &in); err != nil {
-		return err
-	}
-	in.RightsNote = strings.TrimSpace(in.RightsNote)
-	if len([]rune(in.RightsNote)) < 5 || len([]rune(in.RightsNote)) > 300 {
-		return fail(400, "请填写5至300字的图片使用权限依据")
-	}
-	// Validate the same ownership, revision and editable state as search.
-	check := func() (Slide, error) {
-		tx, err := s.tx(r.Context(), a.TenantID)
-		if err != nil {
-			return Slide{}, err
-		}
-		defer tx.Rollback(r.Context())
-		st, err := ownedCourseware(r.Context(), tx, a, r.PathValue("id"), "")
-		if err != nil {
-			return Slide{}, err
-		}
-		if st.Revision != in.Revision {
-			return Slide{}, fail(409, "课件已更新，请刷新后确认")
-		}
-		if st.Status != "awaiting_preview" && st.Status != "awaiting_confirmation" && st.Status != "succeeded" && !pausedCourseware(st) {
-			return Slide{}, fail(409, "请等待课件生成完成")
-		}
-		for _, sl := range st.Deck.Slides {
-			if sl.ID == in.SlideID {
-				if !compatibleImageSlide(sl) {
-					return Slide{}, fail(409, "此页已有冲突图形")
-				}
-				return sl, nil
-			}
-		}
-		return Slide{}, fail(404, "页面不存在或无权访问")
-	}
-	slide, err := check()
-	if err != nil {
-		return err
-	}
-	asset, err := s.ownedMedia(r.Context(), a, in.AssetID)
-	if err != nil {
-		return err
-	}
-	if asset.Provenance == nil || asset.Provenance.Provider != "web_page" || asset.Provenance.RightsStatus != "pending_confirmation" {
-		return fail(400, "此图片无需确认或不属于网页候选")
-	}
-	p := *asset.Provenance
-	p.RightsStatus = "teacher_confirmed"
-	p.RightsNote = in.RightsNote
-	p.RightsConfirmedAt = time.Now().UTC().Format(time.RFC3339)
-	p.License = "教师确认使用权限（非平台授权认证）"
-	raw, err := s.readStoredFile(r.Context(), filepath.Join(s.cfg.Storage, "media", asset.ID))
-	if err != nil {
-		return err
-	}
-	if fmt.Sprintf("%x", sha256.Sum256(raw)) != asset.SHA256 {
-		return fail(503, "图片内容校验失败")
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	confirmed, err := s.storeCoursewareImage(r.Context(), a, p, raw, cfg, asset.MIME)
-	if err != nil {
-		return err
-	}
-	if _, err = check(); err != nil {
-		return err
-	}
-	caption := slide.Title
-	if len([]rune(caption)) > 60 {
-		caption = string([]rune(caption)[:60])
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	respond(w, 200, ImageCandidate{Picture: TeachingPicture{AssetID: confirmed.ID, Caption: caption, Source: imageAttribution(confirmed.Provenance)}, Provenance: *confirmed.Provenance, Reason: "教师已声明使用权限依据，仍需审核本页教学内容。"})
-	return nil
 }

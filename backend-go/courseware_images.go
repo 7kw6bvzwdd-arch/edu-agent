@@ -89,15 +89,9 @@ func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, i
 		set("conflict", "此页已有冲突图形，未自动添加图片；请先调整视觉内容。")
 		return
 	}
-	if sl.ImageSearch != nil && sl.ImageSearch.Status == "needs_confirmation" && len(sl.ImageSearch.Candidates) > 0 {
-		return
-	}
-	s.coursewareEvent(ctx, a, task, "image_search", "正在检索本页配图并核对来源、许可和教学相关性")
+	s.coursewareEvent(ctx, a, task, "image_search", "正在根据本页教学用途自动匹配配图并记录来源")
 	result := s.searchCoursewareImages(ctx, a, task, *sl.ImageNeed, *sl, 1)
 	set(result.Status, result.Message)
-	if result.Status == "needs_confirmation" {
-		sl.ImageSearch.Candidates = result.Candidates
-	}
 	if result.Status == "found" && len(result.Candidates) > 0 {
 		p := result.Candidates[0].Picture
 		sl.Picture = &p
@@ -167,7 +161,7 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 		return fail(409, "此页已有冲突图形，请先保存调整后重新检索")
 	}
 	ctx := context.WithValue(r.Context(), coursewareManualReviewKey{}, true)
-	result := s.searchCoursewareImages(ctx, a, r.PathValue("id"), *in.Need, *slide, 2)
+	result := s.searchCoursewareImages(ctx, a, r.PathValue("id"), *in.Need, *slide, 1)
 	if r.Context().Err() != nil {
 		return r.Context().Err()
 	}
@@ -411,7 +405,7 @@ func (s *Server) searchCommonsImages(ctx context.Context, a Actor, task string, 
 	}
 	if len(out.Candidates) > 0 {
 		out.Status = "found"
-		out.Message = "已找到配图，来源及许可已记录，内容仍需教师核对。"
+		out.Message = "已自动选取相关配图，来源及许可已记录。"
 	}
 	return out
 }
@@ -517,7 +511,7 @@ func (s *Server) reviewCoursewareImage(ctx context.Context, a Actor, task string
 	return *result.Relevant, result.Reason, nil
 }
 
-// Candidate snapshots can be previewed while pending, but cannot become selected pictures.
+// Source snapshots come from owned assets; legacy candidate records remain readable.
 func (s *Server) normalizeImageCandidates(ctx context.Context, a Actor, d *Deck) error {
 	for i := range d.Slides {
 		state := d.Slides[i].ImageSearch

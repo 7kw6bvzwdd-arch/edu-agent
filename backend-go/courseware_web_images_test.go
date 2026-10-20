@@ -31,6 +31,10 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 	external := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/search":
+			if variant.Load() == 6 {
+				respond(w, 200, map[string]any{"results": []any{}})
+				return
+			}
 			var q map[string]any
 			json.NewDecoder(r.Body).Decode(&q)
 			if q["api_key"] != "fixture" || !strings.Contains(q["query"].(string), "长城") {
@@ -61,7 +65,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 			w.Write(pngBytes.Bytes())
 		case "/w/api.php":
 			commonsCalls.Add(1)
-			if variant.Load() == 4 || variant.Load() == 5 {
+			if variant.Load() == 4 || variant.Load() == 5 || variant.Load() == 6 {
 				respond(w, 200, map[string]any{"query": map[string]any{"pages": []any{map[string]any{"title": "File:Fallback.png", "imageinfo": []any{map[string]any{"url": "https://upload.wikimedia.org/wikipedia/commons/f/f0/Fallback.png", "descriptionurl": "https://commons.wikimedia.org/wiki/File:Fallback.png", "mime": "image/png", "width": 320, "height": 240, "extmetadata": map[string]any{"Artist": map[string]string{"value": "Fallback Photographer"}, "LicenseShortName": map[string]string{"value": "CC BY 4.0"}, "LicenseUrl": map[string]string{"value": "https://creativecommons.org/licenses/by/4.0/"}}}}}}}})
 				return
 			}
@@ -134,60 +138,54 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 		body["revision"] = task["revision"]
 	}
 	variant.Store(1)
+	beforeBackup := commonsCalls.Load()
 	got = worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
 	items = got["candidates"].([]any)
-	if got["status"] != "needs_confirmation" || len(items) != 1 || commonsCalls.Load() == 0 {
-		t.Fatalf("unknown rights require confirmation after fallback: %v", got)
+	if got["status"] != "found" || len(items) != 1 || commonsCalls.Load() != beforeBackup {
+		t.Fatalf("related web image must not wait for teacher selection or backup: %v", got)
 	}
-	pending := items[0].(map[string]any)
-	pendingID := pending["picture"].(map[string]any)["asset_id"].(string)
+	automatic := items[0].(map[string]any)
+	if automatic["provenance"].(map[string]any)["rights_status"] != "not_declared" {
+		t.Fatal("unknown source permission was invented")
+	}
+	worksCall(t, s, "GET", "/api/media/"+automatic["picture"].(map[string]any)["asset_id"].(string), other, nil, 404)
 	if os.Getenv("COMMONS_TEST_RENDER_URL") != "" {
 		deck := task["result"].(map[string]any)
-		first := deck["slides"].([]any)[0].(map[string]any)
-		original := first["picture"]
-		first["picture"] = pending["picture"]
-		worksCall(t, s, "POST", "/api/tasks/"+id+"/edit", teacher, map[string]any{"revision": task["revision"], "result": deck}, 400)
-		first["picture"] = original
-	}
-	confirmation := map[string]any{"revision": task["revision"], "slide_id": slide["id"], "asset_id": pendingID, "rights_note": "已取得作者用于教学课件及下载分发的许可"}
-	confirmRoute := "/api/tasks/" + id + "/images/confirm"
-	worksCall(t, s, "POST", confirmRoute, "", confirmation, 401)
-	worksCall(t, s, "POST", confirmRoute, other, confirmation, 404)
-	stale := map[string]any{"revision": -1, "slide_id": slide["id"], "asset_id": pendingID, "rights_note": confirmation["rights_note"]}
-	worksCall(t, s, "POST", confirmRoute, teacher, stale, 409)
-	confirmed := worksObject(t, worksCall(t, s, "POST", confirmRoute, teacher, confirmation, 200))
-	if confirmed["provenance"].(map[string]any)["rights_status"] != "teacher_confirmed" {
-		t.Fatal("confirmation not recorded")
-	}
-	if os.Getenv("COMMONS_TEST_RENDER_URL") != "" {
-		deck := task["result"].(map[string]any)
-		deck["slides"].([]any)[0].(map[string]any)["picture"] = confirmed["picture"]
+		deck["slides"].([]any)[0].(map[string]any)["picture"] = automatic["picture"]
 		worksCall(t, s, "POST", "/api/tasks/"+id+"/edit", teacher, map[string]any{"revision": task["revision"], "result": deck}, 200)
 		raw := worksCall(t, s, "GET", "/api/tasks/"+id+"/download/pptx", teacher, nil, 200).Body.Bytes()
 		z, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		notes := ""
+		notes, embedded := "", false
 		for _, f := range z.File {
-			if strings.HasPrefix(f.Name, "ppt/notesSlides/notesSlide") {
-				r, _ := f.Open()
-				b, _ := io.ReadAll(r)
-				r.Close()
+			r, _ := f.Open()
+			b, _ := io.ReadAll(r)
+			r.Close()
+			if strings.HasPrefix(f.Name, "ppt/notesSlides/") {
 				notes += string(b)
 			}
+			if strings.HasPrefix(f.Name, "ppt/media/") && bytes.Equal(b, pngBytes.Bytes()) {
+				embedded = true
+			}
 		}
-		if !strings.Contains(notes, confirmation["rights_note"].(string)) || !strings.Contains(notes, "teacher_confirmed") {
-			t.Fatal("PPTX lost teacher rights declaration")
+		if !embedded || !strings.Contains(notes, "not_declared") || !strings.Contains(notes, "Web Photographer") {
+			t.Fatal("automatic PPTX lost image or honest source metadata")
 		}
-		os.WriteFile("../work/web-images/web-confirmed-http.pptx", raw, 0600)
+		os.WriteFile("../work/web-images/web-automatic-http.pptx", raw, 0600)
 		task = worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, teacher, nil, 200))
 		body["revision"] = task["revision"]
 	}
 	variant.Store(4)
+	got = worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
+	if got["status"] != "found" || got["candidates"].([]any)[0].(map[string]any)["provenance"].(map[string]any)["provider"] != "web_page" {
+		t.Fatal("usable web image unnecessarily replaced by Commons", got)
+	}
+	variant.Store(6)
 	fallback := worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
 	if fallback["status"] != "found" || fallback["candidates"].([]any)[0].(map[string]any)["provenance"].(map[string]any)["provider"] != "wikimedia_commons" {
-		t.Fatal("Commons backup did not supply usable image", fallback)
+		t.Fatal("Commons backup missing when web has no relevant image", fallback)
 	}
 	for _, v := range []int32{2, 3} {
 		variant.Store(v)
@@ -231,7 +229,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 		worksCall(t, s, "POST", pausedRoute+"/images/search", other, q, 404)
 		result := worksObject(t, worksCall(t, s, "POST", pausedRoute+"/images/search", teacher, q, 200))
 		items, ok := result["candidates"].([]any)
-		if !ok || len(items) != 1 || result["status"] != "needs_confirmation" {
+		if !ok || len(items) != 1 || result["status"] != "found" {
 			t.Fatalf("paused live draft lost candidate: %v", result)
 		}
 		candidate := items[0].(map[string]any)
@@ -249,10 +247,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 		save := map[string]any{"revision": paused["revision"], "result": deck}
 		worksCall(t, s, "POST", pausedRoute+"/draft", "", save, 401)
 		worksCall(t, s, "POST", pausedRoute+"/draft", other, save, 404)
-		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 400)
-		confirm := map[string]any{"revision": paused["revision"], "slide_id": first["id"], "asset_id": candidate["picture"].(map[string]any)["asset_id"], "rights_note": "固定验收：已获得作者教学使用许可"}
-		approved := worksObject(t, worksCall(t, s, "POST", pausedRoute+"/images/confirm", teacher, confirm, 200))
-		first["picture"] = approved["picture"]
+		first["picture"] = candidate["picture"]
 		deck["generation"] = nil // Client cannot erase the recovery checkpoint.
 		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 200)
 		worksCall(t, s, "POST", pausedRoute+"/draft", teacher, save, 409)
@@ -285,8 +280,8 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 				notes += string(b)
 			}
 		}
-		if !found || !strings.Contains(notes, confirm["rights_note"].(string)) {
-			t.Fatal("paused draft PPTX lost image or rights declaration")
+		if !found || !strings.Contains(notes, "not_declared") {
+			t.Fatal("paused draft PPTX lost image or source metadata")
 		}
 		worksCall(t, s, "POST", pausedRoute+"/confirm", teacher, map[string]any{"revision": after["revision"], "result": current, "accept_review": true}, 400)
 	})
@@ -295,7 +290,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 	}
 	variant.Store(5)
 	imageReviews.Store(0)
-	beforeBackup := commonsCalls.Load()
+	beforeBackup = commonsCalls.Load()
 	limited := worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
 	if imageReviews.Load() != 3 {
 		t.Fatalf("web and Commons must share three image reviews; got %d", imageReviews.Load())

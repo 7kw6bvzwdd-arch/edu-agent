@@ -266,7 +266,7 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 		web           bool
 		query, status string
 	}{
-		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"web-pending", true, "web-pending", "needs_confirmation"}, {"disabled", false, "Great Wall", "disabled"}, {"outage", true, "outage", "unavailable"},
+		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"web-pending", true, "web-pending", "found"}, {"disabled", false, "Great Wall", "disabled"}, {"outage", true, "outage", "unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			need := &ImageNeed{Purpose: "观察城墙的连接", Queries: []string{tc.query}, Constraints: "实际建筑照片"}
@@ -276,6 +276,10 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 			for i, title := range []string{"观察城墙与敌台", "比较防御设施", "解释建筑连接", "说明观察依据", "讨论证据边界"} {
 				lesson.Slides = append(lesson.Slides, Slide{Title: title, Layout: []string{"concept", "comparison", "steps", "concept", "summary"}[i], Bullets: []string{title + "，用画面中的具体线索支持判断。"}, Notes: "引导学生区分建筑的可见线索与推测，具体年代和用途需要结合可靠资料核对。固定验收内容。", ImageNeed: need})
 				plan.Pages = append(plan.Pages, TeachingPage{Position: i + 1, Goal: title, Task: "观察、比较与解释", Visual: "真实建筑照片支持读图", Minutes: 3, Preview: i < 3, ImageNeed: need})
+				if i == 4 {
+					lesson.Slides[i].ImageNeed = nil
+					plan.Pages[i].ImageNeed = nil
+				}
 				plan.Pages[i].GoalRefs = []string{"g1"}
 				if i == 3 {
 					plan.Pages[i].ChecksGoals = []string{"g1"}
@@ -357,20 +361,13 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				}
 			}
 			if tc.name == "web-pending" {
-				data := got["result"].(map[string]any)["slides"].([]any)[0].(map[string]any)
-				state := data["image_search"].(map[string]any)
-				candidates, ok := state["candidates"].([]any)
-				if !ok || len(candidates) != 1 {
-					t.Fatalf("automatic search discarded pending image: %v", state)
+				asset := d.Slides[0].Picture.AssetID
+				metadata := worksObject(t, worksCall(t, s, "GET", "/api/media/"+asset+"/metadata", token, nil, 200))
+				if metadata["provenance"].(map[string]any)["rights_status"] != "not_declared" {
+					t.Fatal("automatic selection must not invent permission")
 				}
-				candidate := candidates[0].(map[string]any)
-				asset := candidate["picture"].(map[string]any)["asset_id"].(string)
-				worksCall(t, s, "GET", "/api/media/"+asset, token, nil, 200)
 				other := worksLogin(t, s, "other")
 				worksCall(t, s, "GET", "/api/media/"+asset, other, nil, 404)
-				if !strings.Contains(state["message"].(string), "无法访问") {
-					t.Fatal("backup outage hidden", state)
-				}
 			}
 			if tc.status == "found" {
 				route := "/api/tasks/" + id
@@ -386,6 +383,9 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				json.Unmarshal(asJSON(got["result"]), &d)
 				if got["status"] != "awaiting_confirmation" {
 					t.Fatal("expansion failed", got["status"], got["error"])
+				}
+				if d.Slides[4].Picture != nil || d.Slides[4].ImageSearch != nil {
+					t.Fatal("page without image need received unnecessary picture")
 				}
 				for _, sl := range d.Slides {
 					worksCall(t, s, "POST", route+"/slides/"+sl.ID+"/review", token, map[string]any{"revision": got["revision"], "hash": slideContentHash(d, sl), "approved": true}, 200)
@@ -416,7 +416,7 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 						found = true
 					}
 				}
-				if !found || strings.Count(notes, "Test Photographer") < 5 {
+				if !found || strings.Count(notes, "Test Photographer") < 4 {
 					t.Fatal("automatic images/source snapshots missing from delivered PPTX")
 				}
 				if dir := os.Getenv("COMMONS_TEST_ARTIFACTS"); dir != "" {
