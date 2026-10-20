@@ -121,6 +121,7 @@
 .app-shell .studio-slide-bottom button svg{width:14px;height:14px}
 .app-shell .studio-slide-bottom .approve-page{background:var(--am-700);border-color:var(--am-700);color:#fff}
 .app-shell .studio-slide-bottom .approve-page.approved{background:var(--surface);border-color:var(--line-strong);color:var(--am-700)}
+.app-shell .inspector-edit-actions button:disabled,.app-shell .studio-slide-bottom .approve-page:disabled{background:var(--surface);border-color:var(--line-strong);color:var(--ink-3);opacity:.6;cursor:not-allowed}
 .app-shell .studio-page-turn{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--ink-3)}
 .app-shell .studio-page-turn button{border:0;background:transparent;padding:5px;min-width:28px}
 .app-shell .legacy-review-note{flex-basis:100%;font-size:11px;color:var(--warn)}

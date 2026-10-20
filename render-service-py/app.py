@@ -193,12 +193,14 @@ class FigureItem(BaseModel):
 class TeachingFigure(BaseModel):
     kind:Literal['flow','timeline','route','interval']='flow'
     title:str=Field(default='',max_length=60)
-    items:list[FigureItem]=Field(min_length=2,max_length=4)
+    items:list[FigureItem]=Field(min_length=2,max_length=6)
     unit:str=Field(default='',max_length=12)
     values:list[FiniteFloat]=Field(default_factory=list,max_length=4)
 
     @model_validator(mode='after')
     def check_interval(self):
+        if self.kind!='timeline' and len(self.items)>4:
+            raise ValueError('Only timelines support up to six nodes')
         if self.kind=='interval':
             if not self.unit.strip() or len(self.values)!=len(self.items):
                 raise ValueError('Interval needs unit and one value per node')
@@ -1072,6 +1074,22 @@ def teaching_figure(slide,data,theme,x,y,w,h):
         # Positions describe order only; labels explicitly preserve that distinction.
         box(slide,x,y,w,.32,'顺序示意 · 不按时间比例',11,muted)
         y+=.45;h-=.45
+        if len(data.items)>4:
+            # Keep all required events on the planned page. Native editable rows
+            # avoid narrow six-column labels, including beside a source image.
+            count=len(data.items);gap=.06;rowh=(h-gap*(count-1))/count
+            for i,item in enumerate(data.items):
+                py=y+i*(rowh+gap)
+                shape(slide,x+.04,py+.13,.1,.1,accent,MSO_SHAPE.OVAL)
+                if i<count-1:
+                    connector=slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT,Inches(x+.09),Inches(py+.24),Inches(x+.09),Inches(py+rowh+gap+.13))
+                    connector.line.color.rgb=rgb(accent);connector.line.width=Pt(2)
+                tx=x+.3;tw=w-.3
+                labelw=tw*.57 if item.detail else tw
+                box(slide,tx,py,labelw,rowh,item.label,19,ink,True,minimum=16)
+                if item.detail:
+                    box(slide,tx+labelw+.08,py,tw-labelw-.08,rowh,item.detail,17,muted,minimum=16)
+            return
     horizontal=w>=8
     count=len(data.items);gap=.3 if horizontal else .15
     cw=(w-gap*(count-1))/count if horizontal else w

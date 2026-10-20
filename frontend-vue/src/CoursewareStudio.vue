@@ -69,6 +69,17 @@ const paused = computed(
     !!props.task?.result?.slides?.length
 );
 const structureLocked = computed(() => prefix.value || paused.value);
+const reviewBlockedReason = computed(() => {
+  if (paused.value)
+    return (
+      '待修复草稿暂不能审核。' +
+      (props.task?.result?.generation?.issue || props.task?.error || '') +
+      ' 请先修改并保存，或点击“继续制作”；内容与实际PPT画面检查完成后才能审核。'
+    );
+  if (!ready.value) return '当前正在制作或尚未完成，请等待可审核的PPT预览。';
+  if (working.value || pendingMessage.value) return '正在保存或修改页面，请稍后审核。';
+  return '';
+});
 const editable = computed(
   () => (ready.value || paused.value) && !working.value && !pendingMessage.value
 );
@@ -970,6 +981,7 @@ onUnmounted(() => {
             type="button"
             @click="approve(current.id, !meta(current.id).approved)"
             :disabled="!editable || !ready"
+            :title="reviewBlockedReason"
             :class="{ approved: meta(current.id).approved }"
           >
             <WorkspaceIcon name="check" />{{
@@ -977,7 +989,9 @@ onUnmounted(() => {
             }}
           </button>
         </div>
-        <p class="inspector-review-foot">修改后需要重新审核当前页。</p>
+        <p class="inspector-review-foot" role="status">
+          {{ reviewBlockedReason || '修改后需要重新审核当前页。' }}
+        </p>
         <footer v-if="local" class="studio-completion">
           <div>
             <b>{{ approvedCount }} / {{ local.slides.length }} 页已审核</b>
@@ -1067,7 +1081,7 @@ onUnmounted(() => {
           <p v-else-if="task.status === 'failed'">
             {{ task.error
             }}<template v-if="paused">
-              可先手动修改内容、确认配图或上传替换，保存后再继续制作；保存不重启任务、不重新预留积分。</template
+              可先手动修改内容、自动配图或上传替换，保存后再继续制作；保存不重启任务、不重新预留积分。</template
             >
           </p>
           <p v-else>{{ task.events?.at(-1)?.message || '正在准备课件，页面会自动更新。' }}</p>
@@ -1400,6 +1414,7 @@ onUnmounted(() => {
                   class="approve-page"
                   @click="approve(sl.id, !meta(sl.id).approved)"
                   :disabled="!editable || !ready"
+                  :title="reviewBlockedReason"
                   :class="{ approved: meta(sl.id).approved }"
                 >
                   <WorkspaceIcon name="check" />{{

@@ -123,7 +123,8 @@ function changeNodes(add){
    <label v-if="slide.figure.kind==='interval'">区间单位<input v-model="slide.figure.unit" :readonly="!editable" maxlength="12" placeholder="如 min、s、m"></label>
    <div class="media-fields" v-for="(item,i) in slide.figure.items" :key="i"><label>{{'节点'+(i+1)}}<input v-model="item.label" :readonly="!editable" maxlength="24"></label><label>说明<input v-model="item.detail" :readonly="!editable" maxlength="60"></label><label v-if="slide.figure.kind==='interval'">{{'节点'+(i+1)+'数值'}}<input type="number" step="any" v-model.number="slide.figure.values[i]" :readonly="!editable"></label></div>
    <p v-if="slide.figure.kind==='interval'" class="fine">使用同一起点与单位的递增数值，如 0、30、32、60 min。实际时刻写在节点标签；完整讲解放备注。</p>
-   <div v-if="editable" class="evidence-actions"><button type="button" :disabled="slide.figure.items.length>=4" @click="changeNodes(true)">加节点</button><button type="button" :disabled="slide.figure.items.length<=2" @click="changeNodes(false)">删末节点</button><button type="button" @click="slide.figure=null">移除图解</button></div>
+   <div v-if="editable" class="evidence-actions"><button type="button" :disabled="slide.figure.items.length>=(slide.figure.kind==='timeline'?6:4)" @click="changeNodes(true)">加节点</button><button type="button" :disabled="slide.figure.items.length<=2" @click="changeNodes(false)">删末节点</button><button type="button" @click="slide.figure=null">移除图解</button></div>
+   <p class="fine">时间线支持2–6个节点，其他图解2–4个；保留教学所需事件，较长说明放教师备注。</p>
   </section>
   <p class="fine" v-if="slide.table||slide.figure">图解页正文保留1–2条短问题，完整讲解放备注。图表可在导出的PPT中继续编辑。</p>
  </details>

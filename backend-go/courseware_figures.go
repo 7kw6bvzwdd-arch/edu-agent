@@ -16,6 +16,10 @@ func arrangeCoursewareFigures(d Deck) Deck {
 			continue
 		}
 		f := *original.Figure
+		limit := 4
+		if f.Kind == "timeline" {
+			limit = 6
+		}
 		if (f.Kind != "flow" && f.Kind != "timeline" && f.Kind != "route" && f.Kind != "interval") || len(f.Items) < 2 || len(f.Items) > 40 {
 			pages = append(pages, original)
 			continue
@@ -44,7 +48,7 @@ func arrangeCoursewareFigures(d Deck) Deck {
 		for _, item := range f.Items {
 			longText = longText || len([]rune(item.Label)) > 24 || len([]rune(item.Detail)) > 60
 		}
-		if !longText && len(f.Items) <= 4 && f.Title == original.Figure.Title {
+		if !longText && len(f.Items) <= limit && f.Title == original.Figure.Title {
 			pages = append(pages, original)
 			continue
 		}
@@ -61,8 +65,8 @@ func arrangeCoursewareFigures(d Deck) Deck {
 			explanation = labelledTextPages(sl, lines, "图解说明")
 			changed = true
 		}
-		for first, partNo := 0, 0; ; first, partNo = first+3, partNo+1 {
-			end := min(first+4, len(f.Items))
+		for first, partNo := 0, 0; ; first, partNo = first+limit-1, partNo+1 {
+			end := min(first+limit, len(f.Items))
 			part := sl
 			if partNo > 0 {
 				part = continuation(sl, "图解续页", partNo)
@@ -81,7 +85,7 @@ func arrangeCoursewareFigures(d Deck) Deck {
 			}
 		}
 		pages = append(pages, explanation...)
-		changed = changed || len(f.Items) > 4 || f.Title != original.Figure.Title
+		changed = changed || len(f.Items) > limit || f.Title != original.Figure.Title
 	}
 	d.Slides = pages
 	if changed {

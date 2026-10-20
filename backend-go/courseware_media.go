@@ -300,8 +300,12 @@ func validateTeachingMedia(sl Slide) error {
 		}
 	}
 	if f := sl.Figure; f != nil {
-		if (f.Kind != "flow" && f.Kind != "timeline" && f.Kind != "route" && f.Kind != "interval") || !valid(f.Title, 60, false) || len(f.Items) < 2 || len(f.Items) > 4 {
-			return fail(400, "图解仅支持flow/timeline/route/interval，2–4个节点，标题最多60字")
+		limit := 4
+		if f.Kind == "timeline" {
+			limit = 6
+		}
+		if (f.Kind != "flow" && f.Kind != "timeline" && f.Kind != "route" && f.Kind != "interval") || !valid(f.Title, 60, false) || len(f.Items) < 2 || len(f.Items) > limit {
+			return fail(400, "时间线支持2–6个节点，flow/route/interval支持2–4个节点，标题最多60字；保留必要事件，超出容量请调整教学规划，不能删去必需节点")
 		}
 		if !valid(f.Unit, 12, f.Kind == "interval") || len(f.Values) > 4 {
 			return fail(400, "区间图需填写最多12字的单位，最多4个数值")
@@ -334,7 +338,7 @@ emphasis：0–6个重点词的字符串数组，每词最多20字，必须来�
 picture仅由教师上传或后端检索审核通过后提供PNG/JPEG/GIF；模型只描述image_need，不得生成图片data_url、素材ID或伪造图片地址。配图不能代替实际图解或来源证据。
 focus：最多60字的具体核心问题或结论，单独突出显示，不重复标题。导入与练习页只写问题/提示，不提前公布答案；答案与依据放notes，概念讲解与例题页可以展示结论。
 table：{title:短标题,headers:[列名],rows:[[单元格文字]]}；2–4列、1–5行数据，全部字符串，表头最多24字，单元格最多60字。用于真实的条件对照、实验记录或分类，不用表格装饰普通段落。每行列数一致，未知数值用“待测”，不能编造实测。
-figure：{kind:flow、timeline或route,title:短标题,items:[{label:短标签,detail:简短说明}]}；2–4个节点，标签最多24字，说明最多60字。flow表达真实的实验步骤/解题推理，timeline表达先后顺序（不按时间比例，不能充当坐标图）。route表达2–4个实际相关地点的连接关系（示意，不表示实际方向或距离；标签建议8字内，说明12字内），适合旅程、物流等情境，不能用于证明位移或冒充真实地图。只用与课题直接有关的节点，不写“观察→思考→总结”凑图。
+figure：{kind:flow、timeline或route,title:短标题,items:[{label:短标签,detail:简短说明}]}；timeline支持2–6个节点，其他类型2–4个节点，标签最多24字，说明最多60字。flow表达真实的实验步骤/解题推理，timeline表达先后顺序（不按时间比例，不能充当坐标图），5–6节点时标签写事件与年份，说明尽量12字内，完整讲解放notes，不能为了节点上限省略教学目标要求的事件。route表达2–4个实际相关地点的连接关系（示意，不表示实际方向或距离；标签建议8字内，说明12字内），适合旅程、物流等情境，不能用于证明位移或冒充真实地图。只用与课题直接有关的节点，不写“观察→思考→总结”凑图。
 table与figure可同页（建议3节点及简短标签）；两者出现时本页bullets只留1–2条短提问，证据显示在图表中，不重复大段文字。table/figure不能与chart/diagram同页，信息过多请分配到其他页。
 数值区间用figure.kind=interval，另填unit（最多12字，如min）和values（与items一一对应的有限严格递增数值，如[0,30,32,60]）。线段长度由数值按比例绘制，自动显示相邻间隔及总跨度；时间先换算为同一计时起点下的数值，不能直接填08:30字符串。适合解释点与区间；不用于往返路线或非单调数据。标签尽量简短，完整解释放notes；优先独占一页，不与表格重复。
 组合图表必须提供互补信息，不能把表格中的相同数据抄成时间线凑图；例如表格记录具体时刻，流程图解释如何计算停留时间。
