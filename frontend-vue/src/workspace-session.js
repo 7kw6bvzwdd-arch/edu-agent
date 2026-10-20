@@ -1,5 +1,55 @@
 import { watch } from 'vue';
 
+export const emptyCourseware = () => ({
+  topic: '',
+  subject: '',
+  grade: '',
+  textbook: '',
+  objectives: '',
+  detail: 'auto',
+  lesson_minutes: '',
+  student_level: '',
+  reference_mode: 'content',
+  material_id: '',
+  material_start: 1,
+  material_end: 3,
+  chapter: '',
+  reference_id: '',
+  theme: 'ocean',
+  use_kb: true,
+  use_web: true,
+  source_task_id: ''
+});
+export const emptyHomeSession = () => ({
+  messages: [],
+  text: '',
+  summary: '',
+  understanding: '',
+  selectedTool: '',
+  suggestedTool: 'courseware',
+  contextMemory: { text: '', through: 0 },
+  conversationId: '',
+  conversationRevision: 0
+});
+
+// Restoring history must never re-submit a task whose creation was interrupted.
+export function restoreHomeMessages(messages) {
+  return (Array.isArray(messages) ? messages : []).map((message) => {
+    const copy = { ...message };
+    if (copy.pending) {
+      copy.pending = false;
+      copy.failed = true;
+      copy.error = '连接已中断，可继续补充需求。';
+    }
+    if (copy.execution && !copy.execution.taskId) {
+      delete copy.execution;
+      copy.failed = true;
+      copy.error = '上次制作未取得任务编号，请先在我的作品核对，避免重复制作。';
+    }
+    return copy;
+  });
+}
+
 const pages = new Set([
   'home',
   'tools',
@@ -27,15 +77,7 @@ export function restoreWorkspace({
     restoring = false,
     routeVersion = 0;
   const key = (id) => 'edu_workspace_v1:' + id;
-  const empty = () => ({
-    messages: [],
-    text: '',
-    summary: '',
-    understanding: '',
-    selectedTool: '',
-    suggestedTool: 'courseware',
-    contextMemory: { text: '', through: 0 }
-  });
+  const empty = emptyHomeSession;
   const route = () => {
     try {
       const [name, search = ''] = location.hash.slice(1).split('?');
@@ -92,16 +134,7 @@ export function restoreWorkspace({
         const saved = JSON.parse(sessionStorage.getItem(key(next)) || 'null');
         if (saved?.version === 1) {
           Object.assign(homeSession, empty(), saved.session);
-          homeSession.messages = (homeSession.messages || []).map((m) =>
-            m.pending
-              ? {
-                  ...m,
-                  pending: false,
-                  failed: true,
-                  content: (m.content || '') + '\n连接已中断，可继续补充需求。'
-                }
-              : m
-          );
+          homeSession.messages = restoreHomeMessages(homeSession.messages);
           Object.assign(homeForm, defaults(), saved.homeForm);
           Object.assign(form, defaults(), saved.form);
         }

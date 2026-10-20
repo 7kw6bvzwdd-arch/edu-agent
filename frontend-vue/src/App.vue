@@ -14,7 +14,7 @@ import HomeWorkspace from './HomeWorkspace.vue';
 import WorkspaceIcon from './WorkspaceIcon.vue';
 import UsageRecords from './UsageRecords.vue';
 import TeachingMaterials from './TeachingMaterials.vue';
-import { restoreWorkspace } from './workspace-session.js';
+import { restoreWorkspace, emptyCourseware, emptyHomeSession } from './workspace-session.js';
 import { readEventStream } from './event-stream.js';
 const token = ref(sessionStorage.getItem('edu_token') || ''),
   me = ref(null),
@@ -68,41 +68,13 @@ const processGroups = computed(() =>
   }))
 );
 const animationBrief = ref(null);
-const emptyCourseware = () => ({
-  topic: '',
-  subject: '',
-  grade: '',
-  textbook: '',
-  objectives: '',
-  detail: 'auto',
-  lesson_minutes: '',
-  student_level: '',
-  reference_mode: 'content',
-  material_id: '',
-  material_start: 1,
-  material_end: 3,
-  chapter: '',
-  reference_id: '',
-  theme: 'ocean',
-  use_kb: true,
-  use_web: true,
-  source_task_id: ''
-});
 const form = reactive(emptyCourseware());
 const briefConfirmed = ref(false),
   requirements = ref(''),
   sidebarCollapsed = ref(localStorage.getItem('edu_sidebar_collapsed') === '1');
 const briefVersion = ref(0);
 const homeForm = reactive({ ...form });
-const homeSession = reactive({
-  messages: [],
-  text: '',
-  summary: '',
-  understanding: '',
-  selectedTool: '',
-  suggestedTool: 'courseware',
-  contextMemory: { text: '', through: 0 }
-});
+const homeSession = reactive(emptyHomeSession());
 
 watch(sidebarCollapsed, (value) =>
   localStorage.setItem('edu_sidebar_collapsed', value ? '1' : '0')

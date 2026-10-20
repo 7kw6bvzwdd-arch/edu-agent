@@ -156,12 +156,18 @@ CREATE TABLE IF NOT EXISTS courseware_messages (
 );
 ALTER TABLE courseware_messages ADD COLUMN IF NOT EXISTS vote integer NOT NULL DEFAULT 0 CHECK(vote IN (-1,0,1));
 ALTER TABLE courseware_messages ADD COLUMN IF NOT EXISTS reason text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS workspace_conversations (
+ id text PRIMARY KEY,tenant_id bigint NOT NULL REFERENCES tenants,member_id bigint NOT NULL REFERENCES members,
+ title text NOT NULL DEFAULT '',state jsonb NOT NULL DEFAULT '{}',revision integer NOT NULL DEFAULT 0,
+ updated_at timestamptz NOT NULL DEFAULT now(),deleted_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS workspace_conversations_member ON workspace_conversations(tenant_id,member_id,updated_at DESC) WHERE deleted_at IS NULL;
 CREATE TABLE IF NOT EXISTS embedding_cache (
  tenant_id bigint NOT NULL REFERENCES tenants,provider text NOT NULL,model text NOT NULL,content_hash text NOT NULL,
  embedding vector(1536) NOT NULL,PRIMARY KEY(tenant_id,provider,model,content_hash)
 );
 DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['media_assets','courseware_references','members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','usage_totals','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
+ FOREACH t IN ARRAY ARRAY['workspace_conversations','media_assets','courseware_references','members','documents','chunks','tasks','task_events','orders','ledger','usage_logs','usage_totals','audit_logs','eval_runs','artifact_revisions','embedding_cache','courseware_feedback','courseware_messages'] LOOP
    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t);
    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t);
    IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename=t AND policyname='tenant_isolation') THEN
