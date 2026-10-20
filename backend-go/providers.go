@@ -129,7 +129,7 @@ func (s *Server) chat(ctx context.Context, a Actor, task, model, operation, prom
 }
 
 func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, model, operation, prompt string, outputLimit ...int) (content string, err error) {
-	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" {
+	if operation == "courseware.page" || operation == "courseware.plan" || operation == "courseware.plan_repair" || operation == "courseware.page.review" || operation == "courseware.deck.review" {
 		if err = s.reserveCoursewareProviderCall(ctx, a, task); err != nil {
 			return "", err
 		}

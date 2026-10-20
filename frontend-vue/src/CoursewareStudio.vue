@@ -274,10 +274,16 @@ async function recheck() {
     notice.value = '已重新检查并保存。请查看各页核验状态与问题，确认后再审核；未重新生成课件内容。';
   });
 }
-const changed = (sl) =>
-  JSON.stringify(sl) !== JSON.stringify(props.task?.result?.slides?.find((s) => s.id === sl.id)) ||
-  local.value?.theme !== props.task?.result?.theme ||
-  local.value?.title !== props.task?.result?.title;
+const changed = (sl) => {
+  const saved = props.task?.result;
+  return (
+    JSON.stringify(sl) !== JSON.stringify(saved?.slides?.find((s) => s.id === sl.id)) ||
+    local.value?.theme !== saved?.theme ||
+    local.value?.title !== saved?.title ||
+    JSON.stringify(local.value?.plan?.pages?.find((p) => p.position === sl.order)) !==
+      JSON.stringify(saved?.plan?.pages?.find((p) => p.position === sl.order))
+  );
+};
 let imageVersion = 0,
   conversationVersion = 0,
   pollTimer,
@@ -1357,6 +1363,7 @@ onUnmounted(() => {
                   :editable="editable"
                   :task-id="task.id"
                   :revision="editRevision"
+                  :use-web="task.input?.use_web === true"
                 />
                 <button
                   @click="run(persist)"

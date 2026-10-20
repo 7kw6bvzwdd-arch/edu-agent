@@ -1954,6 +1954,7 @@ onUnmounted(() => {
                         :editable="canEdit"
                         :task-id="task.id"
                         :revision="task.revision"
+                        :use-web="task.input?.use_web === true"
                       />
                       <div class="slide-edit-options">
                         <label

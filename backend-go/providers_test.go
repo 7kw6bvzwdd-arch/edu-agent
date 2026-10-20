@@ -41,10 +41,25 @@ func TestRenderValidationErrorIsActionableAndPrivate(t *testing.T) {
 func TestRenderFailureHTTPPreservesCreditsAndSavedRevision(t *testing.T) {
 	s := worksServer(t)
 	owner := worksLogin(t, s, "teacher")
+	var actor Actor
+	json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", owner, nil, 200).Body.Bytes(), &actor)
 	for _, invalidAtConfirm := range []string{"formula", "chart", ""} {
 		before := worksObject(t, worksCall(t, s, "GET", "/api/billing", owner, nil, 200))
 		id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", owner, TaskInput{Type: "courseware", Topic: "勾股定理", Pages: 8, UseKB: true, IdempotencyKey: newID()}, 202))["id"].(string)
-		if err := s.workOne(context.Background()); err != nil {
+		// Seed a historical full-deck confirmation snapshot. New tasks always
+		// start with three previews; that workflow has its own HTTP test.
+		input := TaskInput{Type: "courseware", Topic: "勾股定理", Pages: 8, Theme: "forest", UseKB: true}
+		tx, err := s.tx(context.Background(), actor.TenantID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(context.Background(), "UPDATE tasks SET status='awaiting_confirmation',stage='awaiting_confirmation',input=$1,result=$2 WHERE id=$3 AND member_id=$4", asJSON(input), asJSON(sampleDeck(input)), id, actor.MemberID)
+		if err == nil {
+			err = tx.Commit(context.Background())
+		} else {
+			tx.Rollback(context.Background())
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 		path := "/api/tasks/" + id
@@ -57,9 +72,13 @@ func TestRenderFailureHTTPPreservesCreditsAndSavedRevision(t *testing.T) {
 			} else {
 				slide["chart"] = map[string]any{"labels": []string{"a", "b"}, "values": []int{1}, "title": "secret-token"}
 			}
-			w := worksCall(t, s, "POST", path+"/confirm", owner, map[string]any{"result": d, "revision": v["revision"], "accept_review": true}, 422)
+			status, location := 422, "第4页"
+			if invalidAtConfirm == "chart" {
+				status, location = 400, "图表" // Rejected by Go before the renderer.
+			}
+			w := worksCall(t, s, "POST", path+"/confirm", owner, map[string]any{"result": d, "revision": v["revision"], "accept_review": true}, status)
 			current := worksObject(t, worksCall(t, s, "GET", path, owner, nil, 200))
-			if current["status"] != "awaiting_confirmation" || current["revision"] != v["revision"] || !strings.Contains(w.Body.String(), "第4页") || strings.Contains(w.Body.String(), "secret-token") || strings.Contains(w.Body.String(), "SecretCommand") {
+			if current["status"] != "awaiting_confirmation" || current["revision"] != v["revision"] || !strings.Contains(w.Body.String(), location) || strings.Contains(w.Body.String(), "secret-token") || strings.Contains(w.Body.String(), "SecretCommand") {
 				t.Fatal("invalid edit must stay correctable without leaking formula", current["status"])
 			}
 			worksCall(t, s, "POST", path+"/cancel", owner, nil, 200)

@@ -120,6 +120,14 @@ func TestCoursewareThreeSlideGateHTTP(t *testing.T) {
 	}))
 	defer provider.Close()
 	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+	// This legacy fixture changes sample to live; explicitly configure its
+	// existing disabled-content policy and a separate screenshot response.
+	vision := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"issues":[]}`}}}})
+	}))
+	defer vision.Close()
+	s.cfg.CoursewareContentReviewDisabled = true
+	s.cfg.VisionURL, s.cfg.VisionKey, s.cfg.VisionModel = vision.URL, "fixture", "vision-fixture"
 	tx, err := s.tx(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)

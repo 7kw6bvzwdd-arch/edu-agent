@@ -303,6 +303,9 @@ func (s *Server) stagedCoursewarePlan(ctx context.Context, a Actor, id string, i
 		restoreTeachingOrder(&d)
 	}
 	d.Lesson = checkpointLesson(d)
+	if phase == "expand" {
+		s.checkTeachingDeck(ctx, a, id, in, &d)
+	}
 	d.Notice = "教学与视觉规范已应用；请逐页核对事实、例题答案和引用。已完成页按检查点保留，自动修复仅替换问题页。"
 	if s.cfg.Mode == "live" && s.cfg.CoursewareContentReviewDisabled {
 		d.Notice += " " + contentReviewDisabledNotice

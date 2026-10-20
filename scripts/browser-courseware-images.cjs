@@ -4,7 +4,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const puppeteer=require('../animation-video/node_modules/puppeteer-core');
 (async()=>{
- const web=process.env.TEST_IMAGE_SOURCE==='web',paused=process.env.TEST_PAUSED_IMAGES==='1';
+ const web=process.env.TEST_IMAGE_SOURCE==='web',paused=process.env.TEST_PAUSED_IMAGES==='1',goalReview=process.env.TEST_GOAL_REVIEW==='1';
  const out=path.resolve(__dirname,web?'../work/web-images':'../work/commons-images');await fs.mkdir(out,{recursive:true});
  const browser=await puppeteer.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,args:['--disable-background-networking'],defaultViewport:{width:1440,height:1080}});
  const errors=[],checks=[];let page;
@@ -12,6 +12,7 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   const need={purpose:'观察城墙与敌台的连接',queries:['Great Wall Badaling'],constraints:'建筑照片'};
   const task={id:'commons-fixture',type:'courseware',status:'awaiting_preview',mode:'sample',revision:1,cost:20,input:{topic:'长城建筑观察',pages:8,theme:'ocean',preview_first:true},events:[],sources:[],preview_images_available:false,slide_reviews:[],result:{title:'配图工作台固定验收',theme:'ocean',lesson:'固定样例，不代表真实模型结果',slides:Array.from({length:3},(_,i)=>({id:'slide-'+(i+1),title:['观察城墙','比较敌台','解释连接'][i],layout:'concept',bullets:['观察建筑线索并解释。'],notes:'固定验收样例，请教师核实具体历史背景。',image_need:need}))}};
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  if(goalReview){task.result.plan={summary:'固定目标映射验收',learning_goals:[{id:'g1',text:'观察结构',core:true},{id:'g2',text:'解释连接',core:true}],pages:task.result.slides.map((s,i)=>({position:i+1,goal:s.title,task:'比较与解释',minutes:3,preview:true,goal_refs:['g1'],checks_goals:[],depends_on:[]}))};task.result.slides.forEach((s,i)=>s.order=i+1);task.result.deck_check={status:'blocked',summary:'固定验收：第1页图注缺少依据',issues:[{pages:[1],object:'图注年代',severity:'missing_evidence',evidence:'固定来源未提供该年代',repair:'补充来源或删除具体年代',source_ids:[]}]};}
   const provenance={provider:'wikimedia_commons',title:'File:Great Wall fixture.png',author:'Test Photographer',license:'CC BY-SA 4.0',page_url:'https://commons.wikimedia.org/wiki/File:Great_Wall.png',license_url:'https://creativecommons.org/licenses/by-sa/4.0/',description:'明确标注的来源测试响应',retrieved_at:'2026-10-19T06:00:00Z',sha256:'a'.repeat(64)};
   if(web)Object.assign(provenance,{provider:'web_page',title:'网页照片固定验收',page_url:'https://museum.example/collection/wall',license:'使用权限待确认',license_url:'',rights_status:'pending_confirmation'});
   if(paused){task.status='failed';task.result.slides=task.result.slides.slice(0,1);task.result.generation={version:'page-checkpoint-v3',phase:'preview',repair_page:1,issue:'固定验收：待修复草稿',page_attempts:{1:3}};task.result.slides[0].image_search={status:'needs_confirmation',message:'已保留候选图；备用 Commons 暂时无法访问',candidates:[{picture:{asset_id:'a'.repeat(32),caption:need.purpose,source:'网页配图 · 使用权限待确认'},provenance,reason:'固定相关性筛选候选'}]};}
@@ -21,7 +22,7 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
    if(!r.url().includes('/api/'))return r.continue();
    const p=new URL(r.url()).pathname;let data=[],body,contentType='application/json',status=200;
    try{
-    if(p.endsWith('/images/search')){const q=JSON.parse(r.postData());assert.equal(q.slide_id,'slide-1');assert.equal(q.revision,task.revision);assert.ok(q.need.purpose);searches++;if(delay)await new Promise(resolve=>setTimeout(resolve,1200));data={status:'found',message:'固定检索候选',candidates:[{picture:{asset_id:'a'.repeat(32),caption:q.need.purpose,source:'Wikimedia Commons · CC BY-SA 4.0'},provenance,reason:'固定相关性审核结果'}]};}
+    if(p.endsWith('/images/search')){const q=JSON.parse(r.postData());assert.equal(q.allow_web,true);assert.equal(q.slide_id,'slide-1');assert.equal(q.revision,task.revision);assert.ok(q.need.purpose);searches++;if(delay)await new Promise(resolve=>setTimeout(resolve,1200));data={status:'found',message:'固定检索候选',candidates:[{picture:{asset_id:'a'.repeat(32),caption:q.need.purpose,source:'Wikimedia Commons · CC BY-SA 4.0'},provenance,reason:'固定相关性审核结果'}]};}
     else if(p.endsWith('/images/confirm')){const q=JSON.parse(r.postData());assert.equal(q.revision,task.revision);assert.equal(q.slide_id,'slide-1');assert.ok(q.rights_note.length>=5);confirmations++;Object.assign(provenance,{rights_status:'teacher_confirmed',rights_note:q.rights_note,rights_confirmed_at:'2026-10-19T08:00:00Z',license:'教师确认使用权限（非平台授权认证）'});data={picture:{asset_id:'a'.repeat(32),caption:need.purpose,source:'网页配图 · 教师确认使用权限'},provenance,reason:'固定权限确认响应'};}
     else if(p==='/api/media'&&r.method()==='POST')data={asset_id:'b'.repeat(32),width:320,height:240};
     else if(p.startsWith('/api/media/')&&p.endsWith('/metadata'))data=p.includes('b'.repeat(32))?{asset_id:'b'.repeat(32)}:{asset_id:'a'.repeat(32),provenance};
@@ -49,7 +50,8 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   await click('我的作品');await page.waitForSelector('.task-open');await page.click('.task-open');
   await page.waitForFunction(()=>document.body.innerText.includes('手动编辑内容'));await click('手动编辑内容');
   await page.waitForSelector(scope+' .commons-image-search');
-  const openSearch=async()=>{await page.waitForSelector(scope+' .commons-image-search details');await page.$eval(scope+' .commons-image-search details',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});};
+  const openSearch=async()=>{await page.waitForSelector(scope+' .commons-image-search details');await page.$eval(scope+' .commons-image-search details',e=>{for(let p=e;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;});await page.$eval(scope+' .commons-image-search',e=>{const consent=e.querySelector('input[type=checkbox]'),search=[...e.querySelectorAll('button')].find(b=>b.textContent.includes('检索并审核'));if(!consent)throw Error('Missing offline consent');if(!consent.checked){if(!search.disabled)throw Error('Offline search enabled before consent');consent.click();}});};
+  checks.push('Offline image search requires explicit consent and sends allow_web');
   await openSearch();
   if(!paused)await click('检索并审核候选图片',scope);
   else{assert.equal(searches,0);assert.equal(await page.$eval(scope+' .approve-page',b=>b.disabled),true);checks.push('Paused one-page draft retains candidates without searching and blocks approval');await page.reload();await page.waitForSelector('.studio-slide.selected');await click('手动编辑内容');await openSearch();assert.equal(searches,0);}
@@ -86,6 +88,15 @@ const puppeteer=require('../animation-video/node_modules/puppeteer-core');
   checks.push('Upload replacement clears inherited Commons attribution');
   await openSearch();await click('跳过本页配图',scope);await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));assert.equal(task.result.slides[0].picture,null);assert.equal(task.result.slides[0].image_search.status,'removed');checks.push('Skip persists without generation, points or automatic re-search');assert.deepEqual(errors,[]);assert.equal(saved,4);assert.equal(searches,paused?2:3);
   if(web)assert.equal(confirmations,1);
+  if(goalReview){
+   await page.$$eval('.studio-reference-details details',es=>es.forEach(e=>e.open=true));
+   await page.$eval('.studio-reference-details',e=>e.open=true);
+   const text=await page.$eval('.studio-reference-details',e=>e.innerText);assert.ok(text.includes('全课核验未通过'));assert.ok(text.includes('缺少依据'));assert.ok(text.includes('补充来源或删除具体年代'));assert.ok(text.includes('不代表学生已经掌握'));
+   await page.$$eval('.studio-reference-details label',es=>{const label=es.find(e=>e.textContent.trim()==='用具体任务考查 g2');if(!label)throw Error('Missing goal assessment control');label.querySelector('input').click();});
+   await page.$eval('.studio-reference-details label input:not([type=checkbox])',e=>{e.value='';e.dispatchEvent(new Event('change',{bubbles:true}));});
+   await click('保存本页及其他修改');await page.waitForFunction(()=>!document.querySelector('.unsaved-note'));
+   assert.ok(task.result.plan.pages[0].goal_refs.includes('g2'));assert.ok(task.result.plan.pages[0].checks_goals.includes('g2'));assert.deepEqual(task.result.plan.pages[0].depends_on,[]);checks.push('Goal mapping edits persist and missing-evidence report shows page, basis and repair');
+  }
   await fs.writeFile(path.join(out,'browser.json'),JSON.stringify({scope:'Real Vue UI; mocked business APIs',checks,saved,searches,confirmations,errors},null,2));
   console.log(JSON.stringify({checks,saved,searches}));
  }catch(e){if(page){console.error((await page.evaluate(()=>document.body.innerText)).slice(-4500));await page.screenshot({path:path.join(out,'browser-failure.png'),fullPage:true});}throw e;}finally{await browser.close();}

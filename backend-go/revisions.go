@@ -70,6 +70,9 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 		return err
 	}
 	s.checkEditedPages(r.Context(), a, r.PathValue("id"), originalInput, &in.Result)
+	if e := s.teachingDeckDeliveryError(in.Result, s.cfg.Mode == "sample"); e != nil {
+		return e
+	}
 	path, e := s.savePPTX(r.Context(), a.TenantID, r.PathValue("id")+"-"+newID(), &in.Result)
 	if e != nil {
 		return e
@@ -402,6 +405,19 @@ func (s *Server) processRevision(ctx context.Context, a Actor, id string, in Tas
 	}
 	d.Evaluation = nil
 	d = arrangeCourseware(d)
+	if d.Plan != nil && len(d.Plan.LearningGoals) > 0 {
+		preserveCoursewareChecks(&d, original)
+		s.checkEditedPages(ctx, a, id, in, &d)
+		if err := s.teachingDeckDeliveryError(d, s.cfg.Mode == "sample"); err != nil {
+			return err
+		}
+		for _, sl := range d.Slides {
+			check := d.PageChecks[sl.ID]
+			if check.Hash != slideContentHash(d, sl) || !s.pageCheckPassed(check, s.cfg.Mode == "sample", sl) {
+				return fail(409, "单页改写未通过页面审核，保留原课件且不结算")
+			}
+		}
+	}
 	if e := validateDeck(d); e != nil {
 		return e
 	}

@@ -32,6 +32,14 @@ func (s *Server) assessTeaching(ctx context.Context, a Actor, task, kind string,
 	// screenshot checks. Summarize those checks instead of running the legacy
 	// whole-plan rubric after settlement.
 	if kind == "courseware" && d.Plan != nil {
+		if len(d.Plan.LearningGoals) > 0 {
+			if err := s.teachingDeckDeliveryError(d, s.cfg.Mode == "sample"); err != nil {
+				return map[string]any{"status": "unavailable", "reason": err.Error(), "deck_check": d.DeckCheck}
+			}
+			if s.cfg.Mode == "sample" {
+				return map[string]any{"status": "sample", "reason": "内置样例程序检查，不是真实模型核验", "deck_check": d.DeckCheck}
+			}
+		}
 		checked, suggestions, blocking := 0, 0, 0
 		for _, sl := range d.Slides {
 			check := d.PageChecks[sl.ID]

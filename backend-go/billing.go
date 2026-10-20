@@ -271,6 +271,9 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 				return fail(409, "教学规划与交付内容不一致，请恢复后继续制作")
 			}
 			if ok && final.Plan != nil {
+				if e := s.teachingDeckDeliveryError(final, mode == "sample"); e != nil {
+					return e
+				}
 				if len(final.Slides) == 0 || len(final.Slides) != len(final.Plan.Pages) {
 					return fail(409, "教学规划尚未全部完成，暂不能交付")
 				}
@@ -286,6 +289,20 @@ func (s *Server) finish(ctx context.Context, tid int64, id, status, message, pat
 			return fail(410, "旧版动画不再结算；HTML动画通过独立验收流程交付")
 		}
 		if taskType == "revision" {
+			final, ok := result.(Deck)
+			var parent Deck
+			var mode string
+			if e = tx.QueryRow(ctx, "SELECT result,mode FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL FOR UPDATE", input.ParentID, member).Scan(&parent, &mode); e != nil {
+				return e
+			}
+			if parent.Plan != nil && len(parent.Plan.LearningGoals) > 0 && (!ok || final.Plan == nil || len(final.Plan.LearningGoals) == 0) {
+				return fail(409, "单页改写不能移除原课件的目标映射和核验")
+			}
+			if ok {
+				if err := s.teachingDeckDeliveryError(final, mode == "sample"); err != nil {
+					return err
+				}
+			}
 			changed, e := tx.Exec(ctx, "UPDATE tasks SET result=$1,pptx_path=$2,revision=revision+1,updated_at=now() WHERE id=$3 AND member_id=$4 AND revision=$5 AND status='succeeded' AND deleted_at IS NULL", asJSON(result), path, input.ParentID, member, input.ParentRevision)
 			if e != nil {
 				return e

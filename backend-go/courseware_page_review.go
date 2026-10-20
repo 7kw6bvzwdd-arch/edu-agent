@@ -68,9 +68,29 @@ func pageCheckPassed(check PageQualityCheck, sample bool) bool {
 	return check.Content == "checked" && check.Visual == "checked" && blockingPageIssues(check.Issues) == ""
 }
 func preserveCoursewareChecks(d *Deck, old Deck) {
+	requestedPlan := d.Plan
+	d.DeckCheck = nil // Client-supplied whole-deck checks are never trusted.
 	d.Plan = old.Plan
 	d.EditableFormulas = old.Plan != nil || old.EditableFormulas
 	if old.Plan != nil {
+		plan := *old.Plan
+		plan.Pages = append([]TeachingPage(nil), old.Plan.Pages...)
+		if requestedPlan != nil && len(requestedPlan.Pages) == len(plan.Pages) {
+			for i, row := range requestedPlan.Pages {
+				if row.Position == plan.Pages[i].Position {
+					plan.Pages[i].GoalRefs = append([]string(nil), row.GoalRefs...)
+					plan.Pages[i].ChecksGoals = append([]string(nil), row.ChecksGoals...)
+					plan.Pages[i].DependsOn = append([]int(nil), row.DependsOn...)
+				}
+			}
+		}
+		d.Plan = &plan
+		structureChanged := len(d.Slides) != len(old.Slides)
+		for i, sl := range d.Slides {
+			if i >= len(old.Slides) || sl.ID != old.Slides[i].ID {
+				structureChanged = true
+			}
+		}
 		oldSlides := map[string]Slide{}
 		for _, sl := range old.Slides {
 			oldSlides[sl.ID] = sl
@@ -80,23 +100,30 @@ func preserveCoursewareChecks(d *Deck, old Deck) {
 				d.Slides[i].Order = prior.Order
 			}
 		}
-		if len(old.Slides) == len(old.Plan.Pages) {
-			plan := *old.Plan
+		if structureChanged && len(old.Slides) == len(old.Plan.Pages) {
+			plan := *d.Plan
+			priorPages := plan.Pages
 			plan.Pages = nil
 			positions := map[int]int{}
 			for i, sl := range d.Slides {
-				positions[sl.Order] = i + 1
+				if sl.Order > 0 {
+					if _, exists := positions[sl.Order]; !exists {
+						positions[sl.Order] = i + 1
+					}
+				}
 			}
 			for i := range d.Slides {
 				sl := &d.Slides[i]
 				row := TeachingPage{Goal: sl.Title, Task: sl.Layout, Minutes: 1}
 				if sl.Order > 0 && sl.Order <= len(old.Plan.Pages) {
-					row = old.Plan.Pages[sl.Order-1]
+					row = priorPages[sl.Order-1]
 				}
 				deps := []int{}
 				for _, p := range row.DependsOn {
 					if target, ok := positions[p]; ok && target != i+1 {
 						deps = append(deps, target)
+					} else if len(plan.LearningGoals) > 0 {
+						deps = append(deps, 0) // Required prerequisite was removed; do not silently erase it.
 					}
 				}
 				row.Position, row.DependsOn, row.Preview = i+1, deps, i < 3
@@ -105,6 +132,10 @@ func preserveCoursewareChecks(d *Deck, old Deck) {
 			}
 			d.Plan = &plan
 		}
+	}
+	if old.DeckCheck != nil && old.DeckCheck.Hash == deckContentHash(*d) {
+		check := *old.DeckCheck
+		d.DeckCheck = &check
 	}
 	d.PageChecks = map[string]PageQualityCheck{}
 	changedPositions := map[int]bool{}
@@ -198,6 +229,7 @@ func (s *Server) checkEditedPages(ctx context.Context, a Actor, id string, in Ta
 		check.Hash = slideContentHash(*d, sl)
 		d.PageChecks[sl.ID] = check
 	}
+	s.checkTeachingDeck(ctx, a, id, in, d)
 }
 
 type pageReviewReply struct {

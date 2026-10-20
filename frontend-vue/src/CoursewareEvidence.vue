@@ -9,7 +9,7 @@ import ScientificDiagram from './ScientificDiagram.vue'
 import FunctionPlot from './FunctionPlot.vue'
 import TeachingChart from './TeachingChart.vue'
 import {showGraphCoordinates} from './classroom.js'
-const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean,taskId:String,revision:Number})
+const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean,taskId:String,revision:Number,useWeb:Boolean})
 const imageError=ref(''),uploading=ref(false)
 let uploadVersion=0
 onUnmounted(()=>uploadVersion++)
@@ -104,7 +104,7 @@ function changeNodes(add){
   <label>重点词（每行一个，最多6个，每词20字）<textarea :value="(slide.emphasis||[]).join('\n')" @input="slide.emphasis=$event.target.value.split('\n').map(x=>x.trim()).filter(Boolean)" :readonly="!editable" rows="2" placeholder="填写正文或表格中已有的关键词、数值"></textarea></label>
   <div class="evidence-actions" v-if="editable"><button type="button" v-if="!slide.table" :disabled="!!slide.scientific||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.figure" @click="addTable(slide)">＋ 教学表格</button><button type="button" v-if="!slide.figure" :disabled="!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.table" @click="addFigure(slide)">＋ 流程/时间线/路线</button><button type="button" v-if="!slide.scientific&&!slide.graph&&!slide.figure&&!slide.picture&&!slide.chart&&!slide.diagram" @click="slide.graph={title:'函数图像',x_min:-3,x_max:3,y_min:-3,y_max:3,series:[{kind:'linear',k:1,b:0,a:1,c:0,mark_x:[]}]}">＋ 函数坐标图</button></div>
   <section class="evidence-edit-section">
-   <CoursewareImageSearch :slide="slide" :task-id="taskId" :revision="revision" :editable="editable"/>
+   <CoursewareImageSearch :slide="slide" :task-id="taskId" :revision="revision" :editable="editable" :use-web="useWeb"/>
    <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg,image/gif" :disabled="uploading||!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.table&&!!slide.figure" @change="uploadPicture"></label>
    <p v-if="imageError" role="alert" class="image-error">{{imageError}}</p>
    <template v-if="slide.picture"><MediaImage class="image-thumbnail" :picture="slide.picture" :alt="slide.picture.caption||'上传的配图'"/><label>图片说明（必填）<input v-model="slide.picture.caption" :readonly="!editable" maxlength="60" placeholder="说明图片与知识点的关系"></label><label>图片出处（必填）<input v-model="slide.picture.source" :readonly="!editable" maxlength="300" placeholder="如：本人拍摄；或作者、来源网址及许可"></label><button v-if="editable" type="button" @click="removePicture">移除图片</button></template>

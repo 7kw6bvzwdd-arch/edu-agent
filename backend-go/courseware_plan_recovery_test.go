@@ -22,6 +22,11 @@ func TestInvalidTeachingPlanCanRecoverWithoutTeacherClick(t *testing.T) {
 			minutes = 5
 		}
 		p := TeachingPlan{Summary: "概念、应用、练习", Pages: []TeachingPage{{Position: 1, Goal: "理解知识", Task: "概念", Minutes: minutes, Preview: true}, {Position: 2, Goal: "应用", Task: "例题", Minutes: minutes, Preview: true}, {Position: 3, Goal: "检查", Task: "练习", Minutes: minutes, Preview: true}}}
+		p.LearningGoals = []LearningGoal{{ID: "g1", Text: "理解并应用概念", Core: true}}
+		for i := range p.Pages {
+			p.Pages[i].GoalRefs = []string{"g1"}
+		}
+		p.Pages[2].ChecksGoals = []string{"g1"}
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(p))}}}})
 	}))
 	defer provider.Close()

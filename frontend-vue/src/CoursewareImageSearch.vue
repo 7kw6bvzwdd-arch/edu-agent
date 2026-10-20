@@ -5,9 +5,11 @@ const props = defineProps({
   slide: { type: Object, required: true },
   taskId: String,
   revision: Number,
-  editable: Boolean
+  editable: Boolean,
+  useWeb: Boolean
 });
 const token = inject('mediaToken', ref(''));
+const allowWeb = ref(false);
 const purpose = ref(''),
   queries = ref(''),
   constraints = ref(''),
@@ -43,6 +45,7 @@ watch(
     rightsNotes.value = {};
     message.value = '';
     error.value = '';
+    allowWeb.value = false;
     const need = props.slide.image_need;
     purpose.value = need?.purpose || '';
     queries.value = (need?.queries || []).join('\n');
@@ -83,6 +86,10 @@ watch(
 onUnmounted(cancel);
 async function search() {
   if (!props.editable || busy.value || !props.taskId || !compatible.value) return;
+  if (!props.useWeb && !allowWeb.value) {
+    error.value = '请先同意本次联网检索，或上传图片、跳过配图。';
+    return;
+  }
   cancel();
   const current = version,
     slide = props.slide,
@@ -112,7 +119,7 @@ async function search() {
       {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + token.value, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision, slide_id: slide.id, need }),
+        body: JSON.stringify({ revision, slide_id: slide.id, need, allow_web: allowWeb.value }),
         signal: controller.signal
       }
     );
@@ -258,7 +265,22 @@ async function confirmRights(candidate) {
         ></textarea>
       </label>
       <p v-if="!compatible" class="fine">当前页面已有冲突图形，请先调整视觉内容再检索配图。</p>
-      <button type="button" :disabled="busy || !compatible" @click="search">
+      <label v-if="!useWeb"
+        ><input
+          v-model="allowWeb"
+          type="checkbox"
+          :disabled="busy"
+        />本课件已关闭联网；同意仅本次配图检索连接公开网页及备用
+        Commons，并将候选图片交给视觉模型审核。</label
+      >
+      <p class="fine">
+        仅发送填写的检索词，不发送整课私有资料；每次检索各来源合计最多审核3张候选图。上传和跳过不联网。
+      </p>
+      <button
+        type="button"
+        :disabled="busy || !compatible || (!useWeb && !allowWeb)"
+        @click="search"
+      >
         {{ busy ? '正在检索并审核图片…' : '检索并审核候选图片' }}
       </button>
       <button v-if="busy" type="button" @click="cancel">停止等待</button>

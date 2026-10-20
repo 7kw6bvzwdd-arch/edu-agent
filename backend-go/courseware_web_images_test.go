@@ -27,7 +27,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 	slide := task["result"].(map[string]any)["slides"].([]any)[0].(map[string]any)
 	var pngBytes bytes.Buffer
 	png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 320, 240)))
-	var variant, commonsCalls atomic.Int32
+	var variant, commonsCalls, imageReviews atomic.Int32
 	external := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/search":
@@ -38,6 +38,10 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 			}
 			respond(w, 200, map[string]any{"results": []any{map[string]string{"title": "长城照片", "url": "https://museum.example/collection/wall"}}})
 		case "/collection/wall":
+			if variant.Load() == 5 {
+				io.WriteString(w, `<html><body><img src="/images/one.png" alt="城墙"><img src="/images/two.png" alt="敌台"><img src="/images/three.png" alt="长城"></body></html>`)
+				return
+			}
 			if variant.Load() == 2 {
 				http.Redirect(w, r, "http://127.0.0.1/private", 302)
 				return
@@ -52,12 +56,12 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 				src = "http://127.0.0.1/private"
 			}
 			io.WriteString(w, `<html><head><title>长城建筑照片</title><meta name="author" content="Web Photographer"></head><body><figure><img src="`+src+`" alt="八达岭长城城墙与敌台"><figcaption>长城建筑观察。`+license+`</figcaption></figure></body></html>`)
-		case "/images/wall.png":
+		case "/images/wall.png", "/images/one.png", "/images/two.png", "/images/three.png":
 			w.Header().Set("Content-Type", "image/png")
 			w.Write(pngBytes.Bytes())
 		case "/w/api.php":
 			commonsCalls.Add(1)
-			if variant.Load() == 4 {
+			if variant.Load() == 4 || variant.Load() == 5 {
 				respond(w, 200, map[string]any{"query": map[string]any{"pages": []any{map[string]any{"title": "File:Fallback.png", "imageinfo": []any{map[string]any{"url": "https://upload.wikimedia.org/wikipedia/commons/f/f0/Fallback.png", "descriptionurl": "https://commons.wikimedia.org/wiki/File:Fallback.png", "mime": "image/png", "width": 320, "height": 240, "extmetadata": map[string]any{"Artist": map[string]string{"value": "Fallback Photographer"}, "LicenseShortName": map[string]string{"value": "CC BY 4.0"}, "LicenseUrl": map[string]string{"value": "https://creativecommons.org/licenses/by/4.0/"}}}}}}}})
 				return
 			}
@@ -65,6 +69,11 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 		case "/wikipedia/commons/f/f0/Fallback.png":
 			w.Write(pngBytes.Bytes())
 		case "/chat/completions":
+			imageReviews.Add(1)
+			if variant.Load() == 5 {
+				respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"relevant":false,"reason":"固定样例：与页面要求不符"}`}}}})
+				return
+			}
 			respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"relevant":true,"reason":"固定视觉审核：长城建筑照片支持观察。"}`}}}})
 		default:
 			t.Errorf("unexpected external request %s", r.URL.Path)
@@ -81,6 +90,11 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 	bill := worksCall(t, s, "GET", "/api/billing", teacher, nil, 200).Body.String()
 	worksCall(t, s, "POST", route, "", body, 401)
 	worksCall(t, s, "POST", route, other, body, 404)
+	worksCall(t, s, "POST", route, teacher, body, 409)
+	if imageReviews.Load() != 0 || commonsCalls.Load() != 0 {
+		t.Fatal("offline task contacted external image providers before consent")
+	}
+	body["allow_web"] = true
 	got := worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
 	items := got["candidates"].([]any)
 	if got["status"] != "found" || len(items) != 1 {
@@ -213,6 +227,7 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 		q := map[string]any{"revision": paused["revision"], "slide_id": first["id"], "need": ImageNeed{Purpose: "观察长城建筑", Queries: []string{"长城"}}}
+		q["allow_web"] = true
 		worksCall(t, s, "POST", pausedRoute+"/images/search", other, q, 404)
 		result := worksObject(t, worksCall(t, s, "POST", pausedRoute+"/images/search", teacher, q, 200))
 		items, ok := result["candidates"].([]any)
@@ -277,6 +292,16 @@ func TestCoursewareWebImagesHTTP(t *testing.T) {
 	})
 	if worksCall(t, s, "GET", "/api/billing", teacher, nil, 200).Body.String() != bill {
 		t.Fatal("web image selection charged generation credits")
+	}
+	variant.Store(5)
+	imageReviews.Store(0)
+	beforeBackup := commonsCalls.Load()
+	limited := worksObject(t, worksCall(t, s, "POST", route, teacher, body, 200))
+	if imageReviews.Load() != 3 {
+		t.Fatalf("web and Commons must share three image reviews; got %d", imageReviews.Load())
+	}
+	if commonsCalls.Load() != beforeBackup || !strings.Contains(limited["message"].(string), "预算") {
+		t.Fatal("exhausted image review budget still waits for Commons or hides the limit")
 	}
 }
 

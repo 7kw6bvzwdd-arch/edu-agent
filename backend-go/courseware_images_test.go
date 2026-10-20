@@ -115,6 +115,7 @@ func TestCoursewareImagesSearchHTTP(t *testing.T) {
 	s.cfg.VisionURL, s.cfg.VisionKey, s.cfg.VisionModel = reviewer.URL, "fixture", "vision-fixture"
 	route := "/api/tasks/" + id + "/images/search"
 	body := map[string]any{"revision": task["revision"], "slide_id": sl["id"], "need": map[string]any{"purpose": "观察长城的防御设施", "queries": []string{"Great Wall Badaling"}, "constraints": "实际建筑照片"}}
+	body["allow_web"] = true
 	worksCall(t, s, "POST", route, "", body, 401)
 	for _, foreign := range []string{other, admin} {
 		worksCall(t, s, "POST", route, foreign, body, 404)
@@ -177,7 +178,7 @@ func TestCoursewareImagesSearchHTTP(t *testing.T) {
 		t.Fatal("unconfigured visual review must reject candidates")
 	}
 	s.cfg.VisionKey = visionKey
-	invalid := map[string]any{"revision": task["revision"], "slide_id": sl["id"], "need": map[string]any{"purpose": "", "queries": []string{"test"}}}
+	invalid := map[string]any{"allow_web": true, "revision": task["revision"], "slide_id": sl["id"], "need": map[string]any{"purpose": "", "queries": []string{"test"}}}
 	worksCall(t, s, "POST", route, teacher, invalid, 400)
 	stale := map[string]any{"revision": -1, "slide_id": sl["id"], "need": body["need"]}
 	worksCall(t, s, "POST", route, teacher, stale, 409)
@@ -271,9 +272,14 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 			need := &ImageNeed{Purpose: "观察城墙的连接", Queries: []string{tc.query}, Constraints: "实际建筑照片"}
 			lesson := Deck{Title: "长城的防御设施", Theme: "ocean", Lesson: "固定接口验收内容，非真实模型结果。观察城墙、比较设施、解释防御关系。"}
 			plan := TeachingPlan{Summary: "课时未指定，分钟仅为估计。", Conventions: "图片只作为建筑观察材料，不能证明具体历史事件。"}
+			plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "依据图像观察并解释建筑连接", Core: true}}
 			for i, title := range []string{"观察城墙与敌台", "比较防御设施", "解释建筑连接", "说明观察依据", "讨论证据边界"} {
 				lesson.Slides = append(lesson.Slides, Slide{Title: title, Layout: []string{"concept", "comparison", "steps", "concept", "summary"}[i], Bullets: []string{title + "，用画面中的具体线索支持判断。"}, Notes: "引导学生区分建筑的可见线索与推测，具体年代和用途需要结合可靠资料核对。固定验收内容。", ImageNeed: need})
 				plan.Pages = append(plan.Pages, TeachingPage{Position: i + 1, Goal: title, Task: "观察、比较与解释", Visual: "真实建筑照片支持读图", Minutes: 3, Preview: i < 3, ImageNeed: need})
+				plan.Pages[i].GoalRefs = []string{"g1"}
+				if i == 3 {
+					plan.Pages[i].ChecksGoals = []string{"g1"}
+				}
 			}
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req struct {

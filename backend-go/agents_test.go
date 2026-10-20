@@ -133,8 +133,13 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 			d := sampleDeck(TaskInput{Type: kind, Topic: "一次函数", Theme: "forest", Pages: 8})
 			if strings.Contains(prompt, "不生成页面全文") {
 				plan := TeachingPlan{Summary: "显式规划 fixture"}
+				plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "理解函数并完成任务", Core: true}}
 				for i, sl := range d.Slides {
 					plan.Pages = append(plan.Pages, TeachingPage{Position: i + 1, Goal: sl.Title, Task: sl.Layout, Minutes: 3, Preview: i == 1 || i == 3 || i == 4})
+					plan.Pages[i].GoalRefs = []string{"g1"}
+					if sl.Layout == "exercise" {
+						plan.Pages[i].ChecksGoals = []string{"g1"}
+					}
 				}
 				respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(plan))}}}})
 				return

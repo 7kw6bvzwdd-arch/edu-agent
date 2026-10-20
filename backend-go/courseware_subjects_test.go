@@ -91,8 +91,13 @@ func TestCoursewareAllSubjectsPreviewToPPTXHTTP(t *testing.T) {
 				{Title: "课堂回顾", Layout: "summary", Bullets: []string{"用自己的话回顾今天的收获，并提出一个新问题。"}, Notes: "学生回顾本课的理解过程，教师根据学生反馈决定下次学习需要补充的材料。"},
 			}}
 			plan := TeachingPlan{Summary: "按实际学科安排；课时未指定，分钟仅为规划估计。", Conventions: "使用同一材料与术语。"}
+			plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "依据材料表达理解", Core: true}}
 			for i, sl := range lesson.Slides {
 				plan.Pages = append(plan.Pages, TeachingPage{Position: i + 1, Goal: sl.Title, Task: "材料理解与表达", Visual: "不需要数值图", Minutes: 3, Preview: i < 3})
+				plan.Pages[i].GoalRefs = []string{"g1"}
+				if i == 2 {
+					plan.Pages[i].ChecksGoals = []string{"g1"}
+				}
 			}
 			var callsMu sync.Mutex
 			generated := map[int]int{}

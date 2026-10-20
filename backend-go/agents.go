@@ -81,6 +81,10 @@ func (s *Server) runCoursewareAgent(ctx context.Context, a Actor, id, stage stri
 		return s.researchAgent(ctx, a, id, in)
 	}
 
+	s.checkTeachingDeck(ctx, a, id, in, &d)
+	if e := s.teachingDeckDeliveryError(d, s.cfg.Mode == "sample"); e != nil {
+		return e
+	}
 	path, e := s.savePPTX(ctx, a.TenantID, id, &d)
 	if e != nil {
 		return e

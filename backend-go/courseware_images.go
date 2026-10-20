@@ -124,6 +124,7 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 		Revision int        `json:"revision"`
 		SlideID  string     `json:"slide_id"`
 		Need     *ImageNeed `json:"need"`
+		AllowWeb bool       `json:"allow_web"`
 	}
 	if err := decode(r, &in); err != nil {
 		return err
@@ -152,6 +153,9 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 	}
 	if slide == nil {
 		return fail(404, "页面不存在或无权访问")
+	}
+	if !st.Input.UseWeb && !in.AllowWeb {
+		return fail(409, "本课件已关闭联网；请明确同意本次联网检索，或上传图片、跳过配图")
 	}
 	if in.Need == nil {
 		return fail(400, "请填写图片用途和检索词")
@@ -330,6 +334,10 @@ func (s *Server) searchCommonsImages(ctx context.Context, a Actor, task string, 
 	defer cancel()
 	seen := map[string]bool{}
 	checked := 0
+	shared, _ := ctx.Value(coursewareImageReviewBudgetKey{}).(*int)
+	if shared == nil {
+		shared = new(int)
+	}
 	for _, query := range need.Queries {
 		q := url.Values{"action": {"query"}, "format": {"json"}, "formatversion": {"2"}, "generator": {"search"}, "gsrnamespace": {"6"}, "gsrsearch": {strings.TrimSpace(query)}, "gsrlimit": {"6"}, "prop": {"imageinfo"}, "iiprop": {"url|size|mime|extmetadata"}, "iiurlwidth": {"960"}, "maxlag": {"5"}}
 		raw, err := s.commonsGet(ctx, "https://commons.wikimedia.org/w/api.php?"+q.Encode(), false, 2<<20)
@@ -361,7 +369,7 @@ func (s *Server) searchCommonsImages(ctx context.Context, a Actor, task string, 
 				continue
 			}
 			seen[p.OriginalURL] = true
-			if checked >= 3 {
+			if checked >= 3 || *shared >= 3 {
 				break
 			}
 			checked++
@@ -374,6 +382,7 @@ func (s *Server) searchCommonsImages(ctx context.Context, a Actor, task string, 
 			if err != nil || mime == "" || cfg.Width < 320 || cfg.Height < 200 || cfg.Width > 4096 || cfg.Height > 4096 || cfg.Width*cfg.Height > 16000000 || !validMediaPayload(imageBytes, cfg, format) {
 				continue
 			}
+			*shared++
 			relevant, reason, err := s.reviewCoursewareImage(ctx, a, task, need, slide, p, mime, imageBytes)
 			if err != nil {
 				out.Status = "unavailable"
@@ -396,7 +405,7 @@ func (s *Server) searchCommonsImages(ctx context.Context, a Actor, task string, 
 				break
 			}
 		}
-		if len(out.Candidates) >= maxCandidates || checked >= 3 || ctx.Err() != nil {
+		if len(out.Candidates) >= maxCandidates || checked >= 3 || *shared >= 3 || ctx.Err() != nil {
 			break
 		}
 	}

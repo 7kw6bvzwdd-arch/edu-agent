@@ -73,6 +73,7 @@ type Slide struct {
 	Chart           any                     `json:"chart,omitempty"`
 }
 type Deck struct {
+	DeckCheck        *DeckQualityCheck           `json:"deck_check,omitempty"`
 	EditableFormulas bool                        `json:"editable_formulas,omitempty"`
 	Plan             *TeachingPlan               `json:"plan,omitempty"`
 	PageChecks       map[string]PageQualityCheck `json:"page_checks,omitempty"`
@@ -436,7 +437,7 @@ func validTheme(theme string) bool {
 func validateDeck(d Deck) error {
 	if d.Plan != nil {
 		if err := validateTeachingPlan(*d.Plan); err != nil {
-			return err
+			return fail(400, err.Error())
 		}
 		return validateDeckMinimum(d, 3)
 	}
@@ -537,6 +538,9 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 	if status != "awaiting_confirmation" {
 		return fail(409, "任务已确认或已经结束")
 	}
+	if err := s.teachingDeckDeliveryError(in.Result, s.cfg.Mode == "sample"); err != nil {
+		return err
+	}
 	if in.Revision != revision {
 		return fail(409, "内容已更新，请刷新")
 	}
@@ -606,9 +610,9 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request, a Actor) error
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	var pptx, mp4, status string
+	var pptx, mp4, status, mode string
 	var d Deck
-	e = tx.QueryRow(r.Context(), "SELECT pptx_path,mp4_path,result,status FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID).Scan(&pptx, &mp4, &d, &status)
+	e = tx.QueryRow(r.Context(), "SELECT pptx_path,mp4_path,result,status,mode FROM tasks WHERE id=$1 AND member_id=$2 AND deleted_at IS NULL", r.PathValue("id"), a.MemberID).Scan(&pptx, &mp4, &d, &status, &mode)
 	if e != nil {
 		return e
 	}
@@ -625,6 +629,11 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request, a Actor) error
 		mp4 = ""
 	}
 	format := r.PathValue("format")
+	if r.PathValue("version") == "" && (format == "pptx" || format == "md") && (status == "succeeded" || status == "degraded") {
+		if err := s.teachingDeckDeliveryError(d, mode == "sample"); err != nil {
+			return err
+		}
+	}
 	if format == "md" {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		w.Header().Set("Content-Disposition", "attachment; filename=lesson.md")

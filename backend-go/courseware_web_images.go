@@ -19,6 +19,8 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+type coursewareImageReviewBudgetKey struct{}
+
 // Search uses the existing configured service; actual pages supply image URLs.
 // Unknown rights stay as preview-only candidates until a teacher confirms.
 func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task string, need ImageNeed, slide Slide, maxCandidates int) ImageSearchResult {
@@ -27,10 +29,20 @@ func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task strin
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	budget := new(int)
+	ctx = context.WithValue(ctx, coursewareImageReviewBudgetKey{}, budget)
 	primaryCtx, stop := context.WithTimeout(ctx, 65*time.Second)
 	out := s.searchWebImages(primaryCtx, a, task, need, slide, maxCandidates)
 	stop()
 	if out.Status == "found" || ctx.Err() != nil {
+		return out
+	}
+	if *budget >= 3 {
+		out.Message = "本次各来源合计3次图片视觉审核预算已用完，未再等待备用 Commons；可修改检索词后重新检索、上传或跳过。"
+		if len(out.Candidates) > 0 {
+			out.Status = "needs_confirmation"
+			out.Message = "已保留相关候选图，请确认使用权限后选择。" + out.Message
+		}
 		return out
 	}
 	// A failed secondary source must not leave the UI waiting for 90 seconds.
@@ -257,6 +269,10 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 	}
 	seen := map[string]bool{}
 	checked, pages, downloads := 0, 0, 0
+	shared, _ := ctx.Value(coursewareImageReviewBudgetKey{}).(*int)
+	if shared == nil {
+		shared = new(int)
+	}
 	pending := []ImageCandidate{}
 	for _, query := range need.Queries {
 		client := *s.http
@@ -279,7 +295,7 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 			if err != nil || seen[u.String()] || strings.HasSuffix(u.Hostname(), "wikimedia.org") {
 				continue
 			}
-			if pages >= 4 || checked >= 3 || ctx.Err() != nil {
+			if pages >= 4 || checked >= 3 || *shared >= 3 || ctx.Err() != nil {
 				break
 			}
 			pages++
@@ -294,7 +310,7 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 					continue
 				}
 				seen[p.OriginalURL] = true
-				if checked >= 3 || downloads >= 8 || ctx.Err() != nil {
+				if checked >= 3 || *shared >= 3 || downloads >= 8 || ctx.Err() != nil {
 					break
 				}
 				downloads++
@@ -308,6 +324,7 @@ func (s *Server) searchWebImages(ctx context.Context, a Actor, task string, need
 					continue
 				}
 				checked++
+				*shared++
 				relevant, reason, err := s.reviewCoursewareImage(ctx, a, task, need, slide, p, mime, raw)
 				if err != nil {
 					out.Status = "unavailable"

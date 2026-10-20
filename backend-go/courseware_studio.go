@@ -49,7 +49,15 @@ func ownedCourseware(ctx context.Context, tx pgx.Tx, a Actor, id, lock string) (
 	return st, err
 }
 func slideContentHash(d Deck, sl Slide) string {
-	return fmt.Sprintf("%x", sha256.Sum256(append([]byte(d.Title+"\n"+d.Theme+"\n"), asJSON(sl)...)))
+	content := append([]byte(d.Title+"\n"+d.Theme+"\n"), asJSON(sl)...)
+	if d.Plan != nil && len(d.Plan.LearningGoals) > 0 && sl.Order > 0 && sl.Order <= len(d.Plan.Pages) {
+		row := d.Plan.Pages[sl.Order-1]
+		content = append(content, asJSON(struct {
+			Goals, Checks []string
+			Dependencies  []int
+		}{row.GoalRefs, row.ChecksGoals, row.DependsOn})...)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(content))
 }
 func slideReviews(ctx context.Context, tx pgx.Tx, id string, d Deck) ([]slideReview, error) {
 	reviews := []slideReview{}
@@ -235,6 +243,11 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		return err
 	}
 	preserveCoursewareChecks(&body.Result, st.Deck)
+	if body.Result.Plan != nil {
+		if err := validateTeachingPlan(*body.Result.Plan); err != nil {
+			return fail(400, err.Error())
+		}
+	}
 	if !paused {
 		body.Result = arrangeCourseware(body.Result)
 	}

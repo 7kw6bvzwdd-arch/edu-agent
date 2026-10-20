@@ -1,6 +1,6 @@
 <script setup>
 import TeachingClaimSources from './TeachingClaimSources.vue';
-defineProps({
+const props = defineProps({
   current: Object,
   currentPosition: Number,
   currentIndex: Number,
@@ -12,6 +12,17 @@ defineProps({
   changed: Function,
   qualityStatus: Function
 });
+function toggleGoal(id, check, enabled) {
+  const page = props.local?.plan?.pages?.[props.currentPosition - 1];
+  if (!page || !props.editable) return;
+  page.goal_refs ||= [];
+  page.checks_goals ||= [];
+  const field = check ? 'checks_goals' : 'goal_refs';
+  page[field] = page[field].filter((ref) => ref !== id);
+  if (enabled) page[field].push(id);
+  if (check && enabled && !page.goal_refs.includes(id)) page.goal_refs.push(id);
+  if (!check && !enabled) page.checks_goals = page.checks_goals.filter((ref) => ref !== id);
+}
 </script>
 <template>
   <details class="studio-reference-details">
@@ -59,6 +70,103 @@ defineProps({
       <details v-if="deckNotice" class="inspector-deck-notice">
         <summary>课件校验说明</summary>
         <p>{{ deckNotice }}</p>
+      </details>
+      <details v-if="local?.plan" class="studio-lesson">
+        <summary>学习目标与全课跨页核验</summary>
+        <p v-if="!local.plan.learning_goals?.length">
+          历史课件尚未建立结构化目标映射，不能据此认定核心目标已达标。
+        </p>
+        <article v-for="goal in local.plan.learning_goals || []" :key="goal.id">
+          <b>{{ goal.core ? '核心目标' : '拓展目标' }} {{ goal.id }} · {{ goal.text }}</b>
+          <p>
+            讲解页：{{
+              local.plan.pages
+                .filter((p) => p.goal_refs?.includes(goal.id))
+                .map((p) => p.position)
+                .join('、') || '未覆盖'
+            }}；考查页：{{
+              local.plan.pages
+                .filter((p) => p.checks_goals?.includes(goal.id))
+                .map((p) => p.position)
+                .join('、') || '未安排'
+            }}
+          </p>
+        </article>
+        <p>目标映射只检查引用与任务安排，不代表学生已经掌握。</p>
+        <label
+          v-if="
+            current &&
+            editable &&
+            local.plan.learning_goals?.length &&
+            local.plan.pages[currentPosition - 1]
+          "
+        >
+          必要前置页（用逗号分隔，只能填写早于本页的页号；删除前置页前请先调整此处）
+          <input
+            :value="(local.plan.pages[currentPosition - 1].depends_on || []).join(',')"
+            @change="
+              local.plan.pages[currentPosition - 1].depends_on = $event.target.value.trim()
+                ? $event.target.value
+                    .split(/[,，、\s]+/)
+                    .filter(Boolean)
+                    .map(Number)
+                : []
+            "
+          />
+        </label>
+        <template
+          v-if="
+            current &&
+            editable &&
+            local.plan.learning_goals?.length &&
+            local.plan.pages[currentPosition - 1]
+          "
+        >
+          <p>本页目标关系（保存后重新核验）：</p>
+          <div v-for="goal in local.plan.learning_goals" :key="goal.id">
+            <label
+              ><input
+                type="checkbox"
+                :checked="local.plan.pages[currentPosition - 1].goal_refs?.includes(goal.id)"
+                @change="toggleGoal(goal.id, false, $event.target.checked)"
+              />讲解 {{ goal.id }}</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                :checked="local.plan.pages[currentPosition - 1].checks_goals?.includes(goal.id)"
+                @change="toggleGoal(goal.id, true, $event.target.checked)"
+              />用具体任务考查 {{ goal.id }}</label
+            >
+          </div>
+        </template>
+        <p v-if="task.result?.deck_check" role="status">
+          {{
+            {
+              checked: '全课模型核验完成',
+              blocked: '全课核验未通过',
+              unavailable: '全课核验未完成',
+              sample: '固定样例程序检查',
+              disabled: '内容核验已关闭',
+              unmapped: '尚无目标映射'
+            }[task.result.deck_check.status] || '待核验'
+          }}：{{ task.result.deck_check.summary }}
+        </p>
+        <p v-else>全课生成完成后检查；内容修改后须保存并重新核验。</p>
+        <article v-for="(issue, index) in task.result?.deck_check?.issues || []" :key="index">
+          <b
+            >{{
+              issue.severity === 'missing_evidence'
+                ? '缺少依据'
+                : issue.severity === 'error'
+                  ? '需修复'
+                  : '建议'
+            }}
+            · 第{{ issue.pages.join('、') }}页 · {{ issue.object }}</b
+          >
+          <p>{{ issue.evidence }}</p>
+          <p>{{ issue.repair }}</p>
+        </article>
       </details>
       <details v-if="local && task.result?.evaluation" class="studio-lesson">
         <summary>独立模型辅助评审 · 不替代教师逐页审核</summary>

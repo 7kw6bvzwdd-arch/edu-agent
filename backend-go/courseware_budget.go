@@ -31,7 +31,7 @@ func (s *Server) reserveCoursewareProviderCall(ctx context.Context, a Actor, id 
 	manual := ctx.Value(coursewareManualReviewKey{}) == true && generationCycle(ctx) == nil && generationAttempt(ctx) == nil
 	changed, err := tx.Exec(ctx, `UPDATE tasks SET courseware_provider_calls=courseware_provider_calls+1
 	 WHERE id=$1 AND member_id=$2 AND type='courseware' AND mode='live'
-	 AND deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding'))
+	 AND deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding','rendering'))
 	 OR ($5 AND ((charge_state IN ('reserved','settled') AND status IN ('awaiting_preview','awaiting_confirmation','succeeded'))
      OR (status='failed' AND charge_state='released' AND input->>'preview_first'='true'
        AND jsonb_typeof(result->'generation')='object'
@@ -50,7 +50,7 @@ func (s *Server) reserveCoursewareProviderCall(ctx context.Context, a Actor, id 
 	// Only exceptional paths need a second query; routine calls neither download
 	// the full deck nor make a separate read/update round-trip over the tunnel.
 	var active bool
-	err = tx.QueryRow(ctx, `SELECT deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding'))
+	err = tx.QueryRow(ctx, `SELECT deleted_at IS NULL AND ((charge_state='reserved' AND status IN ('researching','expanding','rendering'))
 	 OR ($5 AND ((charge_state IN ('reserved','settled') AND status IN ('awaiting_preview','awaiting_confirmation','succeeded'))
      OR (status='failed' AND charge_state='released' AND input->>'preview_first'='true'
        AND jsonb_typeof(result->'generation')='object'
