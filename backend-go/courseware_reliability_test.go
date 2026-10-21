@@ -169,6 +169,9 @@ func TestCoursewareFigureContinuations(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
 			f := &TeachingFigure{Kind: kind, Title: "步骤顺序", Unit: "min"}
+			if kind == "timeline" {
+				f.Unit = "年"
+			}
 			for i := 0; i < 8; i++ {
 				f.Items = append(f.Items, FigureItem{Label: fmt.Sprintf("节点%d", i), Detail: "原始说明"})
 				if kind == "interval" {
@@ -251,7 +254,7 @@ func TestCoursewareModelOutputRecovery(t *testing.T) {
 					w.WriteHeader(503)
 					return
 				}
-				d := sampleDeck(in)
+				d := directHTTPFixtureDeck(sampleDeck(in))
 				raw := string(asJSON(d))
 				finish := "stop"
 				if calls == 1 || mode == "persistent-json" {
@@ -291,7 +294,7 @@ func TestCoursewareModelOutputRecovery(t *testing.T) {
 			s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
 			d, err := s.generate(context.Background(), actor, "recovery-check", in, nil)
 			want := 2
-			if mode == "number-cell" || mode == "string-bullets" || mode == "field-variants" || mode == "permanent-http" {
+			if mode == "string-bullets" || mode == "field-variants" || mode == "permanent-http" {
 				want = 1
 			}
 			if calls != want {
@@ -313,39 +316,30 @@ func TestCoursewareModelOutputRecovery(t *testing.T) {
 func TestOversizedTableAutomaticallyCompletesHTTP(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
-	calls := 0
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest"})
-		d.Slides[6].Table = &TeachingTable{Title: "原始记录", Headers: []string{"实验", "体积", "密度", "重力", "浮力", "拉力"}}
-		for i := 0; i < 7; i++ {
-			d.Slides[6].Table.Rows = append(d.Slides[6].Table.Rows, []string{"组别" + string(rune('A'+i)), "10", "1", "3", "1", "2"})
-		}
-		var obj map[string]any
-		json.Unmarshal(asJSON(d), &obj)
-		sl := obj["slides"].([]any)[1].(map[string]any)
-		sl["notes"] = []string{d.Slides[1].Notes}
-		sl["table"], sl["chart"], sl["picture"] = "", []any{}, map[string]any{}
-		sl["figure"] = map[string]any{"kind": "flow", "title": "观察与比较", "items": []string{"准备材料", "控制条件", "进行实验", "记录结果", "比较解释"}}
-		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(obj))}}}})
-	}))
-	defer provider.Close()
-	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+	// Compatibility for a saved component-based deck, not a new model response.
 	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest", UseKB: true, IdempotencyKey: newID()}
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
-	route := "/api/tasks/" + id
-	if err := s.workOne(context.Background()); err != nil {
+	d := sampleDeck(in)
+	d.Slides[6].Table = &TeachingTable{Title: "原始记录", Headers: []string{"实验", "体积", "密度", "重力", "浮力", "拉力"}}
+	for i := 0; i < 7; i++ {
+		d.Slides[6].Table.Rows = append(d.Slides[6].Table.Rows, []string{"组别" + string(rune('A'+i)), "10", "1", "3", "1", "2"})
+	}
+	d.Slides[1].Figure = &TeachingFigure{Kind: "flow", Title: "观察与比较", Items: []FigureItem{{Label: "准备材料"}, {Label: "控制条件"}, {Label: "进行实验"}, {Label: "记录结果"}, {Label: "比较解释"}}}
+	d = arrangeCourseware(d)
+	in.PreviewFirst, in.Detail = false, ""
+	tx, err := s.tx(context.Background(), 1)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "UPDATE tasks SET input=$1,result=$2,status='awaiting_confirmation',stage='awaiting_confirmation' WHERE id=$3", asJSON(in), asJSON(d), id); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	route := "/api/tasks/" + id
 	task := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
-	if task["status"] != "awaiting_confirmation" {
-		t.Fatalf("oversized table halted production: %v", task["error"])
-	}
-	var d Deck
-	json.Unmarshal(asJSON(task["result"]), &d)
-	if calls != 1 {
-		t.Fatalf("layout repair unnecessarily called the model %d times", calls)
-	}
 	if !strings.Contains(string(asJSON(d)), "组别G") {
 		t.Fatal("last row lost")
 	}

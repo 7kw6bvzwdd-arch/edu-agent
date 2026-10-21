@@ -43,6 +43,11 @@ func gradeGuidance(in TaskInput) string {
 	return fmt.Sprintf("\n年级教学约束：目标年级为%s。按该年级调整教学深度、术语、推理步长和计算难度，明确前置知识，先补必要概念，不默认学生掌握高年级方法，避免超纲。若课题与年级不匹配，在notes标明先修要求与教师需确认之处。本系统只有年级提示引导，没有教材索引；不得声称已自动匹配教材章节或验证课程标准。", in.Grade)
 }
 func coursewarePrompt(in TaskInput, sources []Source) string {
+	return directCoursewarePrompt(in, sources)
+}
+
+// Retained only as historical contract evidence; new generation does not call it.
+func legacyCoursewarePrompt(in TaskInput, sources []Source) string {
 	prompt := fmt.Sprintf(`根据需求和来源编写可直接授课的教案与课件；讲解默认中文，外语原文、对话与术语按教师目标保留，本次生成%d页；整套长度服从已确认教学规划，不用空泛口号或重复页凑数。
 输出JSON：title,theme,lesson(Markdown教案),slides,needs_review。
 每页字段：title,layout,section(可选章节名，最多80字),bullets(1–5条简明要点，每条最多80字),notes(教师讲解和答案),formula(可选LaTex),diagram(可选buoyancy或triangle),focus,table,figure,graph(可选真实数值函数坐标图),image_need(需要真实图片时使用)。image_need={purpose:"1至60字具体教学用途",queries:["1至2组中英文检索词，每组最多100字"],constraints:"人物/年代/地点等限制，最多300字"}；依据本页教学用途自行决定，需要借助实物、场景或史料观察理解时填写，系统自动检索筛选并插入，不需要教师逐张选图。不需要图片就省略。不生成picture、asset_id、URL、作者或授权，图片由系统实际检索。图形、图表和流程已有程序绘图，不用网络图片替代。图片计划页为真实图片保留空间，可与表格或流程图组合，不同时放其他大图形。联网关闭时省略image_need。

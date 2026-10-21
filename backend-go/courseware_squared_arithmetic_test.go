@@ -25,7 +25,7 @@ func TestPausedReviewBlocksSquaredArithmeticHTTP(t *testing.T) {
 	d.PageChecks = map[string]PageQualityCheck{}
 	for i := range d.Slides {
 		d.Slides[i].Order = i + 1
-		d.Plan.Pages = append(d.Plan.Pages, TeachingPage{Position: i + 1, Goal: "核对计算", Task: "concept", Minutes: 3})
+		d.Plan.Pages = append(d.Plan.Pages, TeachingPage{Position: i + 1, Goal: "核对计算", Task: "concept", Minutes: 3, Preview: true})
 	}
 	var a Actor
 	json.Unmarshal(worksCall(t, s, "GET", "/api/auth/me", token, nil, 200).Body.Bytes(), &a)

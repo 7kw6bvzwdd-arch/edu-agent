@@ -5,9 +5,13 @@ description: Generate and repair teaching courseware in edu-agent using its Deck
 
 # 项目课件技能
 
+2026-10-21直接生成修订：实际后端读取 [直接视觉创作规范](../direct-authoring.md)。所有新模型页面必须提供完整html；layout仅表示教学用途，不选择固定版式。下述历史组件规范只用于读取旧作品。源码预览、局部改写、真实PPTX和截图审核贯通；文字可编辑，复杂图形为背景图层。
+
 依据 WorkBuddy PPTX v20260918 的内容规划、视觉规划、逐页检查和局部编辑方法适配。
 
-生成前读取 [教学与视觉规范](references/teaching-design.md)。先确定整课教学路线与现有 theme，再按当前页的教学任务输出 Deck JSON；后续尚未制作页只规划用途，不提前生成全文。
+同时采用 manim-video 的先图后式、过程分解及 frontend-slides 的视口容量、真实版面验收原则；来源和舍弃项见 [蒸馏记录](../skill-distillation-20261021.md)。保持PPTX交付与现有教师确认流程。
+
+规划与页面制作前读取 [教学构图共用原则](references/composition.md)；页面制作同时读取 [教学与视觉规范](references/teaching-design.md)。先确定整课教学路线与现有 theme，再按当前页的教学任务输出 Deck JSON；后续尚未制作页只规划用途，不提前生成全文。
 
 项目执行环境：Go 调用模型，使用现有 Slide 字段、7 种 layout 和 Python PPTX 渲染器。模型输出结构化内容，后端负责稳定页面 ID、状态、保存、实际渲染与积分。页面正文承载关键问题和证据，详细推导与答案放 notes。
 

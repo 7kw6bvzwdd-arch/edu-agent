@@ -38,7 +38,8 @@ var subjectCheckers = map[string][]subjectCheck{
 }
 
 func subjectContentIssues(in TaskInput, d Deck) []PageQualityIssue {
-	issues := teachingDeckArithmeticIssues(d)
+	issues := append(teachingDeckArithmeticIssues(d), missingPictureTaskIssues(d)...)
+	issues = append(issues, singleCellTaskIssues(d)...)
 	for subject, checks := range subjectCheckers {
 		if strings.Contains(in.Subject, subject) {
 			for _, check := range checks {

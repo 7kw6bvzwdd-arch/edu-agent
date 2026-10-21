@@ -16,6 +16,13 @@ import (
 // prose still need the independent content reviewer.
 func exerciseVisibilityIssues(d Deck) []PageQualityIssue {
 	strip := strings.NewReplacer("两点法", "", "求解析式", "", "判断", "", "读图", "", "作图", "", "分层", "", "作业", "", "基础题", "", "巩固", "", "提升", "", "必做", "", "选做", "", "组", "", "由两点", "", "与", "", "A", "", "B", "", "C", "", "Ａ", "", "Ｂ", "", "Ｃ", "")
+	// Actual authored text is the student-facing source, not hidden summaries.
+	for i, sl := range d.Slides {
+		if sl.HTML != "" {
+			d.Slides = append([]Slide(nil), d.Slides...)
+			d.Slides[i].Bullets = []string{authoredVisibleText(sl.HTML)}
+		}
+	}
 	issues := exerciseCoordinateDisclosureIssues(d)
 	issues = append(issues, exerciseVertexFormulaDisclosureIssues(d)...)
 	issues = append(issues, exerciseExplicitSolutionIssues(d)...)
@@ -53,6 +60,9 @@ func exerciseExplicitSolutionIssues(d Deck) []PageQualityIssue {
 			continue
 		}
 		fields := append([]string{sl.Title, sl.Focus, sl.Formula}, sl.Bullets...)
+		if sl.HTML != "" {
+			fields = append(fields, authoredVisibleText(sl.HTML))
+		}
 		if sl.Table != nil {
 			fields = append(fields, sl.Table.Headers...)
 			for _, row := range sl.Table.Rows {
@@ -146,7 +156,9 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 	issues := []string{}
 	titles, bodies, layouts := map[string]int{}, map[string]int{}, map[string]bool{}
 	examples, exercises := 0, 0
+	authored := false
 	for i, sl := range d.Slides {
+		authored = authored || sl.HTML != ""
 		page := i + 1
 		// The renderer enforces actual fit and readable type. A fixed bullet
 		// count would rewrite already checked pages whose short questions fit.
@@ -165,7 +177,7 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 			issues = append(issues, fmt.Sprintf("第%d页与第%d页重复标题", page, prior))
 		}
 		titles[title] = page
-		if len(sl.Bullets) == 0 {
+		if len(sl.Bullets) == 0 && sl.HTML == "" {
 			issues = append(issues, fmt.Sprintf("第%d页正文为空，请补具体课堂内容", page))
 		}
 		body := make([]string, len(sl.Bullets))
@@ -176,6 +188,9 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 			}
 		}
 		joined := strings.Join(body, "|")
+		if sl.HTML != "" {
+			joined = authoredVisibleText(sl.HTML)
+		}
 		if prior := bodies[joined]; prior > 0 {
 			issues = append(issues, fmt.Sprintf("第%d页与第%d页重复正文", page, prior))
 		}
@@ -184,7 +199,7 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 			issues = append(issues, fmt.Sprintf("第%d页讲解备注过少，请写出依据、提问或答案", page))
 		}
 	}
-	if len(layouts) == 1 && len(d.Slides) >= 8 {
+	if !authored && len(layouts) == 1 && len(d.Slides) >= 8 {
 		issues = append(issues, "整套课件版式重复，请核对教学任务是否采用合适表达，不为凑版式拆页")
 	}
 	if d.Plan == nil && examples == 0 {
@@ -201,6 +216,11 @@ func coursewareQualityIssues(d Deck, teachingPages int) []string {
 }
 
 func coursewareFunctionIssues(in TaskInput, d Deck) []string {
+	for _, sl := range d.Slides {
+		if sl.HTML != "" {
+			return nil
+		}
+	} // Direct curves are reviewed from the actual rendered page.
 	if !strings.Contains(in.Topic, "一次函数") {
 		return nil
 	}

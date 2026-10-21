@@ -176,7 +176,7 @@ func TestReviewOutageAutomaticallyRechecksSavedPageHTTP(t *testing.T) {
 				w.WriteHeader(400)
 				return
 			}
-			d := sampleDeck(in)
+			d := directHTTPFixtureDeck(sampleDeck(in))
 			d.Slides = d.Slides[page-1 : page]
 			raw = string(asJSON(d))
 		} else {

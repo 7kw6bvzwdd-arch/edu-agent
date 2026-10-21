@@ -19,7 +19,7 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request, a Actor) error
 		Result   Deck `json:"result"`
 		Revision int  `json:"revision"`
 	}
-	if e := decode(r, &in); e != nil {
+	if e := decodeCoursewareSave(r, &in); e != nil {
 		return e
 	}
 	tx, e := s.tx(r.Context(), a.TenantID)
@@ -366,21 +366,21 @@ func (s *Server) processRevision(ctx context.Context, a Actor, id string, in Tas
 		d.Slides[in.SlideIndex].Bullets = append(d.Slides[in.SlideIndex].Bullets[:min(5, len(d.Slides[in.SlideIndex].Bullets))], "示例改写：先独立思考，再与同学讨论解题依据。")
 	} else {
 		originalPicture := d.Slides[in.SlideIndex].Picture
-		raw, e := s.agentChat(ctx, a, id, "courseware", "slide.rewrite", "根据教师要求修改课件的一页。返回JSON {title,layout,section,bullets,notes,formula,diagram,chart,table,figure,graph,scientific,focus,emphasis}；layout仅cover/concept/steps/comparison/example/exercise/summary，section最多80字。最多6条要点，每条最多80字。保留原有图表、表格、图解、公式及相关数据，除非教师明确要求修改。保留学科课题和视觉主题的区别；例题显示关键推理，完整讲解和练习答案留在notes。不要新增引用。以下全篇页数要求不适用于本次单页改写。图片由系统原样保留，不要输出picture，不能声称已看过图片；存在图片时不要新增chart/diagram，也不要同时添加table和figure。"+coursewareMediaContract+scientificContract+"\n"+coursewareTeachingSkill+coursewarePageContext(d, in.SlideIndex+1)+"\n修改要求："+in.Instruction+gradeGuidance(in))
+		raw, e := s.agentChat(ctx, a, id, "courseware", "slide.rewrite", "根据教师要求修改指定一页。只返回完整Slide JSON对象，包含title/layout/html/bullets/notes/answer；保留教学目标与真实引用。图片由系统保留；已有配图用data-teaching-picture占位。"+directCoursewareContract+"\n"+coursewareTeachingSkill+coursewarePageContext(d, in.SlideIndex+1)+"\n修改要求："+in.Instruction+gradeGuidance(in), 12000)
 		if e != nil {
 			return e
 		}
 		var parsed Deck
-		if e = decodeCourseware("{\"slides\":["+raw+"]}", &parsed); e != nil {
+		if e = decodeAuthoredCourseware("{\"slides\":["+raw+"]}", &parsed); e != nil {
 			return e
 		}
 		slide := parsed.Slides[0]
 		slide.Notes += "\nAI修改内容须教师核验。"
 		slide.Picture = originalPicture
 		slide.ImageNeed, slide.ImageSearch = d.Slides[in.SlideIndex].ImageNeed, d.Slides[in.SlideIndex].ImageSearch
-		slide.CanvasPositions = d.Slides[in.SlideIndex].CanvasPositions
+		slide.CanvasPositions = nil
 		slide.CanvasObjects = d.Slides[in.SlideIndex].CanvasObjects
-		slide.CanvasOrder = d.Slides[in.SlideIndex].CanvasOrder
+		slide.CanvasOrder = nil
 		slide.ID = d.Slides[in.SlideIndex].ID
 		d.Slides[in.SlideIndex] = slide
 	}

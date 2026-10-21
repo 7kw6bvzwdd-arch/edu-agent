@@ -22,7 +22,7 @@ type coursewareImageReviewBudgetKey struct{}
 
 // Search uses the existing configured service; actual pages supply image URLs.
 // The system selects relevant images; source metadata never invents permission.
-func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task string, need ImageNeed, slide Slide, maxCandidates int) ImageSearchResult {
+func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task string, need ImageNeed, slide Slide, maxCandidates int, inputs ...TaskInput) ImageSearchResult {
 	if s.cfg.VisionURL == "" || s.cfg.VisionKey == "" || s.cfg.VisionModel == "" {
 		return ImageSearchResult{Status: "unavailable", Message: "配图视觉审核未配置，未自动采用网络图片。", Candidates: []ImageCandidate{}}
 	}
@@ -30,6 +30,12 @@ func (s *Server) searchCoursewareImages(ctx context.Context, a Actor, task strin
 	defer cancel()
 	budget := new(int)
 	ctx = context.WithValue(ctx, coursewareImageReviewBudgetKey{}, budget)
+	if len(inputs) > 0 {
+		local := s.searchKnowledgeImages(ctx, a, task, inputs[0], need, slide, maxCandidates)
+		if local.Status == "found" || !inputs[0].UseWeb || *budget >= 3 || ctx.Err() != nil {
+			return local
+		}
+	}
 	primaryCtx, stop := context.WithTimeout(ctx, 65*time.Second)
 	out := s.searchWebImages(primaryCtx, a, task, need, slide, maxCandidates)
 	stop()

@@ -21,6 +21,10 @@ func arrangeCourseware(d Deck) Deck {
 	d = arrangeCoursewareFigures(d)
 	slides := make([]Slide, 0, len(d.Slides))
 	for _, sl := range d.Slides {
+		if sl.HTML != "" {
+			slides = append(slides, sl)
+			continue
+		}
 		conflict := (sl.Table != nil || sl.Figure != nil) && (sl.Chart != nil || sl.Diagram != "") || sl.Picture != nil && (sl.Chart != nil || sl.Diagram != "" || sl.Table != nil && sl.Figure != nil) || sl.Chart != nil && sl.Diagram != ""
 		if !conflict {
 			slides = append(slides, sl)

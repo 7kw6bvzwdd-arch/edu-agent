@@ -130,14 +130,14 @@ func TestTextProviderContractAndFabricatedCitation(t *testing.T) {
 		if in["model"] != "test-text-model" {
 			t.Error("wrong model")
 		}
-		d := sampleDeck(TaskInput{Topic: "浮力", Theme: "forest", Pages: 8})
+		d := directHTTPFixtureDeck(sampleDeck(TaskInput{Topic: "浮力", Theme: "forest", Pages: 8}))
 		if invalidCitation {
 			d.Slides[0].Notes = "引用不存在[S999]"
 		}
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}, "usage": map[string]int{"prompt_tokens": 120, "completion_tokens": 240}})
 	}))
 	defer provider.Close()
-	s, e := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Mode: "live", Storage: t.TempDir(), RenderURL: os.Getenv("TEST_RENDER_URL"), LLMURL: provider.URL + "/api/v3", LLMKey: "test-key", LLMModel: "test-text-model"})
+	s, e := NewServer(context.Background(), Config{DatabaseURL: isolatedTestDatabase(t), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Mode: "live", Storage: t.TempDir(), RenderURL: os.Getenv("TEST_RENDER_URL"), LLMURL: provider.URL + "/api/v3", LLMKey: "test-key", LLMModel: "test-text-model"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -163,5 +163,20 @@ func TestTextProviderContractAndFabricatedCitation(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Fatal("unexpected provider calls", calls)
+	}
+}
+
+func TestAuthoredRepairErrorsKeepSafeSpecificFeedback(t *testing.T) {
+	for code, want := range map[string]string{
+		"authored_text_outside":   "1280×720",
+		"authored_text_overflow":  "容器",
+		"authored_text_transform": "transform",
+		"authored_text_ids":       "唯一",
+		"authored_text_unmarked":  "data-editable",
+	} {
+		err := renderValidationError(asJSON(map[string]any{"detail": map[string]any{"code": code, "page": 2, "field": "html", "message": "private source and credentials"}}))
+		if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "第2页") || strings.Contains(err.Error(), "private") {
+			t.Fatal(code, err)
+		}
 	}
 }

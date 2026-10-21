@@ -17,9 +17,9 @@ S.scenes.forEach(s => s.narration.forEach(n => { display[n.id] = n.display; }));
 function sceneAt(t) { const i = T.scenes.findIndex(s => t < s.end); return i < 0 ? T.scenes.length - 1 : i; }
 function sentenceAt(t) { return sentences.find(s => t >= s.start && t < s.end) || null; }
 function stateAt(t) {
-  const i = sceneAt(t), sc = S.scenes[i], sp = T.scenes[i], st = { scene: i, objects: {}, sentence: sentenceAt(t) };
-  for (const o of sc.objects) st.objects[o.id] = { params: { ...(o.params || {}) }, opacity: 1, emph: 0 };
-  const order = sc.actions.map((a, j) => [a, sp.actions[j]]).sort((x, y) => x[1].start - y[1].start);
+  const i = sceneAt(t), sc = S.scenes[i], sp = T.scenes[i], st = { scene: i, objects: {}, sentence: sentenceAt(t), time: t };
+  for (const o of sc.objects||[]) st.objects[o.id] = { params: { ...(o.params || {}) }, opacity: 1, emph: 0 };
+  const order = (sc.actions||[]).map((a, j) => [a, sp.actions[j]]).sort((x, y) => x[1].start - y[1].start);
   const seen = {};
   for (const [a] of order) if ((a.op === 'show' || a.op === 'hide') && !seen[a.object]) {
     seen[a.object] = 1; if (st.objects[a.object]) st.objects[a.object].opacity = a.op === 'show' ? 0 : 1;
@@ -171,32 +171,54 @@ function drawLesson(sc, st, area) {
   if(sc.objects.length===1&&sc.objects[0].type==='scientific'){
     const o=sc.objects[0],state=st.objects[o.id],bundle=D.science?.[sc.id+'/'+o.id];
     if(!bundle){el('text',{x:area.x+30,y:area.y+60,fill:'#a22','font-size':26},svg,'科学图示数据缺失，请重新生成');return}
+    if(bundle.native&&o.scientific.kind==='scene'){TeachingDrawing.draw(el,svg,o.scientific,bundle,area,state,st.time,T.scenes[st.scene]);return}
     const frames=bundle.frames?.length?bundle.frames:[bundle.image],index=Math.round(clamp(state.params.progress||0,0,1)*(frames.length-1));
     el('image',{x:area.x,y:area.y,width:area.w,height:area.h,href:frames[index],preserveAspectRatio:'xMidYMid meet',opacity:state.opacity,'data-scientific':o.scientific.kind,'data-frame':index,'data-box':'science'},svg);
     return;
   }
   const count=sc.objects.length, gap=22, width=(area.w-gap*(count-1))/count;
   sc.objects.forEach((o,j)=>{
-    const state=st.objects[o.id], x=area.x+j*(width+gap), g=el('g', {opacity:state.opacity,'data-lesson':o.id});
-    el('rect',{x,y:area.y+12,width,height:area.h-24,rx:18,fill:'#ffffff',stroke:state.emph>0?'#b8790c':'#d6e2f0','stroke-width':2+state.emph*3},g);
-    const title=wrap(o.text,Math.floor((width-48)/28));
-    title.forEach((line,i)=>el('text',{x:x+24,y:area.y+52+i*40,'font-size':28,'font-weight':600,fill:'#18324c'},g,line));
-    let top=area.y+52+(title.length-1)*40+48;const split=o.type==='illustration'&&count===1;let textX=x+24,textWidth=width-48;if(o.type==='illustration'){const noteWidth=width-48,notes=o.items.reduce((n,item)=>n+wrap(item,Math.floor(noteWidth/16)).length*28+12,0),available=area.y+area.h-32-top;const h=split?area.y+area.h-52-top:Math.max(42,Math.min(220,available-notes-34));drawIllustration(o,{x:x+20,y:top-12,w:split?width*.6:width-40,h},g,st);if(split){textX=x+width*.65;textWidth=width*.35-24}else top+=h+20}const row=(area.y+area.h-32-top)/o.items.length;
+    const state=st.objects[o.id], x=area.x+j*(width+gap), color=COLORS[j%COLORS.length];
+    const g=el('g',{opacity:state.opacity,'data-lesson':o.id,'data-layout':o.type,'data-bounds':[x,area.y,width,area.h].join(',')},svg);
+    const title=wrap(o.text,Math.max(1,Math.floor((width-40)/28)));
+    title.forEach((line,i)=>el('text',{x:x+20,y:area.y+42+i*44,'font-size':28,'font-weight':600,fill:'#18324c'},g,line));
+    const top=area.y+54+title.length*44, bottom=area.y+area.h-20;
+    const span=T.scenes[st.scene], cues=(o.item_sentences||[]).map(id=>span.sentences.find(n=>n.id===id));
+    let box={x:x+16,y:top,w:width-32,h:bottom-top};
+    if(o.type==='illustration'){
+      if(count===1){drawIllustration(o,{x:x+12,y:top,w:width*.62,h:bottom-top},g,st);box={x:x+width*.65,y:top,w:width*.35-20,h:bottom-top}}
+      else {const h=Math.min(145,(bottom-top)*.42);drawIllustration(o,{x:x+12,y:top,w:width-24,h},g,st);box.y+=h+14;box.h-=h+14}
+    }
+    const horizontal=(o.type==='timeline'||o.type==='relationship')&&count===1;
+    const columns=count===1&&(o.type==='card'||o.type==='comparison')?Math.min(o.type==='comparison'?4:2,o.items.length):horizontal?o.items.length:1;
+    const rows=Math.ceil(o.items.length/columns), gapX=horizontal?40:22, gapY=18;
+    const w=(box.w-gapX*(columns-1))/columns, h=(box.h-gapY*(rows-1))/rows;
     o.items.forEach((item,i)=>{
-      const y=top+i*row;
-      if(o.type==='timeline'||o.type==='relationship'){
-        if(i<o.items.length-1)el('line',{x1:x+32,y1:y+8,x2:x+32,y2:y+row-8,stroke:COLORS[j%COLORS.length],'stroke-width':3},g);
-        el('circle',{cx:x+32,cy:y,r:7,fill:COLORS[j%COLORS.length]},g);
+      const col=i%columns,row=Math.floor(i/columns),ix=box.x+col*(w+gapX),cellY=box.y+row*(h+gapY);
+      const tileH=Math.min(h,o.type==='comparison'?260:130),iy=cellY+(h-tileH)/2;
+      const cue=cues[i], visible=!cue?1:ease(clamp((st.time-cue.start)/350,0,1)), focused=cue&&st.time>=cue.start&&st.time<cue.end;
+      const node=el('g',{opacity:visible,'data-item':i,'data-active':!!focused,'data-sentence':cue?.id||'',transform:'translate(0 '+((1-visible)*10)+')'},g);
+      if(horizontal&&i>0){
+        const cy=iy+tileH/2;el('line',{x1:ix-gapX+5,y1:cy,x2:ix-8,y2:cy,stroke:color,'stroke-width':3},node);
+        if(o.type==='relationship')el('path',{d:'M '+(ix-15)+' '+(cy-6)+' L '+(ix-8)+' '+cy+' L '+(ix-15)+' '+(cy+6),fill:'none',stroke:color,'stroke-width':3},node);
       }
-      const tx=(o.type==='timeline'||o.type==='relationship')?x+54:textX;
-      let size=count===3?23:28;
-      while(size>16&&wrap(item,Math.floor((Math.min(textWidth,width-(tx-x)-22))/size)).length*(size+12)>row-8)size--;
-      wrap(item,Math.floor((Math.min(textWidth,width-(tx-x)-22))/size)).forEach((line,k)=>el('text',{x:tx,y:y+8+k*(size+12),'font-size':size,fill:'#28445e','data-box':'lesson'},g,line));
+      if(focused)el('line',{x1:ix+18,y1:iy+tileH-4,x2:ix+Math.min(w-18,150),y2:iy+tileH-4,stroke:color,'stroke-width':3},node);
+      const ordered=o.type==='timeline'||o.type==='relationship';
+      const stacked=ordered&&!horizontal;
+      if(ordered){const cy=stacked?iy+tileH/2:iy+25;el('circle',{cx:ix+24,cy,r:13,fill:color},node);el('text',{x:ix+24,y:cy+5,'text-anchor':'middle','font-size':15,fill:'#fff'},node,String(i+1))}
+      if(stacked&&i>0)el('line',{x1:ix+24,y1:iy-gapY,x2:ix+24,y2:iy,stroke:color,'stroke-width':2},node);
+      const pad=stacked?50:18, availableH=tileH-(ordered&&!stacked?76:16), availableW=w-pad-18;let size=count===1?30:24;
+      while(size>14&&wrap(item,Math.max(1,Math.floor(availableW/size))).length*(size*1.5)>availableH)size--;
+      const lines=wrap(item,Math.max(1,Math.floor(availableW/size))),lineH=size*1.5;
+      const y=ordered&&!stacked?iy+79:iy+(tileH-lines.length*lineH)/2+size;
+      lines.forEach((line,k)=>el('text',{x:ix+pad,y:y+k*lineH,'font-size':size,'font-weight':focused?600:400,fill:focused?color:'#28445e','data-box':'lesson'},node,line));
+      if(state.emph>0&&(!cue||focused))el('line',{x1:ix+14,y1:iy+tileH-6,x2:ix+w-14,y2:iy+tileH-6,stroke:'#b8790c','stroke-width':3,opacity:state.emph},node);
     });
   });
 }
 function render(t) {
   const st = stateAt(t), sc = S.scenes[st.scene]; svg.textContent = '';
+  if(sc.html){svg.hidden=true;svg.style.display='none';TeachingDirect.render(sc,T.scenes[st.scene],t);return st}
   el('title', {}, svg, sc.title);
   el('rect', { x: 0, y: 0, width: W, height: H, fill: '#f5f8fc' });
   el('text', { x: 48, y: 62, 'font-size': 34, 'font-weight': 600, fill: '#18324c', 'data-box': 'head' }, svg, sc.title);
@@ -237,7 +259,7 @@ function render(t) {
 }
 // Controls. Auto play: await holds last their fixed ms. Step mode: time freezes at each await until 继续.
 const P = { t: 0, playing: false, step: false, waiting: null, subs: true, last: 0, audio: null, audioFor: null, stall: 0 };
-const awaits = []; T.scenes.forEach(s => s.holds.forEach(h => { if (h.type === 'await') awaits.push(h); }));
+const awaits = []; T.scenes.forEach(s => (s.holds||[]).forEach(h => { if (h.type === 'await') awaits.push(h); }));
 const fmt = ms => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function stopAudio() { if (P.audio) P.audio.pause(); P.audio = P.audioFor = null; }
 function audioFailure(){
@@ -306,5 +328,8 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') seek(P.t - 5000); else if (e.key === 'ArrowRight') seek(P.t + 5000);
 });
 window.__anim = { stateAt, render, sentenceAt, seek, toggle, resume, timeline: T, player: P, step: v => { P.step = v; $('mode').setAttribute('aria-pressed', String(v)); } };
+addEventListener('teaching-direct-error',()=>{P.playing=false;stopAudio()});
+window.__anim.ready=()=>TeachingDirect.wait();window.__anim.authoredState=()=>TeachingDirect.state();
+window.__hfWaitForSeekCompletion=()=>TeachingDirect.wait();
 draw(); P.last = performance.now(); requestAnimationFrame(frame);
 })();

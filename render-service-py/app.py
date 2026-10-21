@@ -9,8 +9,9 @@ import os
 import re
 import zipfile
 from pathlib import Path
+from pdf_extract import VERSION as PDF_EXTRACTION_VERSION
 from typing import Literal
-from teaching_plots import add_plot
+from teaching_plots import add_plot, function_expression
 from general_scene import DrawingScene
 from science_visuals import KINDS as SCIENCE_KINDS, CELL_PARTS, add_science, render_bundle, summary as science_summary, molecule
 from fastapi import FastAPI, HTTPException, UploadFile, Request
@@ -129,6 +130,7 @@ class FunctionAnimation(BaseModel):
 
 class FunctionGraph(BaseModel):
     renderer:Literal['native','matplotlib']='native'
+    reveal_on_click:bool=False
     title:str=Field(min_length=1,max_length=60)
     x_min:FiniteFloat=Field(ge=-1000,lt=0)
     x_max:FiniteFloat=Field(gt=0,le=1000)
@@ -139,6 +141,8 @@ class FunctionGraph(BaseModel):
 
     @model_validator(mode='after')
     def check_graph(self):
+        if self.reveal_on_click and (self.renderer!='native' or self.animation):
+            raise ValueError('Click animation requires native curves without GIF animation')
         if self.animation:
             m=self.animation
             if m.series>=len(self.series):raise ValueError('Missing animated series')
@@ -209,7 +213,9 @@ class TeachingFigure(BaseModel):
         return self
 
 class ImageProvenance(BaseModel):
-    provider:Literal['wikimedia_commons','web_page']
+    provider:Literal['wikimedia_commons','web_page','knowledge_document']
+    document_id:str=Field(default='',max_length=32)
+    page:int=Field(default=0,ge=0,le=300)
     title:str=Field(max_length=250)
     page_url:str=Field(max_length=2000)
     original_url:str=Field(max_length=4000)
@@ -256,12 +262,13 @@ class ForceVector(BaseModel):
     y:FiniteFloat=Field(ge=-1000,le=1000)
 
 class ScienceAnimation(BaseModel):
-    param:Literal['object_distance_cm','highlight']
+    param:Literal['object_distance_cm','highlight','progress']
     to:FiniteFloat
     duration_ms:int=Field(default=2000,ge=1000,le=8000)
 
 class ScientificDiagram(BaseModel):
-    kind:Literal['triangle','forces','circuit','thin_lens','molecule','cell','scene']
+    kind:Literal['triangle','forces','circuit','thin_lens','molecule','cell','scene','carbon']
+    allotrope:Literal['','diamond','graphite','fullerene']=''
     title:str=Field(min_length=1,max_length=60)
     sides:list[FiniteFloat]=Field(default_factory=list,max_length=3)
     object:str=Field(default='',max_length=24)
@@ -287,7 +294,10 @@ class ScientificDiagram(BaseModel):
     def check_science(self):
         if not self.title.strip():raise ValueError('Missing scientific purpose')
         if self.animation and self.kind in ('triangle','forces','circuit'):raise ValueError('This tool only supports static drawings')
-        if self.kind=='scene':
+        if self.kind=='carbon':
+            if not self.allotrope:raise ValueError('Missing carbon allotrope')
+            if self.animation and (self.animation.param!='progress' or self.animation.to!=1):raise ValueError('Invalid carbon motion')
+        elif self.kind=='scene':
             if not self.scene or self.animation:raise ValueError('Scene uses its own timeline')
         elif self.kind=='thin_lens':
             if not 1<=self.focal_length_cm<=100 or not 1<=self.object_distance_cm<=300 or not .1<=self.object_height_cm<=10:raise ValueError('Invalid lens parameters')
@@ -478,6 +488,7 @@ def apply_canvas_order(slide,order):
 
 
 class Slide(BaseModel):
+    html:str=Field(default='',max_length=200000)
     canvas_objects:list[CanvasObject]=Field(default_factory=list,max_length=24)
     canvas_order:list[str]=Field(default_factory=list,max_length=29)
     canvas_positions:dict[Literal['title','body','visual','formula','focus'],CanvasOffset]=Field(default_factory=dict,max_length=5)
@@ -812,7 +823,9 @@ def function_graph(slide,data,theme,x,y,w,h,show_coordinates=True):
     box(slide,left+pw+.07,py(0)-.17,.3,.34,'x',14,ink)
     box(slide,px(0)+.08,top,.3,.34,'y',14,ink)
     colors=[accent,'D75454','168979','8059B0']
+    click_groups=[]
     for i,series in enumerate(data.series):
+        first_shape=len(slide.shapes)
         color=colors[i]
         if series.kind=='linear':
             xa,xb=data.x_min,data.x_max
@@ -836,13 +849,16 @@ def function_graph(slide,data,theme,x,y,w,h,show_coordinates=True):
                 fraction=Fraction(number).limit_denominator(12)
                 return str(fraction) if abs(float(fraction)-number)<1e-12 else f'{number:g}'
             labels.append(f'({number_label(value)}, {number_label(result)})')
-        slope='x' if series.k==1 else '-x' if series.k==-1 else f'{series.k:g}x'
-        expression=f'y = {slope}' if series.k else f'y = {series.b:g}'
-        if series.k and series.b:expression+=f' {"+" if series.b>0 else "-"} {abs(series.b):g}'
-        if series.kind=='quadratic':expression=f'y = {series.a:g}x² {series.b:+g}x {series.c:+g}'
-        elif series.kind=='inverse':expression=f'y = {series.k:g}/x'
+        expression=function_expression(series)
         text=expression+(' · '+', '.join(labels) if labels and show_coordinates else '')
         box(slide,x+.22,y+h-legendh-.05+i*.38,w-.44,.35,text,14,color,True)
+        if data.reveal_on_click:
+            group=slide.shapes.add_group_shape(list(slide.shapes)[first_shape:])
+            group.name=f'function-series-{i}'
+            click_groups.append(group)
+    if click_groups:
+        from native_animation import add_click_sequence
+        add_click_sequence(slide,click_groups)
 
 
 def scientific_diagram(slide,data,theme,x,y,w,h):
@@ -972,7 +988,6 @@ def visual(slide,data,theme,x,y,w,h):
         shape(slide,x+w*.22,y+h*.12,w*.57,h*.65,soft,MSO_SHAPE.RIGHT_TRIANGLE,accent)
         box(slide,x+w*.08,y+h*.42,w*.12,.44,'a',19,ink)
         box(slide,x+w*.72,y+h*.34,w*.15,.44,'c',19,ink)
-        box(slide,x+.2,y+h*.84,w-.4,h*.14,'a² + b² = c²',20,ink,minimum=14)
 
 
 def teaching_table(slide,data,theme,x,y,w,h):
@@ -1127,6 +1142,7 @@ def teaching_figure(slide,data,theme,x,y,w,h):
 
 def image_source_notes(p):
     label='Wikimedia Commons' if p.provider=='wikimedia_commons' else '网页配图'
+    if p.provider=='knowledge_document':label=f'企业知识库 · 文档{p.document_id} · 第{p.page}页'
     rights=('\n使用权限状态：'+p.rights_status+'\n教师声明：'+p.rights_note+'\n确认时间：'+p.rights_confirmed_at) if p.rights_status else ''
     return '\n图片来源（'+label+'）：'+p.title+'\n来源页：'+p.page_url+'\n作者：'+p.author+'\n许可：'+p.license+'\n许可链接：'+p.license_url+'\n原图：'+p.original_url+'\n采用图片：'+p.download_url+'\n来源说明：'+p.description+'\n来源日期：'+p.date+'\n抓取时间：'+p.retrieved_at+'\n图片SHA256：'+p.sha256+rights+'\n图片来源与许可按抓取时元数据记录；相关性筛选不等于史实或授权认证，请教师核对。'
 
@@ -1226,6 +1242,19 @@ def render(deck,start_index=0,total_pages=None):
     for index,data in enumerate(deck.slides,start_index):
         field='bullets'
         try:
+            if data.html:
+                from authored_page import render_authored_page
+                field='html'
+                s=ppt.slides.add_slide(ppt.slide_layouts[6])
+                try:render_authored_page(s,data.html,data.notes,data.answer,data.picture)
+                except ValueError as exc:
+                    categories = {'authored_text_unmarked', 'authored_text_overlap', 'authored_text_outside', 'authored_text_overflow', 'authored_text_transform', 'authored_text_ids', 'authored_text_empty', 'authored_text_unmeasurable'}
+                    code = str(exc) if str(exc) in categories else 'authored_page_invalid'
+                    raise RenderError(code,'html')
+                if data.canvas_positions or data.canvas_order:raise RenderError('authored_layout_owned','html')
+                for obj in data.canvas_objects:draw_canvas_object(s,obj,ppt.slide_width,ppt.slide_height)
+                if data.picture and data.picture.provenance:s.notes_slide.notes_text_frame.text+=image_source_notes(data.picture.provenance)
+                continue
             if any(len(t)>160 for t in data.bullets):raise RenderError('text_overflow')
             layout=choose_layout(data,index,total_pages)
             s=ppt.slides.add_slide(ppt.slide_layouts[6]);s.background.fill.solid();s.background.fill.fore_color.rgb=rgb(bg)
@@ -1249,7 +1278,8 @@ def render(deck,start_index=0,total_pages=None):
                 if data.section:box(s,.7,.94,9.1,.43,data.section,12,muted,minimum=10)
             titlefont=('SimSun' if os.name=='nt' else 'Noto Serif CJK SC') if deck.theme=='paper' else FONT
             field='title'
-            specialist=bool(data.graph or data.scientific)
+            composed=bool(data.scientific and data.scientific.kind=='scene')
+            specialist=bool(data.graph or data.scientific) and not composed
             evidence_first=specialist and layout in ('concept','comparison','summary')
             focusx=8.2 if specialist and evidence_first else .7
             focusw=4.4 if specialist and evidence_first else 5.45 if specialist else 11.9
@@ -1262,7 +1292,16 @@ def render(deck,start_index=0,total_pages=None):
             # shared equation row. Keep the complete expressions at readable
             # scale rather than squeezing them into the text column.
             wide_science_formula=bool(data.scientific and r'\quad' in data.formula)
-            if data.graph and data.table:
+            if composed:
+                object_region(s,'title',box,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
+                caption='\n'.join(data.bullets)
+                captionh=text_lines(caption,11.9,19)*19*1.4/72+.08 if caption else 0
+                mediah=bottom-2.4-captionh-(.14 if caption else 0)
+                if mediah<2:raise RenderError('text_overflow')
+                field='scientific'
+                object_region(s,'visual',visual,data,deck.theme,.7,2.4,11.9,mediah)
+                if caption:object_region(s,'body',box,.7,bottom-captionh,11.9,captionh,caption,21,ink,minimum=19)
+            elif data.graph and data.table:
                 object_region(s,'title',box,.7,1.43,11.9,.89,data.title,32,ink,True,minimum=22,font=titlefont)
                 caption='\n'.join(data.bullets)
                 captionh=text_lines(caption,11.9,19)*19*1.4/72+.08 if caption else 0
@@ -1316,7 +1355,7 @@ def render(deck,start_index=0,total_pages=None):
             if data.picture and not teaching_media:
                 field='picture'
                 object_region(s,'visual',teaching_picture,data.picture,deck.theme,7.95,1.65 if cover else 2.55,4.65,bottom-(1.76 if cover else 2.66))
-            elif has_visual and not teaching_media:
+            elif has_visual and not teaching_media and not composed:
                 field='scientific' if data.scientific else 'graph' if data.graph else 'chart' if data.chart else 'diagram'
                 object_region(s,'visual',visual,data,deck.theme,.7 if evidence_first else 6.5 if specialist else 7.95,2.55,7.15 if evidence_first else 6.1 if specialist else 4.65,3.45 if wide_science_formula else 4.12 if specialist else bottom-2.66)
             if data.focus:
@@ -1361,7 +1400,7 @@ def render(deck,start_index=0,total_pages=None):
 
 
 @app.get('/health')
-def health():return {'status':'ok','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v3','courseware_plot_version':'matplotlib-v1','courseware_function_animation_version':'functions-v1','courseware_image_reference_version':'assets-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1','science_visuals_version':'science-visuals-v1'}
+def health():return {'status':'ok','pdf_extraction_version':PDF_EXTRACTION_VERSION,'knowledge_image_version':'knowledge-images-v1','courseware_native_click_version':'native-click-v1','courseware_canvas_version':'canvas-v3','pptx':True,'generated_code_execution':False,'courseware_authored_html_version':'authored-html-v2','isolated_browser_author_code':True,'courseware_media_version':'media-v1','courseware_layout_version':'page-fit-v1','courseware_composition_version':'teaching-purpose-v3','courseware_plot_version':'matplotlib-v1','courseware_function_animation_version':'functions-v1','courseware_image_reference_version':'assets-v1','courseware_graph_version':'graph-v1','scientific_diagrams_version':'science-v1','science_visuals_version':'science-visuals-v1'}
 
 @app.post('/render/object-map')
 async def object_map(request:Request,page:int=1):
@@ -1396,11 +1435,12 @@ def pptx(deck:Deck):
 class ScienceRequest(BaseModel):
     diagram:ScientificDiagram
     frames:bool=False
+    native:bool=False
 
 @app.post('/render/scientific')
 def scientific_preview(request:ScienceRequest):
     if request.diagram.kind not in SCIENCE_KINDS:raise HTTPException(422,'Unsupported scientific preview')
-    try:return render_bundle(request.diagram,mathtext_font(),request.frames)
+    try:return render_bundle(request.diagram,mathtext_font(),request.frames,request.native)
     except ValueError:raise HTTPException(422,{'code':'scientific_invalid','field':'scientific'})
 
 @app.post('/render/canvas-preview-pptx')
@@ -1424,11 +1464,8 @@ async def extract(file:UploadFile):
         if suffix in ('.txt','.md'):
             pages=[{'page':1,'text':data.decode('utf-8-sig')}]
         elif suffix=='.pdf':
-            from pypdf import PdfReader
-            reader=PdfReader(io.BytesIO(data))
-            if reader.is_encrypted:raise ValueError('暂不支持加密PDF')
-            if len(reader.pages)>300:raise ValueError('文档超过300页')
-            pages=[{'page':i+1,'text':p.extract_text() or ''} for i,p in enumerate(reader.pages)]
+            from pdf_extract import extract_pdf
+            pages=extract_pdf(data)
         elif suffix=='.docx':
             from docx import Document
             d=Document(io.BytesIO(data));texts=[p.text for p in d.paragraphs]
@@ -1439,9 +1476,14 @@ async def extract(file:UploadFile):
         else:raise ValueError('支持PDF/DOCX/PPTX/TXT/MD')
         # Some PDF glyph separators extract as NUL, which PostgreSQL cannot store.
         for page in pages:page['text']=page['text'].replace('\x00',' ')
-        if not any(p['text'].strip() for p in pages):raise ValueError('未提取到文字；首期不支持扫描件OCR')
+        from knowledge_images import extract_images
+        images,image_warnings=extract_images(data,suffix,pages)
+        if not any(p['text'].strip() for p in pages) and not images:raise ValueError('未提取到文字或可复用图片；不支持扫描件OCR')
+        if images:
+            for page in pages:
+                if not page['text'].strip():page['text']=f"[第{page['page']}页为图片内容，未进行OCR或事实核验]"
         if sum(len(p['text']) for p in pages)>1500000:raise ValueError('提取文字超过上限')
-        return {'pages':pages}
+        return {'pages':pages,'images':images,'image_warnings':image_warnings}
     except Exception as e:raise HTTPException(422,'文档解析失败：'+str(e)[:200])
 
 @app.post('/reference/extract')
@@ -1462,3 +1504,28 @@ def formula_preview(request:FormulaRequest):
         picture=next(s for s in sl.shapes if s.shape_type==13)
         return Response(picture.image.blob,media_type='image/png')
     except Exception:raise HTTPException(422,{'code':'formula_invalid','field':'formula'})
+
+
+class AuthoredAnimationScene(BaseModel):
+    id:str=Field(max_length=32)
+    html:str=Field(min_length=20,max_length=200000)
+    frames:list[dict]=Field(min_length=2,max_length=30)
+
+class AuthoredAnimationRequest(BaseModel):
+    scenes:list[AuthoredAnimationScene]=Field(min_length=1,max_length=12)
+    representative:str=Field(max_length=32)
+    picture:str|None=Field(default=None,max_length=12000000)
+
+@app.post('/render/authored-animation-check')
+def authored_animation_check(request:AuthoredAnimationRequest):
+    import json,subprocess
+    script=Path(os.environ.get('AUTHORED_ANIMATION_BRIDGE',Path(__file__).resolve().parent.parent/'animation-video'/'verify-authored.mjs'))
+    try:
+        result=subprocess.run([os.environ.get('NODE_BINARY','node'),str(script)],input=request.model_dump_json(),text=True,encoding='utf-8',capture_output=True,timeout=45,check=True)
+        data=json.loads(result.stdout)
+        if data.get('error'):
+            allowed={'invalid_geometry','nondeterministic_reverse_seek','no_visible_change','resource_blocked','script_error','console_error','browser_validation_failed'}
+            reason=data['error'] if data['error'] in allowed else 'browser_validation_failed'
+            raise HTTPException(422,{'code':'authored_animation_invalid','field':'html','reason':reason})
+        return data
+    except (subprocess.SubprocessError,ValueError,OSError):raise HTTPException(422,{'code':'authored_animation_invalid','field':'html','reason':'browser_validation_failed'})

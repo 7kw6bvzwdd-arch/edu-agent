@@ -16,7 +16,7 @@ func TestCoursewarePageCountThemesAndLayoutsHTTP(t *testing.T) {
 		id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, TaskInput{Type: "courseware", Topic: "浮力", Pages: 20, Theme: theme, UseKB: true, IdempotencyKey: newID()}, 202))["id"].(string)
 		v := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, token, nil, 200))
 		in := v["input"].(map[string]any)
-		if in["pages"] != float64(20) || in["theme"] != theme {
+		if in["pages"] != float64(0) || in["detail"] != "auto" || in["theme"] != theme {
 			t.Fatal("request silently changed", in)
 		}
 		worksCall(t, s, "POST", "/api/tasks/"+id+"/cancel", token, nil, 200)
@@ -56,7 +56,7 @@ func TestGenerationExactCountAndBoundedProviderContract(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
-		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: returnedPages, Theme: "forest"})
+		d := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: returnedPages, Theme: "forest"}))
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]string{"content": string(asJSON(d))}}}})
 	}))
 	defer provider.Close()
@@ -71,11 +71,11 @@ func TestGenerationExactCountAndBoundedProviderContract(t *testing.T) {
 		if err != nil || len(d.Slides) != count {
 			t.Fatalf("%d pages: %v", count, err)
 		}
-		if request.MaxTokens < count*500 || request.MaxTokens > 12000 {
+		if request.MaxTokens < count*500 || request.MaxTokens > 30000 {
 			t.Fatal("inappropriate output budget", count, request.MaxTokens)
 		}
 		prompt := request.Messages[1].Content
-		for _, word := range []string{"视觉", "实验", "步骤", "答案", "误区", "layout", "cover", "exercise"} {
+		for _, word := range []string{"视觉", "教学", "答案", "html", "data-editable", "layout"} {
 			if !strings.Contains(prompt, word) {
 				t.Errorf("generation brief missing %s", word)
 			}

@@ -14,7 +14,9 @@ import (
 
 func TestRemediationAnimationQueueAgingHTTP(t *testing.T) {
 	s := worksServer(t)
-	script := loadLinearKFixture(t)
+	script := directModelFixture(t)
+	script.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察一次函数的图像。"
+	script.Scenes[0].Narration[0].Speech = script.Scenes[0].Narration[0].Display
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(script))}}}})
 	}))

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -13,32 +12,31 @@ import (
 func TestConflictingCoursewareCompletesHTTP(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
-	calls := 0
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest"})
-		d.Slides[6].Diagram = "buoyancy"
-		d.Slides[6].Chart = d.Slides[4].Chart
-		d.Slides[6].Figure = d.Slides[7].Figure
-		d.Slides[7].Chart = d.Slides[4].Chart
-		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
-	}))
-	defer provider.Close()
-	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
-	input := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest", UseKB: true, IdempotencyKey: newID()}
-	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, input, 202))["id"].(string)
-	route := "/api/tasks/" + id
-	if err := s.workOne(context.Background()); err != nil {
+	// Persist a legacy draft: new model responses must contain authored HTML.
+	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest", UseKB: true, IdempotencyKey: newID()}
+	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
+	d := sampleDeck(in)
+	d.Slides[6].Diagram = "buoyancy"
+	d.Slides[6].Chart = d.Slides[4].Chart
+	d.Slides[6].Figure = d.Slides[7].Figure
+	d.Slides[7].Chart = d.Slides[4].Chart
+	deck := arrangeCourseware(d)
+	in.PreviewFirst, in.Detail = false, ""
+	tx, err := s.tx(context.Background(), 1)
+	if err != nil {
 		t.Fatal(err)
 	}
-	task := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
-	if task["status"] != "awaiting_confirmation" {
-		t.Fatalf("conflict halted task: %v", task["error"])
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "UPDATE tasks SET input=$1,result=$2,status='awaiting_confirmation',stage='awaiting_confirmation' WHERE id=$3", asJSON(in), asJSON(deck), id); err != nil {
+		t.Fatal(err)
 	}
-	var deck Deck
-	json.Unmarshal(asJSON(task["result"]), &deck)
-	if len(deck.Slides) != 12 || deck.Slides[6].Table == nil || deck.Slides[9].Diagram != "buoyancy" || calls != 1 {
-		t.Fatal("media lost or unnecessary model call", len(deck.Slides), calls)
+	if err = tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	route := "/api/tasks/" + id
+	task := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+	if len(deck.Slides) != 12 || deck.Slides[6].Table == nil || deck.Slides[9].Diagram != "buoyancy" {
+		t.Fatal("legacy media lost", len(deck.Slides))
 	}
 	worksCall(t, s, "POST", route+"/confirm", token, map[string]any{"result": deck, "revision": task["revision"], "accept_review": true}, 202)
 	if err := s.workOne(context.Background()); err != nil {

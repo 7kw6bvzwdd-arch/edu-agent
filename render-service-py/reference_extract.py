@@ -8,14 +8,12 @@ import zipfile
 from pathlib import Path
 from PIL import Image
 from pptx import Presentation
-from pypdf import PdfReader
+from pdf_extract import extract_pdf
 
 def inspect_reference(data,suffix):
     images=[]
     if suffix=='.pdf':
-        reader=PdfReader(io.BytesIO(data))
-        if reader.is_encrypted or not 1<=len(reader.pages)<=80:raise ValueError('Reference must be unencrypted and at most 80 pages')
-        pages=[{'page':i+1,'text':p.extract_text() or ''} for i,p in enumerate(reader.pages)]
+        pages=extract_pdf(data,max_pages=80)
         selected=sorted(set(round(i*(len(pages)-1)/min(5,len(pages)-1))+1 for i in range(min(6,len(pages))))) if len(pages)>1 else [1]
         executable=shutil.which('pdftoppm')
         if not executable:raise ValueError('PDF image renderer unavailable')

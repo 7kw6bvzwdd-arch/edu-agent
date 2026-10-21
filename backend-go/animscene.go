@@ -27,6 +27,7 @@ type AnimScript struct {
 	Scenes         []AnimScene `json:"scenes"`
 }
 type AnimScene struct {
+	HTML      string         `json:"html,omitempty"`
 	ID        string         `json:"id"`
 	Intent    string         `json:"intent"`
 	Title     string         `json:"title"`
@@ -38,17 +39,18 @@ type AnimScene struct {
 
 // AnimObject has no coordinate fields: slot picks a layout region, params are subject parameters.
 type AnimObject struct {
-	ID         string             `json:"id"`
-	Type       string             `json:"type"`
-	Kind       string             `json:"kind,omitempty"`
-	Slot       string             `json:"slot"`
-	Axes       string             `json:"axes,omitempty"`
-	Line       string             `json:"line,omitempty"`
-	Shape      string             `json:"shape,omitempty"`
-	Text       string             `json:"text,omitempty"`
-	Items      []string           `json:"items,omitempty"`
-	Params     map[string]float64 `json:"params,omitempty"`
-	Scientific *ScientificDiagram `json:"scientific,omitempty"`
+	ID            string             `json:"id"`
+	Type          string             `json:"type"`
+	Kind          string             `json:"kind,omitempty"`
+	Slot          string             `json:"slot"`
+	Axes          string             `json:"axes,omitempty"`
+	Line          string             `json:"line,omitempty"`
+	Shape         string             `json:"shape,omitempty"`
+	Text          string             `json:"text,omitempty"`
+	Items         []string           `json:"items,omitempty"`
+	ItemSentences []string           `json:"item_sentences,omitempty"`
+	Params        map[string]float64 `json:"params,omitempty"`
+	Scientific    *ScientificDiagram `json:"scientific,omitempty"`
 }
 
 // AnimSentence: subtitles are derived from Display; Speech is what TTS reads.
@@ -107,6 +109,9 @@ func decodeAnimScript(b []byte) (AnimScript, []string) {
 	if e := d.Decode(&sc); e != nil {
 		msg := e.Error()
 		if i := strings.Index(msg, "unknown field "); i >= 0 {
+			if strings.Contains(msg, `"animation"`) {
+				return sc, []string{"animation字段位置错误：仅专用scientific内允许；kind=scene时整个对象及scene内均删除animation。使用scene.actions数组定义动作，外层AnimScene.actions用tween param=progress to=1。不要输出对象animation或场景animation"}
+			}
 			return sc, []string{"作者数据含不允许的字段" + strings.TrimPrefix(msg[i:], "unknown field ") + "：字幕、时间轴、音频时长与坐标由程序生成"}
 		}
 		return sc, []string{"作者数据不是有效JSON：" + msg}
@@ -120,6 +125,9 @@ func decodeAnimScript(b []byte) (AnimScript, []string) {
 func animRunes(s string, max int) bool { n := utf8.RuneCountInString(s); return n > 0 && n <= max }
 
 func validateAnimScript(sc AnimScript) []string {
+	if sc.Archetype == "html.direct@1" {
+		return validateDirectAnimation(sc)
+	}
 	var p []string
 	add := func(format string, a ...any) { p = append(p, fmt.Sprintf(format, a...)) }
 	if sc.Version != animScriptVersion {
@@ -170,6 +178,27 @@ func validateAnimScript(sc AnimScript) []string {
 			if !animIDPattern.MatchString(o.ID) || objects[o.ID].ID != "" {
 				add("%s：对象ID无效或重复", oat)
 			}
+			if len(o.ItemSentences) > 0 {
+				if !animContains([]string{"card", "timeline", "relationship", "comparison", "illustration"}, o.Type) || len(o.ItemSentences) != len(o.Items) {
+					add("%s：item_sentences须与讲解组件items逐条对应", oat)
+				}
+				previous := -1
+				for _, id := range o.ItemSentences {
+					index := -1
+					for j, n := range s.Narration {
+						if n.ID == id {
+							index = j
+							break
+						}
+					}
+					if index < 0 {
+						add("%s：item_sentences须引用本幕句子", oat)
+					} else if index < previous {
+						add("%s：item_sentences须按旁白顺序排列", oat)
+					}
+					previous = index
+				}
+			}
 			if o.Type == "illustration" {
 				if !animContains([]string{"water_cycle", "water_states", "plant", "uploaded"}, o.Kind) {
 					add("%s：请选择已支持的示意图或教师配图", oat)
@@ -183,10 +212,26 @@ func validateAnimScript(sc AnimScript) []string {
 				continue
 			}
 			if o.Type == "scientific" {
-				if sc.Archetype != "lesson.explain@1" || !isScienceVisual(o.Scientific) || len(s.Objects) != 1 || o.Text != "" || len(o.Items) > 0 {
-					add("%s：科学图示仅用于通用讲解，每幕独占绘图区，标题写入scientific", oat)
+				if sc.Archetype != "lesson.explain@1" {
+					add("%s：scientific只用于lesson.explain@1", oat)
+				}
+				if len(s.Objects) != 1 {
+					add("%s：本幕objects必须仅保留这一个scientific对象，将其他图形文字放入scientific.scene.objects，不能搭配外层card/text", oat)
+				}
+				if o.Text != "" || len(o.Items) > 0 {
+					add("%s：删除外层text/items，标题只放scientific.title；scientific外层仅id/type/slot/params/scientific", oat)
+				}
+				if !isScienceVisual(o.Scientific) {
+					add("%s：scientific.kind须thin_lens/molecule/cell/scene/carbon，不能写water_cycle；水循环运动请使用kind=scene组合图形", oat)
 				} else if err := validateScientific(Slide{Scientific: o.Scientific}); err != nil {
 					add("%s：%s", oat, err.Error())
+				}
+				if o.Scientific != nil && o.Scientific.Scene != nil {
+					for _, a := range o.Scientific.Scene.Actions {
+						if a.Sentence != "" && !sentences[a.Sentence] {
+							add("%s：内部动作sentence=%s须引用本幕旁白", oat, a.Sentence)
+						}
+					}
 				}
 				if v := o.Params["progress"]; v < 0 || v > 1 {
 					add("%s：科学图示进度须为0至1", oat)
@@ -201,9 +246,9 @@ func validateAnimScript(sc AnimScript) []string {
 				if o.Type != "scientific" && (!animRunes(o.Text, 24) || len(o.Items) < 1 || len(o.Items) > 4) {
 					add("%s：讲解组件须有1–24字标题和1–4条内容", oat)
 				}
-				for _, item := range o.Items {
+				for i, item := range o.Items {
 					if !animRunes(item, 28) {
-						add("%s：讲解内容每条须为1–28字", oat)
+						add("%s：讲解内容第%d条实际%d字，须1–28字（包含英文空格标点）；请缩短为关键词或拆成两条，完整英语例句保留在narration并单独朗读", oat, i+1, len([]rune(item)))
 					}
 				}
 				if o.Axes != "" || o.Line != "" || o.Shape != "" {

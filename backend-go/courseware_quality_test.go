@@ -58,12 +58,12 @@ func TestCoursewarePreflightAndSingleRepair(t *testing.T) {
 				d.Slides[6].Table.Rows = [][]string{{"missing column"}}
 			}
 		}
-		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
+		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(directHTTPFixtureDeck(d)))}}}})
 	}))
 	defer provider.Close()
 	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
-			respond(w, 200, map[string]string{"courseware_media_version": "media-v1"})
+			respond(w, 200, map[string]any{"courseware_media_version": "media-v1", "courseware_authored_html_version": "authored-html-v2", "isolated_browser_author_code": true})
 			return
 		}
 		renderCalls++
@@ -110,12 +110,12 @@ func TestCoursewareRepairFailuresAreBounded(t *testing.T) {
 				if calls == 2 && mode == "fabricated-source" {
 					d.Slides[1].Notes += "[S999]"
 				}
-				respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(d))}}}})
+				respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(directHTTPFixtureDeck(d)))}}}})
 			}))
 			defer provider.Close()
 			renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/health" {
-					respond(w, 200, map[string]string{"courseware_media_version": "media-v1"})
+					respond(w, 200, map[string]any{"courseware_media_version": "media-v1", "courseware_authored_html_version": "authored-html-v2", "isolated_browser_author_code": true})
 					return
 				}
 				if mode == "renderer-unavailable" {

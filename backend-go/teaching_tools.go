@@ -12,6 +12,7 @@ type ForceVector struct {
 }
 type ScientificDiagram struct {
 	Kind             string            `json:"kind"`
+	Allotrope        string            `json:"allotrope,omitempty"`
 	Title            string            `json:"title"`
 	Sides            []float64         `json:"sides,omitempty"`
 	Object           string            `json:"object,omitempty"`
@@ -107,7 +108,7 @@ func validateScientific(sl Slide) error {
 				return fail(400, "电阻需为0.01至1000Ω，不能生成短路")
 			}
 		}
-	case "thin_lens", "molecule", "cell", "scene":
+	case "thin_lens", "molecule", "cell", "scene", "carbon":
 		return validateScienceVisual(d)
 	default:
 		return fail(400, "专业图示类型不支持")
@@ -125,6 +126,7 @@ scientific={kind:"triangle",title:"具体教学用途",sides:[3,4,5]}，三边�
 scientific={kind:"forces",title:"物体的受力",object:"研究对象",unit:"N",equilibrium:true,forces:[{label:"重力",x:0,y:-10},{label:"支持力",x:0,y:10}]}，x向右y向上，箭头长度由实际分量计算。列全对象受到的力；equilibrium=true必须合力为零；不能把合力当额外作用力。
 scientific={kind:"circuit",title:"电阻串并联",voltage:6,resistances:[10,20],connection:"series或parallel",closed:true}，理想直流电源、理想导线和正电阻，程序计算总电阻及总/支路电流；非实测示例在标题和notes标明。仅此受控电路模型，复杂实验装置需其他有出处的图示，不编造已支持类型。
 scientific新增三类，由系统绘图，参数可编辑：
+已有专业模型能表达的光路、分子和典型细胞结构优先用下列scientific，不用image_need去搜索替代示意图。image_need只用于确需真实照片、显微图或外部史料的任务。单页一个外层scientific；scene内部支持多个carbon模型、基础图形与标注，自动使用全宽画布，适合结构对照；尚未支持内部组合的其他专业模型仍用相邻页，不能声称已同屏画出。取图失败且实际无picture时不得假称图片已展示；真实史料任务仍需实际图片和出处。
 凸透镜{kind:"thin_lens",title:"观察物距与像距",focal_length_cm:10,object_distance_cm:30,object_height_cm:3}。理想薄透镜近轴模型，长度单位cm，焦距1–100、物距1–300、物高0.1–10。像距/放大率/光线由程序计算；物距等于焦距时不成有限远像，不把示意写成实测。可加animation:{param:"object_distance_cm",to:15,duration_ms:2000}，程序处理经过焦点的状态。
 分子{kind:"molecule",title:"乙醇的羟基",smiles:"CCO",highlight_group:"hydroxyl"}。SMILES必须有依据，不确定名称与结构对应时标待核验；仅单一分子、最多80原子。highlight_group仅none/hydroxyl/carboxyl/amino/carbonyl/double_bond，所选基团必须存在。RDKit生成二维结构，不代表空间构型、反应可行性或机理已验证。可加animation:{param:"highlight",to:1,duration_ms:1500}渐进高亮，不能伪造反应动画。
 细胞{kind:"cell",title:"植物细胞结构",cell_type:"plant",visible_parts:["cell_wall","cell_membrane","cytoplasm","nucleus","chloroplast","vacuole"],highlight_parts:["chloroplast"]}。cell_type为plant/animal，结构编号仅cell_wall/cell_membrane/cytoplasm/nucleus/mitochondrion/chloroplast/vacuole；highlight_parts必须属于visible_parts。animal不含cell_wall/chloroplast/中央液泡vacuole。此图是典型细胞的简化结构示意，非真实比例或显微照片，不推断所有植物细胞都有叶绿体。可加animation:{param:"highlight",to:1,duration_ms:1500}。三个新类型的动画时长1000–8000毫秒；PPT中为GIF，网页编辑保留参数，PPT内不是逐个结构可编辑对象。

@@ -233,7 +233,11 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 	}
 	var picture bytes.Buffer
 	fixtureImage := image.NewRGBA(image.Rect(0, 0, 320, 240))
-	fixtureImage.Set(0, 0, color.RGBA{R: 120, G: 80, B: 40, A: 255})
+	for y := 0; y < 240; y++ {
+		for x := 0; x < 320; x++ {
+			fixtureImage.Set(x, y, color.RGBA{R: 120, G: 80, B: 40, A: 255})
+		}
+	}
 	png.Encode(&picture, fixtureImage)
 	commons := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/web-page" {
@@ -266,10 +270,28 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 		web           bool
 		query, status string
 	}{
-		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"web-pending", true, "web-pending", "found"}, {"disabled", false, "Great Wall", "disabled"}, {"outage", true, "outage", "unavailable"},
+		{"automatic", true, "Great Wall", "found"}, {"web-primary", true, "web-primary", "found"}, {"web-pending", true, "web-pending", "found"}, {"offline-kb-empty", false, "Great Wall", "not_found"}, {"outage", true, "outage", "unavailable"},
+		{"offline-knowledge", false, "Water cycle", "found"},
+		{"professional-fallback", false, "cell photograph", ""},
+		{"time-repair", false, "Great Wall", "not_found"},
+		{"missing-photo-task", false, "Great Wall", "not_found"},
+		{"cell-plan-repair", false, "cell structure", ""},
+		{"single-cell-task", false, "cell structure", ""},
+		{"invalid-repair", false, "cell structure", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			need := &ImageNeed{Purpose: "观察城墙的连接", Queries: []string{tc.query}, Constraints: "实际建筑照片"}
+			materialID := ""
+			if tc.name == "offline-knowledge" {
+				if os.Getenv("KNOWLEDGE_IMAGE_FIXTURES") == "" {
+					t.Skip("requires uploaded figure fixture")
+				}
+				materialID = uploadKnowledgeImageFixture(t, s, token, filepath.Join(os.Getenv("KNOWLEDGE_IMAGE_FIXTURES"), "cycle.pdf"))
+				if err := s.ingestOne(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				need.Purpose, need.Constraints = "观察水循环过程", "原文中的教学示意图"
+			}
 			lesson := Deck{Title: "长城的防御设施", Theme: "ocean", Lesson: "固定接口验收内容，非真实模型结果。观察城墙、比较设施、解释防御关系。"}
 			plan := TeachingPlan{Summary: "课时未指定，分钟仅为估计。", Conventions: "图片只作为建筑观察材料，不能证明具体历史事件。"}
 			plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "依据图像观察并解释建筑连接", Core: true}}
@@ -280,11 +302,34 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 					lesson.Slides[i].ImageNeed = nil
 					plan.Pages[i].ImageNeed = nil
 				}
+				if (tc.name == "professional-fallback" || tc.name == "cell-plan-repair" || tc.name == "single-cell-task" || tc.name == "invalid-repair") && i < 4 {
+					lesson.Slides[i].ImageNeed = nil
+					lesson.Slides[i].Scientific = &ScientificDiagram{Kind: "cell", Title: "典型细胞结构示意", CellType: "plant", VisibleParts: []string{"cell_wall", "cell_membrane", "cytoplasm", "nucleus"}}
+				}
+				if tc.name == "missing-photo-task" {
+					lesson.Slides[i].Bullets = []string{"观察照片：画面里直接可见哪些建筑或场景？"}
+				}
+				if tc.name == "single-cell-task" {
+					lesson.Slides[i].Bullets = []string{"左图植物细胞、右图动物细胞，请比较两幅图的共有结构。"}
+				}
 				plan.Pages[i].GoalRefs = []string{"g1"}
 				if i == 3 {
 					plan.Pages[i].ChecksGoals = []string{"g1"}
 				}
 			}
+			lesson = directHTTPFixtureDeck(lesson)
+			professional := tc.name == "professional-fallback" || tc.name == "cell-plan-repair" || tc.name == "single-cell-task" || tc.name == "invalid-repair"
+			for i := range lesson.Slides {
+				if professional {
+					lesson.Slides[i].ImageNeed = nil
+					plan.Pages[i].ImageNeed = nil
+					lesson.Slides[i].HTML += `<svg width="500" height="300" style="position:absolute;left:500px;top:320px"><rect x="10" y="40" width="220" height="220" rx="20" fill="#bde5ad"/><circle cx="120" cy="150" r="30" fill="#d788a9"/><ellipse cx="370" cy="150" rx="105" ry="100" fill="#edcfb0"/><circle cx="370" cy="150" r="30" fill="#d788a9"/></svg>`
+				} else if lesson.Slides[i].ImageNeed != nil {
+					lesson.Slides[i].HTML += `<img data-teaching-picture alt="待取得的教学配图" style="position:absolute;left:500px;top:330px;width:400px;height:300px;object-fit:contain">`
+				}
+			}
+			planCalls := 0
+			pageCalls, visualCalls := 0, 0
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req struct {
 					Model    string
@@ -292,6 +337,9 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				}
 				json.NewDecoder(r.Body).Decode(&req)
 				if len(req.Messages) == 0 {
+					if tc.name == "offline-knowledge" {
+						t.Error("offline knowledge generation contacted external search")
+					}
 					if tc.name == "web-primary" || tc.name == "web-pending" {
 						pageURL := "https://museum.example/web-page"
 						if tc.name == "web-pending" {
@@ -308,7 +356,28 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 					var prompt string
 					json.Unmarshal(req.Messages[len(req.Messages)-1].Content, &prompt)
 					if strings.Contains(prompt, "规划符合实际学科") {
+						planCalls++
+						if tc.name == "cell-plan-repair" {
+							plan.Pages[0].ImageNeed = nil
+							plan.Pages[0].Task = "在本页并排观察两幅细胞结构示意图，分别为植物细胞和动物细胞"
+							if strings.Contains(prompt, "一页仅支持一个scientific") {
+								plan.Pages[0].Task = "观察本页植物细胞图，指认细胞核，后续页面再观察动物细胞"
+							}
+						}
+						if tc.name == "time-repair" {
+							minutes := 10.25
+							if strings.Contains(prompt, "必讲合计51.25分钟") && strings.Contains(prompt, "至少减少6.25分钟") && strings.Contains(prompt, "第5页：10.25分钟") {
+								minutes = 9
+							}
+							for i := range plan.Pages {
+								plan.Pages[i].Minutes = minutes
+							}
+						}
 						raw = string(asJSON(plan))
+						if tc.name == "professional-fallback" {
+							// Real providers explicitly send empty arrays; storage omits them.
+							raw = strings.Replace(raw, `"goal_refs":["g1"]`, `"goal_refs":["g1"],"checks_goals":[]`, 1)
+						}
 					} else if strings.Contains(prompt, "本批只返回第") {
 						var page, end int
 						fmt.Sscanf(regexp.MustCompile(`本批只返回第\d+至第\d+页`).FindString(prompt), "本批只返回第%d至第%d页", &page, &end)
@@ -319,7 +388,21 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 						}
 						one := lesson
 						one.Slides = lesson.Slides[page-1 : page]
+						if tc.name == "invalid-repair" && page == 1 {
+							pageCalls++
+							if pageCalls == 2 {
+								sl := one.Slides[0]
+								sl.Scientific = nil
+								sl.Table = &TeachingTable{Headers: []string{"结构", "名称"}, Rows: [][]string{{"细胞膜", ""}}}
+								one.Slides = []Slide{sl}
+							}
+						}
 						raw = string(asJSON(one))
+					}
+				} else if tc.name == "invalid-repair" && req.Model == "vision-fixture" {
+					visualCalls++
+					if visualCalls == 1 {
+						raw = `{"issues":[{"object":"正文","category":"readability","certainty":"confirmed","location":"右侧正文","observed":"文字重叠","expected":"文字可读","evidence":"固定显示故障样例","severity":"error","repair":"缩短显示文字，保留结构与任务"}]}`
 					}
 				} else if strings.Contains(string(req.Messages[0].Content), "真实候选图片") {
 					raw = `{"relevant":true,"reason":"固定相关性审核：建筑照片支持连接观察。"}`
@@ -333,20 +416,66 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 			s.cfg.SearchURL, s.cfg.SearchKey = provider.URL, "fixture"
 			s.cfg.CoursewareContentReviewDisabled = true
 			in := TaskInput{Type: "courseware", Topic: "长城", Subject: "历史", Theme: "ocean", UseKB: true, UseWeb: tc.web, IdempotencyKey: newID()}
+			if tc.name == "time-repair" {
+				in.LessonMinutes = 45
+			}
+			if tc.name == "offline-knowledge" {
+				in.Topic, in.Subject = "水循环", "地理"
+			}
 			id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
+			defer worksCall(t, s, "POST", "/api/tasks/"+id+"/cancel", token, nil, 200)
 			if err := s.workOne(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			got := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, token, nil, 200))
+			for round := 0; round < 8 && got["status"] == "pending"; round++ {
+				makeAutomaticRetryReady(t, s, id)
+				if err := s.workOne(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				got = worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+id, token, nil, 200))
+			}
+			if tc.name == "missing-photo-task" {
+				// This fixture never repairs the task: all three bounded rounds fail.
+				// Exhaustion must release the reservation instead of offering preview.
+				if got["status"] != "failed" || got["charge_state"] != "released" {
+					t.Fatal("photo-dependent task passed without an actual photo", got["status"], got["stage"], got["error"])
+				}
+				var failed Deck
+				json.Unmarshal(asJSON(got["result"]), &failed)
+				if failed.Generation == nil || failed.Generation.PageAttempts[1] != 3 || len(failed.Slides) != 0 {
+					t.Fatal("missing photo was not handled with bounded local repair", failed.Generation, len(failed.Slides))
+				}
+				worksCall(t, s, "POST", "/api/tasks/"+id+"/cancel", token, nil, 200)
+				return
+			}
 			if got["status"] != "awaiting_preview" {
 				t.Fatalf("preview not preserved: %v %v events=%s", got["status"], got["error"], asJSON(got["result"]))
+			}
+			if tc.name == "invalid-repair" && pageCalls < 3 {
+				t.Fatal("fixture did not exercise failed review then invalid model repair", pageCalls)
 			}
 			var d Deck
 			json.Unmarshal(asJSON(got["result"]), &d)
 			if len(d.Slides) != 3 || d.Plan == nil {
 				t.Fatal("three planned preview pages missing")
 			}
+			if tc.name == "time-repair" && (planCalls != 2 || d.Plan.Pages[0].Minutes != 9 || d.Plan.Pages[4].Minutes != 9) {
+				t.Fatal("time repair did not use actual per-page budget feedback", planCalls, d.Plan)
+			}
+			if tc.name == "cell-plan-repair" && (planCalls != 1 || !strings.Contains(d.Plan.Pages[0].Task, "并排")) {
+				t.Fatal("unrenderable two-cell comparison survived planning", planCalls, d.Plan.Pages[0])
+			}
 			for _, sl := range d.Slides {
+				if check := d.PageChecks[sl.ID]; check.Hash != slideContentHash(d, sl) {
+					t.Fatalf("saved preview differs from checked page: page=%d stored=%s current=%s", sl.Order, check.Hash, slideContentHash(d, sl))
+				}
+				if tc.name == "professional-fallback" || tc.name == "cell-plan-repair" || tc.name == "single-cell-task" || tc.name == "invalid-repair" {
+					if sl.HTML == "" || sl.Scientific != nil || sl.ImageNeed != nil || sl.Picture != nil || sl.ImageSearch != nil {
+						t.Fatalf("professional diagram inherited obsolete photo requirement: need=%+v search=%+v", sl.ImageNeed, sl.ImageSearch)
+					}
+					continue
+				}
 				if sl.ImageSearch == nil || sl.ImageSearch.Status != tc.status {
 					t.Fatalf("image status: %+v", sl.ImageSearch)
 				}
@@ -356,8 +485,16 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 				if tc.name == "web-primary" && !strings.HasPrefix(sl.Picture.Source, "网页配图") {
 					t.Fatal("automatic web primary did not use webpage image")
 				}
+				if tc.name == "offline-knowledge" && !strings.HasPrefix(sl.Picture.Source, "企业知识库") {
+					t.Fatal("automatic generation skipped local image")
+				}
 				if tc.status != "found" && sl.Picture != nil {
 					t.Fatal("failure must not invent a picture")
+				}
+			}
+			if tc.name == "professional-fallback" {
+				for _, sl := range d.Slides {
+					worksCall(t, s, "POST", "/api/tasks/"+id+"/slides/"+sl.ID+"/review", token, map[string]any{"revision": got["revision"], "hash": slideContentHash(d, sl), "approved": true}, 200)
 				}
 			}
 			if tc.name == "web-pending" {
@@ -380,6 +517,13 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 					t.Fatal(err)
 				}
 				got = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+				for round := 0; round < 8 && got["status"] == "expand_pending"; round++ {
+					makeAutomaticRetryReady(t, s, id)
+					if err := s.workOne(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					got = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+				}
 				json.Unmarshal(asJSON(got["result"]), &d)
 				if got["status"] != "awaiting_confirmation" {
 					t.Fatal("expansion failed", got["status"], got["error"])
@@ -412,11 +556,24 @@ func TestCoursewareImageNeedGenerationHTTP(t *testing.T) {
 					if strings.HasPrefix(f.Name, "ppt/notesSlides/") {
 						notes += string(b)
 					}
-					if strings.HasPrefix(f.Name, "ppt/media/") && bytes.Equal(b, picture.Bytes()) {
-						found = true
+					if strings.HasPrefix(f.Name, "ppt/media/") {
+						if im, _, err := image.Decode(bytes.NewReader(b)); err == nil {
+							for y := im.Bounds().Min.Y; y < im.Bounds().Max.Y && !found; y++ {
+								for x := im.Bounds().Min.X; x < im.Bounds().Max.X; x++ {
+									r, g, blue, a := im.At(x, y).RGBA()
+									if r == 120*257 && g == 80*257 && blue == 40*257 && a == 65535 {
+										found = true
+										break
+									}
+								}
+							}
+						}
 					}
 				}
-				if !found || strings.Count(notes, "Test Photographer") < 4 {
+				if tc.name == "offline-knowledge" {
+					found = strings.Count(notes, materialID) >= 4 && strings.Count(notes, "第1页") >= 4
+				}
+				if !found || tc.name != "offline-knowledge" && strings.Count(notes, "Test Photographer") < 4 {
 					t.Fatal("automatic images/source snapshots missing from delivered PPTX")
 				}
 				if dir := os.Getenv("COMMONS_TEST_ARTIFACTS"); dir != "" {

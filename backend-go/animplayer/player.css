@@ -21,3 +21,6 @@ button[aria-pressed=true]{background:#d4e6fa;border-color:#1767bf}
 #seek{flex:1;min-width:160px;accent-color:#1767bf}
 #time{font-variant-numeric:tabular-nums;font-size:14px;min-width:96px;text-align:right}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+.authored-scene{position:absolute;left:0;top:0;width:1280px;height:720px;border:0;transform-origin:0 0;pointer-events:none}
+.authored-scene[hidden]{display:none}
+#author-error{position:absolute;inset:10%;background:#fff;color:#b02222;padding:24px;font-size:24px;z-index:10}

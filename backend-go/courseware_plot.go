@@ -79,6 +79,7 @@ func validateDataChart(raw any) error {
 }
 
 const matplotlibPlotContract = `
+原生点击动画：需要课堂逐条比较函数时可设graph.reveal_on_click:true，renderer必须为native且不能同时设置animation。坐标轴始终显示，最多4条series按数组顺序每次点击出现一条，曲线与标记、图例一起出现且在PPT中可编辑。网页与截图预览显示全部曲线；实际放映执行点击顺序。连续参数变化继续使用animation生成GIF；两种方式互斥。不把点击动画用于隐藏必需题设或提前泄露答案。
 高清绘图：常规分类统计继续使用可编辑原生chart（bar/line）。非线性函数的精准高清图可在graph中增加renderer:"matplotlib"，原有一次/二次/反比例参数不变；需要PPT内逐条编辑线条时用renderer:"native"或省略。不要输出Python代码、文件路径、网址或任意表达式执行请求。
 实验数值图使用chart新类型style:"scatter"（仅散点）或"errorbar"（散点与纵向误差线）。结构示例：{title:"电流与电压（示意数据，非实测）",style:"scatter",labels:["点1","点2","点3"],x_values:[1,2,5],values:[0.1,0.2,0.5],x_label:"电压 U / V",y_label:"电流 I / A",source_label:"示意数据，非实测"}。1–8个点，横纵坐标长度与labels一致，数值绝对值不超过1000000，轴标签说明量与单位（无量纲则说明）。真实数值间距由程序绘制，不能用等距类别轴替代。
 只有提供了误差的明确含义和数值才用errorbar，另加与values等长、非负的y_errors。误差指每个点上下的误差大小，不是端点；source_label和notes说明SD/测量误差/其他含义，不能推断或编造误差。数据来源说明不能为空；自编数据显式标“示意数据，非实测”，不能冒充教师实测。这些图由Matplotlib生成图片；参数在网页可编辑并重新绘制，PPT内不是原生可编辑数据图表。

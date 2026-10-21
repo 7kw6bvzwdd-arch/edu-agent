@@ -27,6 +27,8 @@ type ImageNeed struct {
 }
 
 type ImageProvenance struct {
+	DocumentID        string `json:"document_id,omitempty"`
+	Page              int    `json:"page,omitempty"`
 	Provider          string `json:"provider"`
 	Title             string `json:"title"`
 	PageURL           string `json:"page_url"`
@@ -66,6 +68,65 @@ func compatibleImageSlide(sl Slide) bool {
 	return sl.Scientific == nil && sl.Graph == nil && sl.Chart == nil && sl.Diagram == "" && !(sl.Table != nil && sl.Figure != nil)
 }
 
+var photoObservationTask = regexp.MustCompile(`(?:观察|比较|对照|阅读|分析)(?:这张|这幅|两张|两幅|左右两幅|下列|下方|上述|以下|下面)?(?:照片|显微照片|显微图|史料图|图片)`)
+
+// Only enforce the explicit failure we can establish from the saved media state.
+// Semantic review still checks other references and whether a picture supports a claim.
+func missingPictureTaskIssues(d Deck) []PageQualityIssue {
+	var issues []PageQualityIssue
+	for _, sl := range d.Slides {
+		if sl.Picture != nil || sl.ImageNeed == nil || sl.ImageSearch == nil || sl.ImageSearch.Status == "found" {
+			continue
+		}
+		visible := sl
+		visible.Notes, visible.Answer = "", ""
+		fields := teachingSlideTextFields(visible)
+		image := false
+		for _, obj := range sl.CanvasObjects {
+			image = image || obj.Kind == "image" && (obj.AssetID != "" || obj.DataURL != "")
+			if obj.Kind == "text" {
+				fields = append(fields, obj.Text)
+			}
+		}
+		if image {
+			continue
+		}
+		for _, field := range fields {
+			if task := photoObservationTask.FindString(field); task != "" {
+				issues = append(issues, PageQualityIssue{Object: sl.Title + "的配图观察任务", Reviewer: "content", Category: "pedagogy", Certainty: "confirmed", Severity: "error", Evidence: "可见任务要求“" + task + "”，但本页未取得图片，实际配图状态为" + sl.ImageSearch.Status + "；备注中的候补材料不能代替已展示图片。", Repair: "先取得符合本页用途的真实图片；若学习目标允许改为已有专业示意，须同时改写可见任务并清除image_need，不得将示意冒充史料或声称已完成原照片观察任务。"})
+				break
+			}
+		}
+	}
+	return issues
+}
+
+// A single cell diagram cannot satisfy an explicit same-page two-picture task.
+// Cross-page comparison and pages with an actual supplementary image remain valid.
+func singleCellTaskIssues(d Deck) []PageQualityIssue {
+	var issues []PageQualityIssue
+	for _, sl := range d.Slides {
+		if sl.Scientific == nil || sl.Scientific.Kind != "cell" || sl.Picture != nil {
+			continue
+		}
+		extraImage := false
+		for _, obj := range sl.CanvasObjects {
+			extraImage = extraImage || obj.Kind == "image" && (obj.AssetID != "" || obj.DataURL != "")
+		}
+		if extraImage {
+			continue
+		}
+		fields := append([]string{sl.Title, sl.Focus}, sl.Bullets...)
+		for _, field := range fields {
+			if regexp.MustCompile(`两幅图|两张图|两图|左图|右图|左右.*图`).MatchString(field) && !regexp.MustCompile(`前页|上一页|前后|相邻页|两页|前面`).MatchString(field) {
+				issues = append(issues, PageQualityIssue{Object: sl.Title + "的双图任务", Reviewer: "content", Category: "pedagogy", Certainty: "confirmed", Severity: "error", Evidence: "可见任务称“" + field + "”，实际只有一个" + sl.Scientific.CellType + "细胞scientific，且没有补充图片；学生无法完成两图观察。", Repair: "本页仅支持一个scientific，改为实际单图可完成的指认/观察任务，同步focus、bullets、notes和answer；比较引用实际前页或已有表格，不声称存在第二幅图。"})
+				break
+			}
+		}
+	}
+	return issues
+}
+
 // External material has one entry point for both whole-deck and staged creation.
 // Failure is visible but does not turn an otherwise valid lesson into a failure.
 func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, in TaskInput, sl *Slide) {
@@ -81,7 +142,7 @@ func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, i
 		set("sample", "样例模式不自动检索外部图片，可在编辑页手动检索。")
 		return
 	}
-	if !in.UseWeb {
+	if !in.UseWeb && !in.UseKB && in.MaterialID == "" {
 		set("disabled", "联网检索已关闭，未自动检索图片；可在编辑页手动检索或上传。")
 		return
 	}
@@ -90,7 +151,7 @@ func (s *Server) addCoursewareImage(ctx context.Context, a Actor, task string, i
 		return
 	}
 	s.coursewareEvent(ctx, a, task, "image_search", "正在根据本页教学用途自动匹配配图并记录来源")
-	result := s.searchCoursewareImages(ctx, a, task, *sl.ImageNeed, *sl, 1)
+	result := s.searchCoursewareImages(ctx, a, task, *sl.ImageNeed, *sl, 1, in)
 	set(result.Status, result.Message)
 	if result.Status == "found" && len(result.Candidates) > 0 {
 		p := result.Candidates[0].Picture
@@ -148,7 +209,7 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 	if slide == nil {
 		return fail(404, "页面不存在或无权访问")
 	}
-	if !st.Input.UseWeb && !in.AllowWeb {
+	if !st.Input.UseWeb && !in.AllowWeb && !st.Input.UseKB && st.Input.MaterialID == "" {
 		return fail(409, "本课件已关闭联网；请明确同意本次联网检索，或上传图片、跳过配图")
 	}
 	if in.Need == nil {
@@ -161,7 +222,9 @@ func (s *Server) coursewareImagesSearch(w http.ResponseWriter, r *http.Request, 
 		return fail(409, "此页已有冲突图形，请先保存调整后重新检索")
 	}
 	ctx := context.WithValue(r.Context(), coursewareManualReviewKey{}, true)
-	result := s.searchCoursewareImages(ctx, a, r.PathValue("id"), *in.Need, *slide, 1)
+	input := st.Input
+	input.UseWeb = input.UseWeb || in.AllowWeb
+	result := s.searchCoursewareImages(ctx, a, r.PathValue("id"), *in.Need, *slide, 1, input)
 	if r.Context().Err() != nil {
 		return r.Context().Err()
 	}
@@ -188,6 +251,9 @@ func imageAttribution(p *ImageProvenance) string {
 	label := "网页配图"
 	if p.Provider == "wikimedia_commons" {
 		label = "Wikimedia Commons"
+	}
+	if p.Provider == "knowledge_document" {
+		label = fmt.Sprintf("企业知识库 · %s · 第%d页", p.Title, p.Page)
 	}
 	source := label + " · " + p.License + " · " + p.PageURL
 	if len([]rune(source)) > 300 {

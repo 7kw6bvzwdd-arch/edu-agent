@@ -17,6 +17,10 @@ type PassageFilter struct {
 }
 
 func relevanceTerms(q string) []string {
+	// These lesson suffixes describe teaching intent, not the subject to retrieve.
+	for _, suffix := range []string{"的背景与影响", "的背景和影响", "的图象和性质", "的图像和性质"} {
+		q = strings.TrimSuffix(strings.TrimSpace(q), suffix)
+	}
 	for _, stop := range []string{"七年级", "八年级", "九年级", "初中", "人教版", "数学", "物理", "教学", "课件", "动画", "制作", "生成"} {
 		q = strings.ReplaceAll(q, stop, " ")
 	}

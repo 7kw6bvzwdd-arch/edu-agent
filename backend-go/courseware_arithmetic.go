@@ -197,6 +197,9 @@ func teachingDeckArithmeticIssues(d Deck) []PageQualityIssue {
 
 func teachingSlideTextFields(sl Slide) []string {
 	fields := []string{sl.Title, sl.Focus, sl.Formula, sl.Notes, sl.Answer}
+	if sl.HTML != "" {
+		fields = append(fields, authoredVisibleText(sl.HTML))
+	}
 	fields = append(fields, sl.Bullets...)
 	if sl.Table != nil {
 		fields = append(fields, sl.Table.Title)

@@ -86,9 +86,12 @@ func (s *Server) ingestOne(ctx context.Context) error {
 			return e
 		}
 		work, cancel := context.WithTimeout(ctx, 9*time.Minute)
-		pages, e := s.extractFile(work, path, name)
+		extracted, e := s.extractDocument(work, path, name)
 		if e == nil {
-			_, e = s.saveDocument(work, Actor{TenantID: tid, MemberID: member}, name, "", pages, id)
+			e = s.saveDocumentImages(work, Actor{TenantID: tid, MemberID: member}, id, name, extracted)
+		}
+		if e == nil {
+			_, e = s.saveDocument(work, Actor{TenantID: tid, MemberID: member}, name, "", extracted.Pages, id)
 		}
 		cancel()
 		if e != nil {

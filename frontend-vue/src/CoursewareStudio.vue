@@ -6,6 +6,7 @@ import TeachingPlotEditor from './TeachingPlotEditor.vue';
 import CoursewareReviewDetails from './CoursewareReviewDetails.vue';
 import SlideObjectCanvas from './SlideObjectCanvas.vue';
 import { canvasTextIssue } from './canvas-text.js';
+import AuthoredPageEditor from './AuthoredPageEditor.vue';
 import ClassroomPresentation from './ClassroomPresentation.vue';
 import WorkspaceIcon from './WorkspaceIcon.vue';
 const presenting = ref(false),
@@ -1203,7 +1204,7 @@ onUnmounted(() => {
               </button>
               <div class="slide-tools">
                 <button
-                  v-if="canvasAvailable && !paused && imageURLs[sl.id]"
+                  v-if="!sl.html && canvasAvailable && !paused && imageURLs[sl.id]"
                   @click="openObjectCanvas(sl)"
                   :disabled="!editable"
                   :aria-label="'移动第' + (i + 1) + '页对象'"
@@ -1327,10 +1328,12 @@ onUnmounted(() => {
             >
               <summary>教学内容与讲解设置</summary>
               <div class="studio-slide-editor">
+                <AuthoredPageEditor v-if="sl.html" v-model="sl.html" :readonly="!editable" />
+                <p v-if="sl.html">标题、要点和章节用于作品检索；画面文字以页面编辑内容为准。</p>
                 <label>标题<input v-model="sl.title" maxlength="70" :readonly="!editable" /></label>
                 <div class="editor-row">
                   <label
-                    >版式<select v-model="sl.layout" :disabled="!editable">
+                      >{{sl.html?'教学用途':'版式'}}<select v-model="sl.layout" :disabled="!editable">
                       <option v-for="l in layouts" :key="l[0]" :value="l[0]">{{ l[1] }}</option>
                     </select></label
                   ><label
@@ -1338,7 +1341,7 @@ onUnmounted(() => {
                   /></label>
                 </div>
                 <label
-                  >正文（每行一条要点）<textarea
+                    >{{sl.html?'检索摘要（每行一条，不直接修改画面）':'正文（每行一条要点）'}}<textarea
                     :value="sl.bullets.join('\n')"
                     @input="sl.bullets = $event.target.value.split('\n').filter((s) => s.trim())"
                     rows="4"
@@ -1358,8 +1361,8 @@ onUnmounted(() => {
                     :readonly="!editable"
                   ></textarea>
                 </label>
-                <div class="editor-row">
-                  <label>LaTeX公式<input v-model="sl.formula" :readonly="!editable" /></label
+                  <div v-if="!sl.html" class="editor-row">
+                    <label>LaTeX公式<input v-model="sl.formula" :readonly="!editable" /></label
                   ><label
                     >固定示意图<select
                       v-model="sl.diagram"
@@ -1371,13 +1374,14 @@ onUnmounted(() => {
                     </select></label
                   >
                 </div>
-                <TeachingPlotEditor :slide="sl" :editable="editable" />
+                  <TeachingPlotEditor v-if="!sl.html" :slide="sl" :editable="editable" />
                 <CoursewareEvidence
                   :slide="sl"
                   :editable="editable"
                   :task-id="task.id"
                   :revision="editRevision"
                   :use-web="task.input?.use_web === true"
+                  :use-k-b="task.input?.use_kb === true || !!task.input?.material_id"
                 />
                 <button
                   @click="run(persist)"

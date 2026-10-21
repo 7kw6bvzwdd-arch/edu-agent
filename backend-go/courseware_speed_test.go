@@ -230,7 +230,7 @@ func TestCoursewareLookaheadRepairAndCancellationHTTP(t *testing.T) {
 						w.WriteHeader(400)
 						return
 					}
-					d := sampleDeck(in)
+					d := directHTTPFixtureDeck(sampleDeck(in))
 					d.Slides = d.Slides[position-1 : position]
 					if position == firstPosition && firstCalls.Add(1) > 1 {
 						d.Slides[0].Notes += " 修复后有效条件"
@@ -287,7 +287,7 @@ func TestCoursewareLookaheadRepairAndCancellationHTTP(t *testing.T) {
 			defer provider.Close()
 			renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/health" {
-					respond(w, 200, map[string]string{"courseware_media_version": "media-v1", "courseware_graph_version": "graph-v1"})
+					respond(w, 200, map[string]any{"courseware_media_version": "media-v1", "courseware_graph_version": "graph-v1", "courseware_authored_html_version": "authored-html-v2", "isolated_browser_author_code": true})
 					return
 				}
 				w.Write([]byte("scheduling-fixture-pptx"))

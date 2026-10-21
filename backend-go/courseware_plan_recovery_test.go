@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -17,6 +18,13 @@ func TestInvalidTeachingPlanCanRecoverWithoutTeacherClick(t *testing.T) {
 	calls := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		var req struct{ Messages []struct{ Content string } }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		if len(req.Messages) < 2 || !strings.Contains(req.Messages[1].Content, coursewareCompositionSkill) {
+			t.Error("actual planning request must include the shared teaching composition skill")
+		}
 		minutes := 30.0
 		if calls > 2 {
 			minutes = 5

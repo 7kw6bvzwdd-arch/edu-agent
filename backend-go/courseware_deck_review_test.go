@@ -42,7 +42,7 @@ func TestCoursewareWholeDeckReviewHTTP(t *testing.T) {
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.Model == "generation-fixture" {
-			sl := d.Slides[1]
+			sl := directHTTPFixtureDeck(d).Slides[1]
 			sl.Notes += "\n固定改写样例，新增需要依据的说明。"
 			respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(sl))}}}})
 			return
@@ -120,12 +120,35 @@ func TestCoursewareWholeDeckReviewHTTP(t *testing.T) {
 		t.Fatal("unchanged failed content reset persisted review budget")
 	}
 	variant.Store(1)
-	result = task["result"].(map[string]any)
+	// An optimistic model verdict cannot override an impossible visible task.
+	s.cfg.VisionURL, s.cfg.VisionKey, s.cfg.VisionModel = reviewer.URL, "vision-fixture", "vision-fixture"
+	var validResult map[string]any
+	json.Unmarshal(asJSON(task["result"]), &validResult)
+	var invalidResult map[string]any
+	json.Unmarshal(asJSON(validResult), &invalidResult)
+	invalidSlide := invalidResult["slides"].([]any)[1].(map[string]any)
+	for _, key := range []string{"graph", "chart", "table", "figure", "picture", "diagram", "image_need", "image_search", "canvas_objects"} {
+		delete(invalidSlide, key)
+	}
+	invalidSlide["scientific"] = ScientificDiagram{Kind: "cell", Title: "植物细胞示意", CellType: "plant", VisibleParts: []string{"cell_wall", "cell_membrane", "cytoplasm", "nucleus"}}
+	invalidSlide["focus"] = "比较左图和右图，指出两图结构差异。"
+	save(invalidResult)
+	invalidResult = task["result"].(map[string]any)
+	if invalidResult["deck_check"].(map[string]any)["status"] != "blocked" || calls.Load() != 3 {
+		t.Fatal("impossible visual task was accepted or sent for unnecessary model review")
+	}
+	worksCall(t, s, "POST", route+"/confirm", token, map[string]any{"revision": task["revision"], "result": invalidResult, "accept_review": true}, 409)
+	// Restoring a usable task can still pass the independent whole-deck review.
+	result = validResult
 	result["lesson"] = result["lesson"].(string) + "\n教师删除没有依据的具体年代，保留课堂问题。"
 	save(result)
 	result = task["result"].(map[string]any)
 	if result["deck_check"].(map[string]any)["status"] != "checked" {
 		t.Fatal("corrected content cannot recover")
+	}
+	for _, entry := range task["slide_reviews"].([]any) {
+		m := entry.(map[string]any)
+		worksCall(t, s, "POST", route+"/slides/"+m["id"].(string)+"/review", token, map[string]any{"revision": task["revision"], "hash": m["hash"], "approved": true}, 200)
 	}
 	after := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
 	if after["balance"] != bill["balance"] || after["reserved"] != bill["reserved"] {

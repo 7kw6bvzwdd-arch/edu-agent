@@ -69,7 +69,7 @@ func (s *Server) coursewarePageRequest(ctx context.Context, a Actor, id string, 
 		p.used = true
 	}
 	defer coursewareMeasure(ctx, "page_generation")()
-	count, budget, operation := 1, 6000, "courseware.page"
+	count, budget, operation := 1, 9000, "courseware.page"
 	batchInput := in
 	batchInput.Pages = count
 	base := coursewarePrompt(batchInput, sources) + instructions
@@ -94,7 +94,7 @@ func (s *Server) coursewarePageRequest(ctx context.Context, a Actor, id string, 
 		}
 		var d Deck
 		if err == nil {
-			err = decodeCourseware(raw, &d)
+			err = decodeAuthoredCourseware(raw, &d)
 			if err == nil && len(d.Slides) != count {
 				err = fmt.Errorf("本批应返回%d页，实际%d页", count, len(d.Slides))
 			}

@@ -148,7 +148,7 @@ func coursewarePageIssue(d Deck, page int, sources []Source) error {
 		return err
 	}
 	sl := one.Slides[0]
-	if len(sl.Bullets) == 0 {
+	if len(sl.Bullets) == 0 && sl.HTML == "" {
 		return fmt.Errorf("正文为空")
 	}
 	for _, b := range sl.Bullets {
@@ -160,6 +160,9 @@ func coursewarePageIssue(d Deck, page int, sources []Source) error {
 		return fmt.Errorf("讲解备注过少，请写出依据、提问或答案")
 	}
 	if issues := exerciseVisibilityIssues(one); len(issues) > 0 {
+		return fmt.Errorf("%s", blockingPageIssues(issues))
+	}
+	if issues := append(missingPictureTaskIssues(one), singleCellTaskIssues(one)...); len(issues) > 0 {
 		return fmt.Errorf("%s", blockingPageIssues(issues))
 	}
 	return nil
@@ -277,10 +280,10 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 		prompt += feedback
 	}
 	if d.Plan == nil {
-		prompt += fmt.Sprintf("\n整课教学路线（只规划用途）：1学习目标，2真实问题导入，3核心概念，4探究证据，5例题，6独立练习，7误区辨析，末页总结迁移；当前第%d/%d页。已保存课件主题为%s。", page, in.Pages, d.Theme)
+		prompt += fmt.Sprintf("\n当前没有独立整课规划：依据实际学科、教师目标、已保存页面与lesson中的路线安排当前第%d/%d页，不套用固定教学顺序；未制作页只规划用途。已保存课件主题为%s。", page, in.Pages, d.Theme)
 	}
 	if phase == "preview" && d.Plan == nil {
-		prompt += fmt.Sprintf("\n整套目标%d页，本阶段只生成前三页：封面/学习目标、真实问题导入、首个核心概念。只返回本次指定的一页。", in.Pages)
+		prompt += fmt.Sprintf("\n整套目标%d页，本阶段按顺序制作前三页；围绕实际课题提供可讲授的内容与具体学习任务，不指定封面/导入/概念的统一顺序。只返回本次指定的一页。", in.Pages)
 	}
 	if page == 1 && len(d.Slides) == 0 {
 		prompt += "\n首次lesson简述全课前置知识、重难点、各段时长与教学路线；未制作页只列任务，不写全文。"
@@ -292,7 +295,7 @@ func (s *Server) coursewarePageInstructions(ctx context.Context, a Actor, id str
 		prompt += "\n已完成页面中待补齐的教学要求：" + strings.Join(coursewareQualityIssues(d, in.Pages), "；")
 		prompt += "\n函数图像专项要求：" + strings.Join(coursewareFunctionIssues(in, d), "；")
 	}
-	return in, prompt, position, nil
+	return in, prompt + directCoursewareContract, position, nil
 }
 
 func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, in TaskInput, sources []Source, d Deck, page int, issue, phase string) (Slide, string, string, error) {
@@ -330,7 +333,7 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		// Models describe the need; only teacher data or verified retrieval may supply pictures.
 		next.Slides[0].Picture = nil
 		next.Slides[0].ImageSearch = nil
-		if d.Plan != nil {
+		if d.Plan != nil && compatibleImageSlide(next.Slides[0]) {
 			for _, planned := range d.Plan.Pages {
 				if planned.Position == position && planned.ImageNeed != nil {
 					next.Slides[0].ImageNeed = planned.ImageNeed
@@ -343,9 +346,14 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		}
 		if page <= len(d.Slides) {
 			old := d.Slides[page-1]
-			next.Slides[0].Picture, next.Slides[0].ImageSearch = old.Picture, old.ImageSearch
+			next.Slides[0].Picture = old.Picture
+			// A generated professional diagram may replace an unavailable photo.
+			// Keep actual teacher pictures and explicit removal decisions.
+			if compatibleImageSlide(next.Slides[0]) || old.Picture != nil || old.ImageSearch != nil && old.ImageSearch.Status == "removed" {
+				next.Slides[0].ImageSearch = old.ImageSearch
+			}
 			next.Slides[0].CanvasObjects, next.Slides[0].CanvasPositions, next.Slides[0].CanvasOrder = old.CanvasObjects, old.CanvasPositions, old.CanvasOrder
-			if old.ImageNeed != nil {
+			if old.ImageNeed != nil && (compatibleImageSlide(next.Slides[0]) || old.Picture != nil) {
 				next.Slides[0].ImageNeed = old.ImageNeed
 			}
 		}
@@ -398,6 +406,9 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		if attempt == 0 && s.cfg.Mode != "sample" {
 			s.planRepairEvent(ctx, a, id, fmt.Sprintf("正在调整第%d页的内容或图表，其他页面已保存，无需操作", position))
 			prompt += "\n本页检查未通过：" + last.Error() + "\n待修页数据：" + string(asJSON(deckForTextModel(next)))
+			if sl := next.Slides[0]; sl.ImageNeed != nil && sl.Picture == nil && sl.ImageSearch != nil {
+				prompt += "\n实际配图结果：" + string(asJSON(sl.ImageSearch)) + "。本页没有图片，不得再安排观察不存在的照片或左右两幅图。若目标是概念/结构说明，可在html中直接绘制真实教学示意图形表达并将image_need设为null，明确标识示意；若任务必须依赖真实照片或史料，仍需实际取得对应图片和出处，不能改称示意后假装完成原观察任务。保持本页学习目标和必要题设。"
+			}
 			var layout coursewareRenderError
 			if errors.As(last, &layout) && layout.Code == "text_overflow" && (layout.Field == "graph" || layout.Field == "scientific") {
 				prompt += "\n图示内部文字过密：专业图示/graph的title只写简短教学用途，尽量12字以内，不把公式、作图步骤和结论重复写进图示标题；函数表达式由曲线图自动生成图例，无须重复堆入title。每条曲线只标本页必要的至多两个mark_x，完整坐标计算与说明放notes；保留真实函数参数、有效坐标范围、必要条件及所有原始数值，不通过缩小刻度或错误改数来挤空间。"
@@ -410,6 +421,11 @@ func (s *Server) coursewareSinglePage(ctx context.Context, a Actor, id string, i
 		}
 	}
 	if candidate.Title != "" {
+		var invalid APIError
+		if errors.As(last, &invalid) && invalid.Status == 400 {
+			// Invalid generated repair output is retryable; a teacher request is not.
+			last = fail(422, invalid.Message)
+		}
 		return candidate, candidateTitle, candidateLesson, fmt.Errorf("第%d页未完成：%w", page, last)
 	}
 	return Slide{}, "", "", fmt.Errorf("第%d页未完成：%w", page, last)

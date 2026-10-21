@@ -209,7 +209,7 @@ func coursewareSourceError(d Deck, sources []Source) error {
 
 func (s *Server) coursewareDraft(ctx context.Context, a Actor, id string, in TaskInput, sources []Source) (Deck, bool, error) {
 	prompt := coursewarePrompt(in, sources)
-	budget := min(12000, 1200+in.Pages*540)
+	budget := min(30000, 3000+in.Pages*3500)
 	var d Deck
 	var last error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -237,7 +237,7 @@ func (s *Server) coursewareDraft(ctx context.Context, a Actor, id string, in Tas
 			prompt = coursewarePrompt(in, sources) + "\n前次输出未完成。严格输出完整JSON，控制备注长度，保留全部目标与关键答案。"
 		} else {
 			d = Deck{}
-			last = decodeCourseware(raw, &d)
+			last = decodeAuthoredCourseware(raw, &d)
 			if last != nil {
 				s.planRepairEvent(ctx, a, id, "方案格式检查："+last.Error())
 			}

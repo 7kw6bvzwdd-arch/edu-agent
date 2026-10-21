@@ -14,39 +14,43 @@ import (
 )
 
 type TaskInput struct {
-	AnimationPicture *TeachingPicture  `json:"animation_picture,omitempty"`
-	Chapter          string            `json:"chapter,omitempty"`
-	MaterialID       string            `json:"material_id,omitempty"`
-	MaterialStart    int               `json:"material_start,omitempty"`
-	MaterialEnd      int               `json:"material_end,omitempty"`
-	Curriculum       []Page            `json:"curriculum,omitempty"`
-	ReferenceID      string            `json:"reference_id,omitempty"`
-	Reference        *ReferenceProfile `json:"reference,omitempty"`
-	Detail           string            `json:"detail,omitempty"`
-	LessonMinutes    int               `json:"lesson_minutes,omitempty"`
-	StudentLevel     string            `json:"student_level,omitempty"`
-	ReferenceMode    string            `json:"reference_mode,omitempty"`
-	Requirements     string            `json:"requirements,omitempty"`
-	PreviewFirst     bool              `json:"preview_first,omitempty"`
-	AnimationEngine  string            `json:"animation_engine,omitempty"`
-	SourceTaskID     string            `json:"source_task_id,omitempty"`
-	ParentID         string            `json:"parent_id,omitempty"`
-	ParentRevision   int               `json:"parent_revision,omitempty"`
-	SlideIndex       int               `json:"slide_index,omitempty"`
-	Instruction      string            `json:"instruction,omitempty"`
-	Type             string            `json:"type"`
-	Topic            string            `json:"topic"`
-	Subject          string            `json:"subject"`
-	Grade            string            `json:"grade"`
-	Textbook         string            `json:"textbook"`
-	Objectives       string            `json:"objectives"`
-	Pages            int               `json:"pages"`
-	Theme            string            `json:"theme"`
-	UseKB            bool              `json:"use_kb"`
-	UseWeb           bool              `json:"use_web"`
-	IdempotencyKey   string            `json:"idempotency_key"`
+	AnimationMinSeconds int               `json:"animation_min_seconds,omitempty"`
+	AnimationMaxSeconds int               `json:"animation_max_seconds,omitempty"`
+	AnimationOpening    string            `json:"animation_opening,omitempty"`
+	AnimationPicture    *TeachingPicture  `json:"animation_picture,omitempty"`
+	Chapter             string            `json:"chapter,omitempty"`
+	MaterialID          string            `json:"material_id,omitempty"`
+	MaterialStart       int               `json:"material_start,omitempty"`
+	MaterialEnd         int               `json:"material_end,omitempty"`
+	Curriculum          []Page            `json:"curriculum,omitempty"`
+	ReferenceID         string            `json:"reference_id,omitempty"`
+	Reference           *ReferenceProfile `json:"reference,omitempty"`
+	Detail              string            `json:"detail,omitempty"`
+	LessonMinutes       int               `json:"lesson_minutes,omitempty"`
+	StudentLevel        string            `json:"student_level,omitempty"`
+	ReferenceMode       string            `json:"reference_mode,omitempty"`
+	Requirements        string            `json:"requirements,omitempty"`
+	PreviewFirst        bool              `json:"preview_first,omitempty"`
+	AnimationEngine     string            `json:"animation_engine,omitempty"`
+	SourceTaskID        string            `json:"source_task_id,omitempty"`
+	ParentID            string            `json:"parent_id,omitempty"`
+	ParentRevision      int               `json:"parent_revision,omitempty"`
+	SlideIndex          int               `json:"slide_index,omitempty"`
+	Instruction         string            `json:"instruction,omitempty"`
+	Type                string            `json:"type"`
+	Topic               string            `json:"topic"`
+	Subject             string            `json:"subject"`
+	Grade               string            `json:"grade"`
+	Textbook            string            `json:"textbook"`
+	Objectives          string            `json:"objectives"`
+	Pages               int               `json:"pages"`
+	Theme               string            `json:"theme"`
+	UseKB               bool              `json:"use_kb"`
+	UseWeb              bool              `json:"use_web"`
+	IdempotencyKey      string            `json:"idempotency_key"`
 }
 type Slide struct {
+	HTML            string                  `json:"html,omitempty"`
 	CanvasObjects   []CanvasObject          `json:"canvas_objects,omitempty"`
 	CanvasOrder     []string                `json:"canvas_order,omitempty"`
 	CanvasPositions map[string]CanvasOffset `json:"canvas_positions,omitempty"`
@@ -452,6 +456,11 @@ func validateDeckMinimum(d Deck, minimum int) error {
 	}
 	imageSize := 0
 	for _, sl := range d.Slides {
+		if sl.HTML != "" {
+			if err := validateAuthoredHTML(sl.HTML, false); err != nil {
+				return err
+			}
+		}
 		if err := validateCanvasPositions(sl); err != nil {
 			return err
 		}
@@ -492,7 +501,7 @@ func (s *Server) confirmTask(w http.ResponseWriter, r *http.Request, a Actor) er
 		AcceptReview bool `json:"accept_review"`
 		Revision     int  `json:"revision"`
 	}
-	if e := decode(r, &in); e != nil {
+	if e := decodeCoursewareSave(r, &in); e != nil {
 		return e
 	}
 	tx, e := s.tx(r.Context(), a.TenantID)
@@ -815,6 +824,59 @@ func (s *Server) processTask(ctx context.Context, a Actor, id, kind, stage strin
 }
 
 func (s *Server) renderPPTX(ctx context.Context, d Deck) ([]byte, error) {
+	for _, sl := range d.Slides {
+		if sl.HTML == "" {
+			continue
+		}
+		check, cancel := context.WithTimeout(ctx, 2*time.Second)
+		req, err := http.NewRequestWithContext(check, "GET", s.cfg.RenderURL+"/health", nil)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		res, err := s.http.Do(req)
+		if err != nil {
+			cancel()
+			return nil, fail(503, "直接页面排版服务未就绪，请更新并重启排版服务")
+		}
+		var health map[string]any
+		err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&health)
+		res.Body.Close()
+		cancel()
+		if res.StatusCode != http.StatusOK {
+			return nil, fail(res.StatusCode, fmt.Sprintf("直接页面排版服务返回HTTP %d，已保留源码", res.StatusCode))
+		}
+		if err != nil {
+			return nil, fail(503, "直接页面排版服务健康响应无效，已保留源码")
+		}
+		if health["courseware_authored_html_version"] != "authored-html-v2" || health["isolated_browser_author_code"] != true {
+			return nil, fail(422, "请更新排版服务以支持直接生成页面，已保留源码，不回退旧模板")
+		}
+		break
+	}
+	for _, sl := range d.Slides {
+		if sl.Graph != nil && sl.Graph.RevealOnClick {
+			c, cancel := context.WithTimeout(ctx, 2*time.Second)
+			req, err := http.NewRequestWithContext(c, "GET", s.cfg.RenderURL+"/health", nil)
+			if err != nil {
+				cancel()
+				return nil, err
+			}
+			res, err := s.http.Do(req)
+			if err != nil {
+				cancel()
+				return nil, fail(503, "原生点击动画排版服务暂不可用")
+			}
+			var health map[string]any
+			err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&health)
+			res.Body.Close()
+			cancel()
+			if err != nil || res.StatusCode != 200 || health["courseware_native_click_version"] != "native-click-v1" {
+				return nil, fail(503, "请更新排版服务以支持原生点击动画，曲线参数已保留")
+			}
+			break
+		}
+	}
 	for _, sl := range d.Slides {
 		if sl.Graph != nil && sl.Graph.Animation != nil {
 			req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.RenderURL+"/health", nil)

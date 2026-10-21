@@ -50,7 +50,7 @@ func TestWorkflowBlockingReviewPreservesDraftHTTP(t *testing.T) {
 			generatedMu.Lock()
 			generated[page]++
 			generatedMu.Unlock()
-			d := sampleDeck(in)
+			d := directHTTPFixtureDeck(sampleDeck(in))
 			d.Slides = d.Slides[page-1 : page]
 			raw = string(asJSON(d))
 		} else {
@@ -65,7 +65,7 @@ func TestWorkflowBlockingReviewPreservesDraftHTTP(t *testing.T) {
 	defer provider.Close()
 	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
-			respond(w, 200, map[string]string{"courseware_media_version": "media-v1", "courseware_graph_version": "graph-v1"})
+			respond(w, 200, map[string]any{"courseware_media_version": "media-v1", "courseware_graph_version": "graph-v1", "courseware_authored_html_version": "authored-html-v2", "isolated_browser_author_code": true})
 			return
 		}
 		w.Write([]byte("workflow-scheduling-pptx"))
@@ -97,6 +97,9 @@ func TestWorkflowBlockingReviewPreservesDraftHTTP(t *testing.T) {
 	v := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 	var saved Deck
 	json.Unmarshal(asJSON(v["result"]), &saved)
+	if len(saved.Slides) > 0 && saved.Slides[0].HTML == "" {
+		t.Fatal("HTTP workflow discarded model-authored source")
+	}
 	if v["status"] != "pending" || v["charge_state"] != "reserved" || len(saved.Slides) != 1 {
 		t.Fatalf("blocking review discarded rendered draft: status=%v saved=%d generated=%v", v["status"], len(saved.Slides), generated)
 	}

@@ -86,12 +86,13 @@ func TestAgentHealthWithoutHTMLConfiguration(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
 	s.cfg.Mode = "live"
+	t.Setenv("ANIMATION_EXPORT_SCRIPT", "")
 	s.cfg.CoursewareLLMURL, s.cfg.CoursewareLLMKey, s.cfg.CoursewareLLMModel = "http://127.0.0.1:1", "test", "course-model"
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = "http://127.0.0.1:1", "test", "animation-model"
 	before := worksCall(t, s, "GET", "/api/billing", token, nil, 200).Body.String()
 	health := worksObject(t, worksCall(t, s, "GET", "/api/health", "", nil, 200))
-	if health["animation_geometry_version"] != "geometry-v1" || !strings.Contains(string(asJSON(health["animation_archetypes"])), "geo.transform@1") {
-		t.Fatal("geometry capabilities missing from health")
+	if health["animation_geometry_version"] != "geometry-v1" || string(asJSON(health["animation_archetypes"])) != `["html.direct@1"]` {
+		t.Fatal("health must advertise the direct HTML authoring contract")
 	}
 	if health["courseware_configured"] != true || health["animation_configured"] != false || health["animation_video_configured"] != false || health["animation_service_status"] != "unconfigured" {
 		t.Fatal("disabled animation advertised as available", health)
@@ -130,7 +131,7 @@ func TestAgentWorkflowsReachConfirmationWithOwnProviders(t *testing.T) {
 			if !strings.Contains(prompt, "八年级") {
 				t.Error("grade not passed to workflow", kind)
 			}
-			d := sampleDeck(TaskInput{Type: kind, Topic: "一次函数", Theme: "forest", Pages: 8})
+			d := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: kind, Topic: "一次函数", Theme: "forest", Pages: 8}))
 			if strings.Contains(prompt, "不生成页面全文") {
 				plan := TeachingPlan{Summary: "显式规划 fixture"}
 				plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "理解函数并完成任务", Core: true}}

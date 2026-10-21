@@ -36,7 +36,7 @@ func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request, a Actor) 
 		return e
 	}
 	defer tx.Rollback(r.Context())
-	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
+	v, e := queryMaps(r.Context(), tx, "SELECT d.id,d.name,d.status,d.error,d.source_url,d.created_at,(d.upload_path<>'') AS original_available,jsonb_array_length(d.images) AS image_count,d.image_warnings,(SELECT count(*) FROM chunks c WHERE c.document_id=d.id) AS chunks FROM documents d ORDER BY d.created_at DESC")
 	if e != nil {
 		return e
 	}
@@ -122,39 +122,42 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request, a Actor)
 	return nil
 }
 func (s *Server) extractFile(ctx context.Context, path, name string) ([]Page, error) {
+	data, err := s.extractDocument(ctx, path, name)
+	return data.Pages, err
+}
+
+func (s *Server) extractDocument(ctx context.Context, path, name string) (DocumentExtraction, error) {
+	var data DocumentExtraction
 	content, e := s.readStoredFile(ctx, path)
 	if e != nil {
-		return nil, e
+		return data, e
 	}
 	f := bytes.NewReader(content)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	part, e := mw.CreateFormFile("file", name)
 	if e != nil {
-		return nil, e
+		return data, e
 	}
 	if _, e = io.Copy(part, io.LimitReader(f, documentUploadLimit)); e != nil {
-		return nil, e
+		return data, e
 	}
 	mw.Close()
 	req, e := http.NewRequestWithContext(ctx, "POST", s.cfg.RenderURL+"/extract", &buf)
 	if e != nil {
-		return nil, e
+		return data, e
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	res, e := s.http.Do(req)
 	if e != nil {
-		return nil, fmt.Errorf("文档解析服务不可用")
+		return data, fmt.Errorf("文档解析服务不可用")
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("文档无法解析：格式无效、空文档或扫描件不支持OCR")
+		return data, fmt.Errorf("文档无法解析：格式无效、空文档或扫描件不支持OCR")
 	}
-	var data struct {
-		Pages []Page `json:"pages"`
-	}
-	e = json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&data)
-	return data.Pages, e
+	e = json.NewDecoder(io.LimitReader(res.Body, 24<<20)).Decode(&data)
+	return data, e
 }
 
 func (s *Server) saveDocument(ctx context.Context, a Actor, name, sourceURL string, pages []Page, existing ...string) (string, error) {
@@ -574,7 +577,14 @@ func (s *Server) retrieve(ctx context.Context, a Actor, q string, kb, web bool, 
 		}
 		queries := []string{q}
 		if len(focus) > 0 {
-			queries = append(queries, q+" 定义 公式 适用条件", q+" 典型例题 实验 常见误区")
+			switch {
+			case strings.Contains(q, "历史"):
+				queries = append(queries, q+" 关键事件 年代 人物 原始资料", q+" 事件经过 时间线 权威史料")
+			case strings.Contains(q, "语文"), strings.Contains(q, "英语"):
+				queries = append(queries, q+" 原文 作者 语境", q+" 作品解读 例句 练习")
+			default:
+				queries = append(queries, q+" 定义 公式 适用条件", q+" 典型例题 实验 常见误区")
+			}
 		}
 		seenURL := map[string]bool{}
 		for _, query := range queries {

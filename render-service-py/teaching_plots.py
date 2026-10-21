@@ -18,6 +18,17 @@ from PIL import Image
 _plot_lock=threading.Lock()
 
 
+def function_expression(series):
+    if series.kind=='inverse':return f'y = {series.k:g}/x'
+    terms=[(series.a,'x²'),(series.b,'x'),(series.c,'')] if series.kind=='quadratic' else [(series.k,'x'),(series.b,'')]
+    expression=''
+    for coefficient,symbol in terms:
+        if not coefficient:continue
+        term=('' if symbol and abs(coefficient)==1 else f'{abs(coefficient):g}')+symbol
+        expression+=(' - ' if coefficient<0 else ' + ') + term if expression else ('-' if coefficient<0 else '')+term
+    return 'y = '+(expression or '0')
+
+
 def plot_png(data, width, height, colors, font, function=False, show_coordinates=True, dpi=220):
     background,ink,accent,_,soft,muted=colors
     with _plot_lock:
@@ -42,16 +53,14 @@ def plot_png(data, width, height, colors, font, function=False, show_coordinates
                 xs=np.linspace(data.x_min,data.x_max,1201)
                 if series.kind=='quadratic':
                     ys=series.a*xs**2+series.b*xs+series.c
-                    expression=f'y = {series.a:g}x² {series.b:+g}x {series.c:+g}'+('（非二次函数）' if series.a==0 else '')
                 elif series.kind=='inverse':
                     with np.errstate(divide='ignore',invalid='ignore'):ys=series.k/xs
                     # Keep the two branches disconnected even when the grid misses zero.
                     xs=np.insert(xs,np.searchsorted(xs,0),np.nan)
                     ys=np.insert(ys,np.searchsorted(np.linspace(data.x_min,data.x_max,1201),0),np.nan)
-                    expression=f'y = {series.k:g}/x'
                 else:
                     ys=series.k*xs+series.b
-                    expression=f'y = {series.k:g}x {series.b:+g}'
+                expression=function_expression(series)+('（非二次函数）' if series.kind=='quadratic' and series.a==0 else '')
                 ys=np.where((ys>=data.y_min)&(ys<=data.y_max),ys,np.nan)
                 ax.plot(xs,ys,color='#'+palette[i],linestyle=styles[i],linewidth=2,label=expression)
                 for value in series.mark_x:

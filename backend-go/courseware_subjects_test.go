@@ -90,6 +90,7 @@ func TestCoursewareAllSubjectsPreviewToPPTXHTTP(t *testing.T) {
 				{Title: "独立交流", Layout: "concept", Bullets: []string{"与同伴交流理解，依据材料回应不同意见。"}, Notes: "教师提醒学生回到材料，尊重有依据的不同理解，并记录还需进一步核实的问题。"},
 				{Title: "课堂回顾", Layout: "summary", Bullets: []string{"用自己的话回顾今天的收获，并提出一个新问题。"}, Notes: "学生回顾本课的理解过程，教师根据学生反馈决定下次学习需要补充的材料。"},
 			}}
+			lesson = directHTTPFixtureDeck(lesson)
 			plan := TeachingPlan{Summary: "按实际学科安排；课时未指定，分钟仅为规划估计。", Conventions: "使用同一材料与术语。"}
 			plan.LearningGoals = []LearningGoal{{ID: "g1", Text: "依据材料表达理解", Core: true}}
 			for i, sl := range lesson.Slides {
@@ -157,6 +158,13 @@ func TestCoursewareAllSubjectsPreviewToPPTXHTTP(t *testing.T) {
 				t.Fatal(err)
 			}
 			record := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+			for round := 0; round < 8 && record["status"] == "pending"; round++ {
+				makeAutomaticRetryReady(t, s, id)
+				if err := s.workOne(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				record = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+			}
 			if record["status"] != "awaiting_preview" {
 				t.Fatal("preview failed", record["status"], record["error"])
 			}
@@ -178,6 +186,13 @@ func TestCoursewareAllSubjectsPreviewToPPTXHTTP(t *testing.T) {
 				t.Fatal(err)
 			}
 			record = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+			for round := 0; round < 8 && record["status"] == "expand_pending"; round++ {
+				makeAutomaticRetryReady(t, s, id)
+				if err := s.workOne(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				record = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+			}
 			if record["status"] != "awaiting_confirmation" {
 				t.Fatal("expansion failed", record["status"], record["error"])
 			}
@@ -203,7 +218,9 @@ func TestCoursewareAllSubjectsPreviewToPPTXHTTP(t *testing.T) {
 			callsMu.Unlock()
 			if c.subject == "语文" {
 				oldHash := slideContentHash(d, d.Slides[0])
+				oldTitle := d.Slides[0].Title
 				d.Slides[0].Title = c.topic + "：教师补充观察"
+				d.Slides[0].HTML = strings.Replace(d.Slides[0].HTML, oldTitle, d.Slides[0].Title, 1)
 				worksCall(t, s, "POST", route+"/draft", other, map[string]any{"revision": record["revision"], "result": d}, 404)
 				worksCall(t, s, "POST", route+"/draft", token, map[string]any{"revision": record["revision"], "result": d}, 200)
 				record = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))

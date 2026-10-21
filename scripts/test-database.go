@@ -4,12 +4,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func main() {
@@ -39,7 +41,12 @@ func main() {
 
 func check(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "isolated test database operation failed (details suppressed to protect credentials)")
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			fmt.Fprintf(os.Stderr, "isolated test database operation failed (PostgreSQL %s: %s)\n", pgErr.Code, pgErr.Message)
+		} else {
+			fmt.Fprintf(os.Stderr, "isolated test database operation failed (%T; credentials suppressed)\n", err)
+		}
 		os.Exit(1)
 	}
 }

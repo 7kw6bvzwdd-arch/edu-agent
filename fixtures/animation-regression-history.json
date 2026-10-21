@@ -1,0 +1,466 @@
+{
+  "archetype": "lesson.explain@1",
+  "representative": "s2",
+  "scenes": [
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s1n1"
+          },
+          "id": "a1",
+          "object": "vis1",
+          "op": "show"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s1n2",
+          "id": "h1",
+          "ms": 1500,
+          "type": "observe"
+        }
+      ],
+      "id": "s1",
+      "intent": "引出丝绸之路问题，建立路线示意图",
+      "narration": [
+        {
+          "display": "同学们，今天我们一起思考：丝绸之路上的交流是怎样发生的？",
+          "id": "s1n1",
+          "speech": "同学们，今天我们一起思考，丝绸之路上的交流是怎样发生的？"
+        },
+        {
+          "display": "看这条简化商路，从东到西连接多个地区。",
+          "id": "s1n2",
+          "speech": "看这条简化商路，从东到西连接多个地区。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "vis1",
+          "params": {
+            "progress": 0
+          },
+          "scientific": {
+            "kind": "scene",
+            "scene": {
+              "actions": [
+                {
+                  "duration_ms": 1000,
+                  "object": "route",
+                  "op": "show",
+                  "start_ms": 0
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "enda",
+                  "op": "show",
+                  "start_ms": 500
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "endb",
+                  "op": "show",
+                  "start_ms": 500
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "labela",
+                  "op": "show",
+                  "start_ms": 1000
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "labelb",
+                  "op": "show",
+                  "start_ms": 1000
+                },
+                {
+                  "duration_ms": 1000,
+                  "object": "title",
+                  "op": "show",
+                  "start_ms": 0
+                }
+              ],
+              "duration_ms": 6000,
+              "objects": [
+                {
+                  "color": "#8a6d3b",
+                  "id": "route",
+                  "points": [
+                    [
+                      0.15,
+                      0.6
+                    ],
+                    [
+                      0.35,
+                      0.45
+                    ],
+                    [
+                      0.55,
+                      0.55
+                    ],
+                    [
+                      0.75,
+                      0.4
+                    ],
+                    [
+                      0.85,
+                      0.5
+                    ]
+                  ],
+                  "stroke_width": 5,
+                  "type": "path",
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "color": "#bc582b",
+                  "fill": "#bc582b",
+                  "height": 0.06,
+                  "id": "enda",
+                  "type": "ellipse",
+                  "width": 0.06,
+                  "x": 0.15,
+                  "y": 0.6
+                },
+                {
+                  "color": "#2b6cbc",
+                  "fill": "#2b6cbc",
+                  "height": 0.06,
+                  "id": "endb",
+                  "type": "ellipse",
+                  "width": 0.06,
+                  "x": 0.85,
+                  "y": 0.5
+                },
+                {
+                  "font_size": 26,
+                  "id": "labela",
+                  "text": "东方起点",
+                  "type": "text",
+                  "x": 0.15,
+                  "y": 0.72
+                },
+                {
+                  "font_size": 26,
+                  "id": "labelb",
+                  "text": "西方终点",
+                  "type": "text",
+                  "x": 0.85,
+                  "y": 0.62
+                },
+                {
+                  "font_size": 32,
+                  "id": "title",
+                  "text": "丝绸之路路线示意",
+                  "type": "text",
+                  "x": 0.5,
+                  "y": 0.15
+                }
+              ]
+            },
+            "title": "商路示意"
+          },
+          "slot": "main",
+          "type": "scientific"
+        }
+      ],
+      "title": "商路与交流"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s2n1"
+          },
+          "duration_ms": 6000,
+          "id": "a2",
+          "object": "vis2",
+          "op": "tween",
+          "param": "progress",
+          "to": 1
+        }
+      ],
+      "holds": [
+        {
+          "after": "s2n2",
+          "id": "h2",
+          "ms": 2000,
+          "type": "observe"
+        }
+      ],
+      "id": "s2",
+      "intent": "观察货物与人双向移动，理解交流载体",
+      "narration": [
+        {
+          "display": "蓝色玉石从西向东，黄色丝绸从东向西。",
+          "id": "s2n1",
+          "speech": "蓝色玉石从西向东，黄色丝绸从东向西。"
+        },
+        {
+          "display": "商人和驼队沿着商路，把人和货物带到远方。",
+          "id": "s2n2",
+          "speech": "商人和驼队沿着商路，把人和货物带到远方。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "vis2",
+          "params": {
+            "progress": 0
+          },
+          "scientific": {
+            "kind": "scene",
+            "scene": {
+              "actions": [
+                {
+                  "duration_ms": 2500,
+                  "object": "silk",
+                  "op": "follow_path",
+                  "path": "route2",
+                  "start_ms": 0
+                },
+                {
+                  "duration_ms": 2500,
+                  "object": "jade",
+                  "op": "follow_path",
+                  "path": "route2",
+                  "start_ms": 0
+                },
+                {
+                  "duration_ms": 2500,
+                  "object": "person",
+                  "op": "follow_path",
+                  "path": "route2",
+                  "start_ms": 0
+                },
+                {
+                  "duration_ms": 1000,
+                  "object": "note",
+                  "op": "show",
+                  "start_ms": 0
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "silklabel",
+                  "op": "show",
+                  "start_ms": 2500
+                },
+                {
+                  "duration_ms": 500,
+                  "object": "jadelabel",
+                  "op": "show",
+                  "start_ms": 2500
+                }
+              ],
+              "duration_ms": 6000,
+              "objects": [
+                {
+                  "color": "#8a6d3b",
+                  "id": "route2",
+                  "points": [
+                    [
+                      0.15,
+                      0.6
+                    ],
+                    [
+                      0.35,
+                      0.45
+                    ],
+                    [
+                      0.55,
+                      0.55
+                    ],
+                    [
+                      0.75,
+                      0.4
+                    ],
+                    [
+                      0.85,
+                      0.5
+                    ]
+                  ],
+                  "stroke_width": 5,
+                  "type": "path",
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "color": "#d4a017",
+                  "fill": "#d4a017",
+                  "height": 0.05,
+                  "id": "silk",
+                  "type": "rect",
+                  "width": 0.05,
+                  "x": 0.15,
+                  "y": 0.6
+                },
+                {
+                  "color": "#2b9c8a",
+                  "fill": "#2b9c8a",
+                  "height": 0.05,
+                  "id": "jade",
+                  "type": "ellipse",
+                  "width": 0.05,
+                  "x": 0.85,
+                  "y": 0.5
+                },
+                {
+                  "color": "#bc582b",
+                  "fill": "#bc582b",
+                  "height": 0.06,
+                  "id": "person",
+                  "type": "ellipse",
+                  "width": 0.04,
+                  "x": 0.35,
+                  "y": 0.45
+                },
+                {
+                  "font_size": 24,
+                  "id": "silklabel",
+                  "text": "丝绸西运",
+                  "type": "text",
+                  "x": 0.15,
+                  "y": 0.72
+                },
+                {
+                  "font_size": 24,
+                  "id": "jadelabel",
+                  "text": "玉石东来",
+                  "type": "text",
+                  "x": 0.85,
+                  "y": 0.62
+                },
+                {
+                  "font_size": 28,
+                  "id": "note",
+                  "text": "人和货物沿商路双向流动",
+                  "type": "text",
+                  "x": 0.5,
+                  "y": 0.15
+                }
+              ]
+            },
+            "title": "货物与人流动"
+          },
+          "slot": "main",
+          "type": "scientific"
+        }
+      ],
+      "title": "双向流动"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s3n1"
+          },
+          "id": "a3",
+          "object": "cards",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s3n2"
+          },
+          "id": "a4",
+          "object": "cards",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s3n2",
+          "id": "h3",
+          "ms": 5000,
+          "type": "await"
+        }
+      ],
+      "id": "s3",
+      "intent": "用标注解释交流还包括技术与观念",
+      "narration": [
+        {
+          "display": "交流不只交换货物，技术和观念也随之传播。",
+          "id": "s3n1",
+          "speech": "交流不只交换货物，技术和观念也随之传播。"
+        },
+        {
+          "display": "请暂停想一想，这些流动怎样影响沿途的人们？",
+          "id": "s3n2",
+          "speech": "请暂停想一想，这些流动怎样影响沿途的人们？"
+        }
+      ],
+      "objects": [
+        {
+          "id": "cards",
+          "items": [
+            "货物：丝绸、玉石等",
+            "技术：如造纸术西传",
+            "观念：宗教信仰传播",
+            "人员：商旅往来"
+          ],
+          "slot": "main",
+          "text": "交流的多个方面",
+          "type": "comparison"
+        }
+      ],
+      "title": "交流不止货物"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s4n1"
+          },
+          "id": "a5",
+          "object": "summary",
+          "op": "show"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s4n2",
+          "id": "h4",
+          "ms": 4000,
+          "type": "await"
+        }
+      ],
+      "id": "s4",
+      "intent": "回扣核心问题，引导回答交流带来什么",
+      "narration": [
+        {
+          "display": "回顾商路上的双向流动，交流带来的是相互联系。",
+          "id": "s4n1",
+          "speech": "回顾商路上的双向流动，交流带来的是相互联系。"
+        },
+        {
+          "display": "你认为，丝绸之路上的交流给沿途人们带来了什么？",
+          "id": "s4n2",
+          "speech": "你认为，丝绸之路上的交流给沿途人们带来了什么？"
+        }
+      ],
+      "objects": [
+        {
+          "id": "summary",
+          "items": [
+            "商品互通有无",
+            "技术相互借鉴",
+            "文化彼此影响"
+          ],
+          "slot": "main",
+          "text": "交流带来什么",
+          "type": "card"
+        }
+      ],
+      "title": "交流带来什么"
+    }
+  ],
+  "title": "丝绸之路：交流如何发生",
+  "version": "anim-v2"
+}

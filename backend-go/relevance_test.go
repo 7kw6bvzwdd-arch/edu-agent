@@ -68,3 +68,23 @@ func TestWebRetrievalFiltersRawContentAndKeepsProvenance(t *testing.T) {
 		t.Fatal("bad evidence/provenance", v)
 	}
 }
+
+func TestHistoryRetrievalRejectsMeetingBackgroundsHTTP(t *testing.T) {
+	s := worksServer(t)
+	token := worksLogin(t, s, "teacher")
+	search := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 200, map[string]any{"results": []map[string]any{
+			{"title": "会议背景", "url": "https://example.org/meeting", "raw_content": "更改会议背景。添加虚拟背景可以影响会议画面的表现。背景选项支持选择本地照片，选择后点击预览查看会议画面，也可以设置背景模糊。会议开始之前可以再次检查背景设置，会议结束后保留上次的设置。"},
+			{"title": "辛亥革命", "url": "https://example.org/history", "raw_content": "辛亥革命中的武昌起义发生于1911年。辛亥革命的研究需要区分事件、政治制度和社会影响，课堂材料应标明来源。讨论时根据具体材料分析变化，不应将不同历史事件的日期混同，也不能把后来的照片当成现场记录。"},
+		}})
+	}))
+	defer search.Close()
+	s.cfg.Mode, s.cfg.SearchURL, s.cfg.SearchKey = "live", search.URL, "fixture"
+	body := map[string]any{"query": "辛亥革命的背景与影响", "web": true}
+	worksCall(t, s, "POST", "/api/retrieval/test", "", body, 401)
+	result := worksObject(t, worksCall(t, s, "POST", "/api/retrieval/test", token, body, 200))
+	sources := result["sources"].([]any)
+	if len(sources) != 1 || sources[0].(map[string]any)["url"] != "https://example.org/history" {
+		t.Fatal("generic background terms admitted unrelated sources", sources)
+	}
+}

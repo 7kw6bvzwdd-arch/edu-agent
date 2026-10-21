@@ -1,0 +1,272 @@
+{
+  "archetype": "lesson.explain@1",
+  "representative": "scene2",
+  "scenes": [
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s1n1"
+          },
+          "id": "show1",
+          "object": "ill1",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s1n2"
+          },
+          "id": "emph1",
+          "object": "ill1",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s1n2",
+          "id": "h1",
+          "ms": 3000,
+          "type": "observe"
+        },
+        {
+          "after": "s1n3",
+          "id": "h2",
+          "ms": 2000,
+          "type": "await"
+        }
+      ],
+      "id": "scene1",
+      "intent": "引出水循环问题，建立蒸发概念",
+      "narration": [
+        {
+          "display": "同学们，今天我们一起探索水循环：水从哪里来，又到哪里去？",
+          "id": "s1n1",
+          "speech": "同学们，今天我们一起探索水循环：水从哪里来，又到哪里去？"
+        },
+        {
+          "display": "观察这幅示意图，太阳照射水面，水受热变成水蒸气，向上运动。",
+          "id": "s1n2",
+          "speech": "观察这幅示意图，太阳照射水面，水受热变成水蒸气，向上运动。"
+        },
+        {
+          "display": "这个过程叫蒸发。水蒸气看不见，但确实进入了空中。",
+          "id": "s1n3",
+          "speech": "这个过程叫蒸发。水蒸气看不见，但确实进入了空中。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "ill1",
+          "items": [
+            "太阳照射水面",
+            "水受热变成水蒸气",
+            "水蒸气上升到空中"
+          ],
+          "kind": "water_cycle",
+          "slot": "main",
+          "text": "水循环示意（非真实比例）",
+          "type": "illustration"
+        }
+      ],
+      "title": "水从哪里来"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s2n1"
+          },
+          "id": "show2",
+          "object": "ill2",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s2n2"
+          },
+          "id": "emph2",
+          "object": "ill2",
+          "op": "emphasize"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s2n3"
+          },
+          "id": "emph3",
+          "object": "ill2",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s2n2",
+          "id": "h3",
+          "ms": 4000,
+          "type": "observe"
+        },
+        {
+          "after": "s2n3",
+          "id": "h4",
+          "ms": 2000,
+          "type": "await"
+        }
+      ],
+      "id": "scene2",
+      "intent": "观察凝结和降水，理解水的路径",
+      "narration": [
+        {
+          "display": "水蒸气上升，遇到冷空气，凝结成许多小水滴，形成云。",
+          "id": "s2n1",
+          "speech": "水蒸气上升，遇到冷空气，凝结成许多小水滴，形成云。"
+        },
+        {
+          "display": "小水滴聚集变大，当空气托不住时，就以雨或雪的形式降落，这就是降水。",
+          "id": "s2n2",
+          "speech": "小水滴聚集变大，当空气托不住时，就以雨或雪的形式降落，这就是降水。"
+        },
+        {
+          "display": "请观察水从地面到空中再落回的路径：蒸发、凝结、降水，形成一个循环。",
+          "id": "s2n3",
+          "speech": "请观察水从地面到空中再落回的路径：蒸发、凝结、降水，形成一个循环。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "ill2",
+          "items": [
+            "水蒸气上升遇冷凝结成小水滴",
+            "小水滴聚集形成云",
+            "降水落回地面"
+          ],
+          "kind": "water_cycle",
+          "slot": "main",
+          "text": "水循环示意（非真实比例）",
+          "type": "illustration"
+        }
+      ],
+      "title": "水的上升与降落"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s3n1"
+          },
+          "id": "show3",
+          "object": "ill3",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s3n2"
+          },
+          "id": "emph4",
+          "object": "ill3",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s3n1",
+          "id": "h5",
+          "ms": 3000,
+          "type": "observe"
+        },
+        {
+          "after": "s3n2",
+          "id": "h6",
+          "ms": 2000,
+          "type": "await"
+        }
+      ],
+      "id": "scene3",
+      "intent": "理解汇流和径流，水回到海洋",
+      "narration": [
+        {
+          "display": "降落到地面的水，一部分渗入土壤，形成地下水；另一部分沿着地表流动，形成径流。",
+          "id": "s3n1",
+          "speech": "降落到地面的水，一部分渗入土壤，形成地下水；另一部分沿着地表流动，形成径流。"
+        },
+        {
+          "display": "径流汇集到河流，最终流入海洋，完成水的回归。",
+          "id": "s3n2",
+          "speech": "径流汇集到河流，最终流入海洋，完成水的回归。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "ill3",
+          "items": [
+            "降水一部分渗入地下",
+            "一部分形成地表径流",
+            "河流汇入海洋"
+          ],
+          "kind": "water_cycle",
+          "slot": "main",
+          "text": "水循环示意（非真实比例）",
+          "type": "illustration"
+        }
+      ],
+      "title": "水回到海洋"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s4n1"
+          },
+          "id": "show4",
+          "object": "ill4",
+          "op": "show"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s4n2",
+          "id": "h7",
+          "ms": 3000,
+          "type": "await"
+        }
+      ],
+      "id": "scene4",
+      "intent": "总结水循环环节，提出思考问题",
+      "narration": [
+        {
+          "display": "水循环包括蒸发、凝结、降水和汇流，水在陆地、海洋和大气之间不断循环。",
+          "id": "s4n1",
+          "speech": "水循环包括蒸发、凝结、降水和汇流，水在陆地、海洋和大气之间不断循环。"
+        },
+        {
+          "display": "想一想：如果某地降水减少，可能会对当地的水资源造成什么影响？",
+          "id": "s4n2",
+          "speech": "想一想：如果某地降水减少，可能会对当地的水资源造成什么影响？"
+        }
+      ],
+      "objects": [
+        {
+          "id": "ill4",
+          "items": [
+            "蒸发、凝结、降水、汇流",
+            "水在陆地、海洋、大气间循环",
+            "过程示意，非真实比例"
+          ],
+          "kind": "water_cycle",
+          "slot": "main",
+          "text": "水循环示意（非真实比例）",
+          "type": "illustration"
+        }
+      ],
+      "title": "水循环的启示"
+    }
+  ],
+  "title": "水循环：水的旅行",
+  "version": "anim-v2"
+}

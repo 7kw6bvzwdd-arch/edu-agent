@@ -33,7 +33,7 @@ func TestPublicPageBoundaries(t *testing.T) {
 }
 
 func TestCoursewareHTTPWorkflow(t *testing.T) {
-	db := os.Getenv("TEST_DATABASE_URL")
+	db := isolatedTestDatabase(t)
 	if db == "" {
 		t.Skip("set isolated TEST_DATABASE_URL")
 	}

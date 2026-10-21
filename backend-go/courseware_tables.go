@@ -102,6 +102,10 @@ func arrangeCoursewareText(d Deck) Deck {
 	pages := []Slide{}
 	changed := false
 	for _, sl := range d.Slides {
+		if sl.HTML != "" {
+			pages = append(pages, sl)
+			continue
+		}
 		limit := 6
 		if sl.Table != nil || sl.Figure != nil {
 			limit = 2

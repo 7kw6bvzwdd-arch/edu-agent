@@ -12,7 +12,14 @@ import (
 )
 
 func TestAnimGenerateCLI(t *testing.T) {
-	fixture := loadLinearKFixture(t)
+	fixture := directModelFixture(t)
+	render := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"version": "authored-animation-v1"})
+	}))
+	defer render.Close()
+	t.Setenv("RENDER_SERVICE_URL", render.URL)
+	fixture.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察一次函数的图像。"
+	fixture.Scenes[0].Narration[0].Speech = fixture.Scenes[0].Narration[0].Display
 	for _, scenario := range []string{"success", "repair", "invalid", "truncated", "provider-error", "missing-model", "missing-voice", "bad-voice", "cancelled"} {
 		t.Run(scenario, func(t *testing.T) {
 			calls := 0
@@ -32,6 +39,12 @@ func TestAnimGenerateCLI(t *testing.T) {
 				}
 				if len(body.Messages) < 2 || !strings.Contains(body.Messages[1].Content, "b保持为2") {
 					t.Error("user brief missing")
+				}
+				if len(body.Messages) == 0 || !strings.Contains(body.Messages[0].Content, animSkillVersion) || !strings.Contains(body.Messages[0].Content, "manim-video") || !strings.Contains(body.Messages[0].Content, "frontend-slides") || !strings.Contains(body.Messages[0].Content, "技术契约") {
+					t.Error("actual animation request must include the adapted creative skill and separate technical contract")
+				}
+				if len(body.Messages) > 0 && (strings.Contains(body.Messages[0].Content, "月亮polygon.points=") || strings.Contains(body.Messages[0].Content, "英语位置课的on")) {
+					t.Error("unrelated topic examples must not bias a function lesson")
 				}
 				if scenario == "provider-error" {
 					w.WriteHeader(401)
@@ -122,11 +135,12 @@ func TestAnimGenerateCLI(t *testing.T) {
 				}
 				var record struct {
 					Model        string `json:"model"`
+					SkillVersion string `json:"skill_version"`
 					Calls        int    `json:"calls"`
 					InputTokens  int    `json:"input_tokens"`
 					OutputTokens int    `json:"output_tokens"`
 				}
-				if json.Unmarshal(raw, &record) != nil || record.Model != "deepseek-flash" || record.Calls != calls || record.InputTokens != 20*calls || record.OutputTokens != 30*calls || strings.Contains(string(raw), "test-animation-secret") {
+				if json.Unmarshal(raw, &record) != nil || record.Model != "deepseek-flash" || record.SkillVersion != animSkillVersion || record.Calls != calls || record.InputTokens != 20*calls || record.OutputTokens != 30*calls || strings.Contains(string(raw), "test-animation-secret") {
 					t.Error("generation evidence missing or unsafe")
 				}
 			} else {
@@ -161,7 +175,14 @@ func TestAnimScriptRejectsTrailingData(t *testing.T) {
 	}
 }
 func TestAnimModelHTTP1Compatibility(t *testing.T) {
-	fixture := loadLinearKFixture(t)
+	fixture := directModelFixture(t)
+	render := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"version": "authored-animation-v1"})
+	}))
+	defer render.Close()
+	t.Setenv("RENDER_SERVICE_URL", render.URL)
+	fixture.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察一次函数的图像。"
+	fixture.Scenes[0].Narration[0].Speech = fixture.Scenes[0].Narration[0].Display
 	calls, protocol := 0, 0
 	provider := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++

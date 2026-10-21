@@ -181,7 +181,7 @@ func TestReviewUnavailableSavesPageAndResumesWithoutRegeneration(t *testing.T) {
 	calls := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		d := sampleDeck(TaskInput{Pages: 10, Theme: "ocean", Topic: "浮力"})
+		d := directHTTPFixtureDeck(sampleDeck(TaskInput{Pages: 10, Theme: "ocean", Topic: "浮力"}))
 		d.Slides = d.Slides[1:2]
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(d))}}}})
 	}))

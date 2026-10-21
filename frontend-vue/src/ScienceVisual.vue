@@ -1,16 +1,16 @@
 <script setup>
 import { inject, ref, watch, onUnmounted } from 'vue'
-const props=defineProps({diagram:Object})
+const props=defineProps({diagram:Object,endpoint:{type:String,default:'/api/courseware/scientific'},request:Object})
 const token=inject('mediaToken',ref('')),image=ref(''),summary=ref(''),error=ref(''),metadata=ref(null)
 let generation=0,timer,controller
-watch(()=>[JSON.stringify(props.diagram),token.value],()=>{
+watch(()=>[JSON.stringify(props.diagram),props.endpoint,JSON.stringify(props.request),token.value],()=>{
  const current=++generation
  clearTimeout(timer);controller?.abort();image.value='';error.value='';metadata.value=null;summary.value=''
  timer=setTimeout(async()=>{
   if(!token.value){error.value='请登录后查看科学图示';return}
   controller=new AbortController()
   try{
-   const response=await fetch('/api/courseware/scientific',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token.value},body:JSON.stringify({diagram:props.diagram}),signal:controller.signal})
+   const response=await fetch(props.endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token.value},body:JSON.stringify(props.request||{diagram:props.diagram}),signal:controller.signal})
    const result=await response.json()
    if(!response.ok)throw Error(result.message||'科学图示暂时无法绘制，请核对参数')
    if(current!==generation)return

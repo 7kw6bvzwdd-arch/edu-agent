@@ -11,8 +11,19 @@ import (
 func TestCoursewareHistoryRestoreHTTP(t *testing.T) {
 	s := worksServer(t)
 	owner, admin, other := worksLogin(t, s, "teacher"), worksLogin(t, s, "admin"), worksLogin(t, s, "other")
-	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", owner, TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, UseKB: true, IdempotencyKey: newID()}, 202))["id"].(string)
-	if err := s.workOne(context.Background()); err != nil {
+	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "forest", PreviewFirst: true, UseKB: true, IdempotencyKey: newID()}
+	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", owner, in, 202))["id"].(string)
+	// This persisted legacy draft must retain a real reservation for delivery.
+	in.Detail = ""
+	tx, err := s.tx(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "UPDATE tasks SET input=$1,result=$2,status='awaiting_confirmation',stage='awaiting_confirmation' WHERE id=$3", asJSON(in), asJSON(sampleDeck(in)), id); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	route := "/api/tasks/" + id
@@ -26,7 +37,19 @@ func TestCoursewareHistoryRestoreHTTP(t *testing.T) {
 	media.Slides[0].Focus = "观察图示，提出一个问题。"
 	media.Slides[0].Emphasis = []string{"观察"}
 	expectedMedia := string(asJSON(media.Slides))
-	worksCall(t, s, "POST", route+"/confirm", owner, map[string]any{"result": media, "revision": draft["revision"], "accept_review": true}, 202)
+	worksCall(t, s, "POST", route+"/draft", owner, map[string]any{"result": media, "revision": draft["revision"]}, 200)
+	draft = worksObject(t, worksCall(t, s, "GET", route, owner, nil, 200))
+	var persisted Deck
+	json.Unmarshal(asJSON(draft["result"]), &persisted)
+	if persisted.Slides[0].Picture == nil || persisted.Slides[0].Focus != media.Slides[0].Focus {
+		t.Fatal("saved draft lost media")
+	}
+	expectedMedia = string(asJSON(persisted.Slides))
+	for _, entry := range draft["slide_reviews"].([]any) {
+		m := entry.(map[string]any)
+		worksCall(t, s, "POST", route+"/slides/"+m["id"].(string)+"/review", owner, map[string]any{"revision": draft["revision"], "hash": m["hash"], "approved": true}, 200)
+	}
+	worksCall(t, s, "POST", route+"/confirm", owner, map[string]any{"result": draft["result"], "revision": draft["revision"], "accept_review": true}, 202)
 	if err := s.workOne(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +65,7 @@ func TestCoursewareHistoryRestoreHTTP(t *testing.T) {
 	file := worksCall(t, s, "GET", route+"/download/pptx", owner, nil, 200).Body.Bytes()
 	var rows []map[string]any
 	json.Unmarshal(worksCall(t, s, "GET", history, owner, nil, 200).Body.Bytes(), &rows)
-	if len(rows) != 1 || rows[0]["revision"] != float64(v) || rows[0]["pptx_path"] != nil {
+	if len(rows) != 2 || rows[0]["revision"] != float64(v) || rows[1]["revision"] != float64(v-2) || rows[0]["pptx_path"] != nil {
 		t.Fatal("history list", rows)
 	}
 	for _, token := range []string{admin, other} {
@@ -89,7 +112,7 @@ func TestCoursewareHistoryRestoreHTTP(t *testing.T) {
 		t.Fatal("free restore changed ledger")
 	}
 	json.Unmarshal(worksCall(t, s, "GET", history, owner, nil, 200).Body.Bytes(), &rows)
-	if len(rows) != 3 || rows[0]["revision"] != float64(v+2) {
+	if len(rows) != 4 || rows[0]["revision"] != float64(v+2) || rows[3]["revision"] != float64(v-2) {
 		t.Fatal("restoration lost history", rows)
 	}
 	child := worksObject(t, worksCall(t, s, "POST", route+"/rewrite", owner, map[string]any{"revision": v + 2, "instruction": "补充说明", "slide": 0, "idempotency_key": newID()}, 202))["id"].(string)

@@ -5,7 +5,8 @@ const props = defineProps({
   taskId: String,
   revision: Number,
   editable: Boolean,
-  useWeb: Boolean
+  useWeb: Boolean,
+  useKB: Boolean
 });
 const token = inject('mediaToken', ref(''));
 const allowWeb = ref(false);
@@ -77,7 +78,7 @@ watch(
 onUnmounted(cancel);
 async function search() {
   if (!props.editable || busy.value || !props.taskId || !compatible.value) return;
-  if (!props.useWeb && !allowWeb.value) {
+  if (!props.useWeb && !props.useKB && !allowWeb.value) {
     error.value = '请先同意本次联网检索，或上传图片、跳过配图。';
     return;
   }
@@ -193,6 +194,9 @@ function skip() {
         </label>
       </details>
       <p v-if="!compatible" class="fine">当前页面已有冲突图形，请先调整视觉内容再检索配图。</p>
+      <p v-if="useKB && !useWeb" class="fine">
+        当前可直接匹配企业资料中的图片；无需启用公开网页检索。图片仍会交给已配置的视觉模型筛选。
+      </p>
       <label v-if="!useWeb"
         ><input
           v-model="allowWeb"
@@ -206,7 +210,7 @@ function skip() {
       </p>
       <button
         type="button"
-        :disabled="busy || !compatible || (!useWeb && !allowWeb)"
+        :disabled="busy || !compatible || (!useWeb && !useKB && !allowWeb)"
         @click="search"
       >
         {{ busy ? '正在自动匹配图片…' : slide.picture ? '重新自动配图' : '自动配图' }}
@@ -216,7 +220,7 @@ function skip() {
       <p v-if="message" role="status">{{ message }}</p>
       <p v-if="error" role="alert" class="image-error">{{ error }}</p>
       <p class="fine">
-        优先搜索网页图片，无可用图片时尝试
+        启用知识库时优先匹配资料图片；允许联网后才搜索网页，无可用图片时尝试
         Commons。系统根据教学用途筛选并自动插入；来源未标明许可时如实记录，不代表已获授权。不扣制作积分，搜索及视觉服务调用仍产生供应商用量。修改后保存本页。
       </p>
     </details>
@@ -229,7 +233,10 @@ function skip() {
       <p v-if="provenance.rights_status === 'teacher_confirmed'">
         教师使用权限声明：{{ provenance.rights_note }}（{{ provenance.rights_confirmed_at }}）
       </p>
-      <a :href="provenance.page_url" target="_blank" rel="noopener noreferrer">来源页</a>
+      <p v-if="provenance.provider === 'knowledge_document'">
+        企业资料 · 第{{ provenance.page }}页 · 文档编号 {{ provenance.document_id }}
+      </p>
+      <a v-else :href="provenance.page_url" target="_blank" rel="noopener noreferrer">来源页</a>
       <a
         v-if="provenance.license_url"
         :href="provenance.license_url"

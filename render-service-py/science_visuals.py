@@ -12,8 +12,9 @@ from rdkit import Chem, rdBase
 from rdkit.Chem import rdMolDescriptors
 from rdkit.Chem.Draw import rdMolDraw2D
 from general_scene import draw_scene
+from carbon_visuals import draw_carbon, metadata as carbon_metadata
 
-KINDS = ('thin_lens', 'molecule', 'cell', 'scene')
+KINDS = ('thin_lens', 'molecule', 'cell', 'scene', 'carbon')
 GROUPS = {'none':None, 'hydroxyl':'[O;H1;!$(O-C=O)]',
           'carboxyl':'[CX3](=[OX1])[OX2H1]', 'amino':'[NX3;H2,H1;!$(N-C=O)]',
           'carbonyl':'[CX3]=[OX1]', 'double_bond':'[CX3]=[CX3]'}
@@ -47,15 +48,18 @@ def lens_state(d):
 
 
 def draw_frame(d, family, progress=1):
-    image = Image.new('RGB', (1000, 620), 'white')
+    composed=d.kind=='scene' and any(o.type=='carbon' for o in d.scene.objects)
+    image = Image.new('RGB', (1000, 400 if composed else 620), 'white')
     pen = ImageDraw.Draw(image)
     ink, blue, orange, grey = '#18324c', '#1767bf', '#bc582b', '#60758a'
     def text(x, y, value, color=ink, size=25, anchor=None):
         pen.text((x,y), str(value), font=font(size,family), fill=color, anchor=anchor)
     text(30, 16, d.title, blue, 30)
-    if d.kind=='scene':
+    if d.kind=='carbon':
+        draw_carbon(pen,d.allotrope,progress,text)
+    elif d.kind=='scene':
         draw_scene(image,d.scene,progress,lambda size:font(size,family))
-        text(30,590,'结构化教学示意 · 动作按描述绘制，不代表已验证物理过程或实测结果',grey,20)
+        text(30,370 if composed else 590,'教学示意 · 非真实比例；结构变化与观察视角按旁白区分',grey,18)
     elif d.kind == 'thin_lens':
         if d.animation:
             d = d.model_copy(update={'object_distance_cm':d.object_distance_cm+(d.animation.to-d.object_distance_cm)*progress})
@@ -156,7 +160,10 @@ def draw_frame(d, family, progress=1):
 
 
 def summary(d):
-    if d.kind=='scene':return '结构化教学示意；图形与动作按描述绘制，非学科仿真或实测。',dict(object_count=len(d.scene.objects),action_count=len(d.scene.actions),duration_ms=d.scene.duration_ms)
+    if d.kind=='carbon':return '碳单质结构教学示意；局部网络/层间滑动/理想C60笼，非真实比例或转化仿真。',carbon_metadata(d.allotrope)
+    if d.kind=='scene':
+        from carbon_visuals import native_model
+        return '结构化教学示意；图形与动作按描述绘制，非学科仿真或实测。',dict(object_count=len(d.scene.objects),action_count=len(d.scene.actions),duration_ms=d.scene.duration_ms,models={o.id:native_model(o.allotrope) for o in d.scene.objects if o.type=='carbon'})
     if d.kind=='cell':return '程序绘制的细胞教学示意；不代表真实比例或显微照片。',dict(cell_type=d.cell_type,visible_parts=d.visible_parts,highlight_parts=d.highlight_parts)
     if d.kind=='molecule':
         mol,atoms,_=molecule(d)
@@ -168,35 +175,49 @@ def summary(d):
 def encoded(raw):return 'data:image/png;base64,'+base64.b64encode(raw).decode()
 
 
-def gif_bytes(images,duration):
+def gif_bytes(images,duration,poster=None):
     output=io.BytesIO()
     # GIF delays have 10ms precision. Include both endpoints with equal delays.
-    images[0].save(output,format='GIF',save_all=True,append_images=images[1:],duration=max(10,round(duration/len(images)/10)*10),loop=0)
+    delay=max(10,round(duration/len(images)/10)*10)
+    if poster is not None:
+        # PowerPoint thumbnails show the first GIF frame. Give teachers a useful
+        # overview, then retain the original empty-to-complete construction.
+        images=[poster,*images]
+        delay=[1000,*([delay]*(len(images)-1))]
+    images[0].save(output,format='GIF',save_all=True,append_images=images[1:],duration=delay,loop=0)
     return output.getvalue()
 
 
-def render_bundle(d, family, frames=False):
+def render_bundle(d, family, frames=False, native=False):
     note,metadata=summary(d)
     dynamic=bool(d.animation or d.kind=='scene' and d.scene.actions)
     result=dict(image=encoded(draw_frame(d,family,0 if dynamic else 1)),summary=note,metadata=metadata,version='science-visuals-v1')
+    native_scene=frames and native and d.kind=='scene'
+    if native_scene:
+        result['native']=True;result['frames']=[result['image']]
+        if not dynamic:return result
     if dynamic:
-        raw_frames=[draw_frame(d,family,i/25) for i in range(26)]
+        count=min(121,max(26,round(d.scene.duration_ms/1000*15)+1)) if d.kind=='scene' and (not frames or native_scene) else 26
+        raw_frames=[draw_frame(d,family,i/(count-1)) for i in range(count)]
         duration=d.scene.duration_ms if d.kind=='scene' else d.animation.duration_ms
         images=[Image.open(io.BytesIO(raw)).convert('RGB') for raw in raw_frames]
         result['animation']='data:image/gif;base64,'+base64.b64encode(gif_bytes(images,duration)).decode()
-        if frames:result['frames']=[encoded(raw) for raw in raw_frames]
+        if frames and not native_scene:result['frames']=[encoded(raw) for raw in raw_frames]
     elif frames:result['frames']=[result['image']]
     return result
 
 
 def add_science(slide,d,family,x,y,w,h):
     if d.animation or d.kind=='scene' and d.scene.actions:
-        images=[Image.open(io.BytesIO(draw_frame(d,family,i/25))).convert('RGB') for i in range(26)]
         duration=d.scene.duration_ms if d.kind=='scene' else d.animation.duration_ms
-        raw=gif_bytes(images,duration)
+        count=min(121,max(26,round(duration/1000*15)+1)) if d.kind=='scene' else 26
+        images=[Image.open(io.BytesIO(draw_frame(d,family,i/(count-1)))).convert('RGB') for i in range(count)]
+        poster=images[-1].copy() if d.kind=='scene' and any(a.op=='reveal' for a in d.scene.actions) else None
+        raw=gif_bytes(images,duration,poster=poster)
     else:raw=draw_frame(d,family)
     # Keep the drawing aspect ratio; never stretch ray angles or cell structures.
-    height=min(h,w*620/1000);width=height*1000/620
+    aspect=400 if d.kind=='scene' and any(o.type=='carbon' for o in d.scene.objects) else 620
+    height=min(h,w*aspect/1000);width=height*1000/aspect
     shape=slide.shapes.add_picture(io.BytesIO(raw),Inches(x+(w-width)/2),Inches(y+(h-height)/2),width=Inches(width),height=Inches(height))
     shape.name='scientific-'+d.kind
     shape._element.nvPicPr.cNvPr.set('descr',json.dumps(d.model_dump(),ensure_ascii=False))

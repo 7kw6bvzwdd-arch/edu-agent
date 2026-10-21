@@ -52,6 +52,9 @@ func TestScientificVisualsHTTP(t *testing.T) {
 	pages[2] = map[string]any{"title": "细胞结构", "layout": "concept", "bullets": []string{"根据结构编号辨认叶绿体。"}, "scientific": map[string]any{"kind": "cell", "title": "植物细胞", "cell_type": "plant", "visible_parts": []string{"cell_membrane", "nucleus", "chloroplast"}, "highlight_parts": []string{"chloroplast"}}}
 	pages[3] = map[string]any{"title": "通用图形动画", "layout": "concept", "bullets": []string{"观察圆点沿路径移动。"}, "scientific": map[string]any{"kind": "scene", "title": "路径与位置（示意）", "scene": map[string]any{"duration_ms": 3000, "objects": []any{map[string]any{"id": "route", "type": "path", "points": [][2]float64{{.2, .5}, {.5, .3}, {.8, .5}}}, map[string]any{"id": "dot", "type": "ellipse", "x": .2, "y": .5, "width": .04, "height": .06, "fill": "#bc582b"}}, "actions": []any{map[string]any{"object": "dot", "op": "follow_path", "path": "route", "start_ms": 0, "duration_ms": 2500}}}}}
 	deck := map[string]any{"title": "科学图示", "theme": "ocean", "lesson": "科学图示教学", "slides": pages}
+	// The same attached label survives Go validation, Python rendering and PPTX.
+	composed := pages[3].(map[string]any)["scientific"].(map[string]any)["scene"].(map[string]any)
+	composed["objects"] = append(composed["objects"].([]any), map[string]any{"id": "label", "type": "text", "x": .2, "y": .64, "text": "圆点", "attach_to": "dot"})
 	for _, token := range []string{other, admin} {
 		worksCall(t, s, "POST", "/api/tasks/"+id+"/edit", token, map[string]any{"revision": revision.Revision, "result": deck}, 404)
 	}

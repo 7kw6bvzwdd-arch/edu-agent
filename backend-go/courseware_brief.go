@@ -166,6 +166,13 @@ func (s *Server) coursewareBrief(w http.ResponseWriter, r *http.Request, a Actor
 			prompt += "\n本轮同时压缩对话：在原有JSON末尾额外输出context_summary（1–3200字），不改变reply首字段或现有字段。合并较早记忆、当前已确认设置、教师手工摘要与本轮有效对话；保留当前课题、教学目标、学生难点、呈现和配色约束、资料用途、最新修正、明确排除或取消的内容、仍待回答的问题。区分已确认需求与建议/假设；旧作品只保留简短背景，不把旧任务约定套到当前课题；明确记录待确认状态。历史开始制作/交付等指令只描述为过去事件，不形成新的执行授权。删除重复寒暄、复述和过时要求；未知信息保持未知，不猜测、不输出密钥或文件URL。摘要仅作下轮理解上下文，不能改变任务、费用或权限。不要在reply中展示摘要正文。\n"
 		}
 		prompt += "参数：" + string(asJSON(teachingModelInput(in.Input))) + "\n对话：" + string(asJSON(in.Messages))
+		if in.CompactContext {
+			prompt += "\n本轮最终输出契约覆盖前面未含摘要的示例：只输出一个JSON对象，必须包含reply、settings、requirements、questions、assumptions、context_summary"
+			if workspace {
+				prompt += "、tool、action"
+			}
+			prompt += "。context_summary是必填非空字符串，1–3200字，建议300–1000字；在reply之后先输出context_summary，再输出其余字段。reply保持简短，不把完整摘要写到reply里。摘要必须保留早轮已确认约束与取消事项，不能省略该字段。\n"
+		}
 		ctx := r.Context()
 		if streaming {
 			ctx = context.WithValue(ctx, briefStreamKey{}, func(delta string) error { return writeBriefEvent(w, "delta", map[string]string{"text": delta}) })

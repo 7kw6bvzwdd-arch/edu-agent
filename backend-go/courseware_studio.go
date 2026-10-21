@@ -52,10 +52,11 @@ func slideContentHash(d Deck, sl Slide) string {
 	content := append([]byte(d.Title+"\n"+d.Theme+"\n"), asJSON(sl)...)
 	if d.Plan != nil && len(d.Plan.LearningGoals) > 0 && sl.Order > 0 && sl.Order <= len(d.Plan.Pages) {
 		row := d.Plan.Pages[sl.Order-1]
+		// Empty arrays and omitted arrays are the same saved plan semantics.
 		content = append(content, asJSON(struct {
 			Goals, Checks []string
 			Dependencies  []int
-		}{row.GoalRefs, row.ChecksGoals, row.DependsOn})...)
+		}{append([]string(nil), row.GoalRefs...), append([]string(nil), row.ChecksGoals...), append([]int(nil), row.DependsOn...)})...)
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(content))
 }
@@ -202,7 +203,7 @@ func (s *Server) saveCoursewareDraft(w http.ResponseWriter, r *http.Request, a A
 		Result   Deck `json:"result"`
 		Revision int  `json:"revision"`
 	}
-	if err := decode(r, &body); err != nil {
+	if err := decodeCoursewareSave(r, &body); err != nil {
 		return err
 	}
 	if len(body.Result.Slides) > 100 {

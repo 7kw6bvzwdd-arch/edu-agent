@@ -1,4 +1,5 @@
 import io
+import base64
 import json
 import zipfile
 
@@ -6,6 +7,54 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pptx import Presentation
 from app import app
+
+
+def test_moving_shape_label_follows_in_rendered_frames_and_pptx():
+    diagram=dict(kind='scene',title='物体与标注同步',scene=dict(duration_ms=2000,
+        objects=[dict(id='boat',type='polygon',points=[[.2,.35],[.4,.35],[.36,.42],[.24,.42]],fill='#1767bf'),
+                 dict(id='label',type='text',x=.3,y=.53,text='小船',attach_to='boat',color='#c00000')],
+        actions=[dict(object='boat',op='move',x=.7,y=.385,start_ms=0,duration_ms=2000)]))
+    client=TestClient(app)
+    response=client.post('/render/scientific',json=dict(diagram=diagram,frames=True))
+    assert response.status_code==200,response.text
+    frames=response.json()['frames']
+    # Inspect the actual red label pixels; a stationary or absent label fails.
+    centers=[]
+    for frame in (frames[0],frames[-1]):
+        im=Image.open(io.BytesIO(base64.b64decode(frame.split(',')[1]))).convert('RGB')
+        pixels=[x for y in range(310,370) for x in range(30,970) if (lambda p:p[0]>140 and p[1]<80 and p[2]<80)(im.getpixel((x,y)))]
+        assert pixels
+        centers.append(sum(pixels)/len(pixels))
+    assert 370<centers[1]-centers[0]<382
+    ppt=client.post('/render/pptx',json=dict(title='同步标注',slides=[dict(title='移动图示',scientific=diagram)]))
+    assert ppt.status_code==200,ppt.text
+    with zipfile.ZipFile(io.BytesIO(ppt.content)) as z:
+        gif=next(n for n in z.namelist() if n.startswith('ppt/media/') and n.endswith('.gif'))
+        with Image.open(io.BytesIO(z.read(gif))) as im:assert im.n_frames>1
+
+
+def test_route_cannot_teleport_from_its_declared_start():
+    diagram=dict(kind='scene',title='路线方向',scene=dict(duration_ms=2000,
+        objects=[dict(id='route',type='path',points=[[.2,.5],[.8,.5]]),
+                 dict(id='ball',type='ellipse',x=.8,y=.5,width=.05,height=.05)],
+        actions=[dict(object='ball',op='follow_path',path='route',start_ms=0,duration_ms=2000)]))
+    client=TestClient(app)
+    rejected=client.post('/render/scientific',json=dict(diagram=diagram,frames=True))
+    assert rejected.status_code==422
+    diagram['scene']['objects'][0]['points'].reverse()
+    accepted=client.post('/render/scientific',json=dict(diagram=diagram,frames=True))
+    assert accepted.status_code==200,accepted.text
+    assert accepted.json()['frames'][0]!=accepted.json()['frames'][-1]
+
+
+def test_highlight_background_never_covers_teaching_label():
+    diagram=dict(kind='scene',title='标注与高亮',scene=dict(duration_ms=1000,
+        objects=[dict(id='word',type='text',x=.5,y=.5,text='本体',color='#c00000'),
+                 dict(id='highlight',type='rect',x=.5,y=.5,width=.3,height=.15,fill='#ffff99')]))
+    response=TestClient(app).post('/render/scientific',json=dict(diagram=diagram))
+    assert response.status_code==200,response.text
+    im=Image.open(io.BytesIO(base64.b64decode(response.json()['image'].split(',')[1]))).convert('RGB')
+    assert any((lambda p:p[0]>140 and p[1]<80 and p[2]<80)(im.getpixel((x,y))) for y in range(290,350) for x in range(420,580))
 
 
 def test_thin_lens_static_animation_and_focal_state_survive_pptx():

@@ -83,8 +83,10 @@ func TestRemediationLiveSimulationHTTP(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
 	id := worksObject(t, worksCall(t, s, "POST", "/api/billing/orders", token, map[string]string{"sku": "topup"}, 201))["id"].(string)
-	s.cfg.Mode = "live"
+	s.cfg.Mode, s.cfg.AllowSimulatedPayment = "live", false
 	worksCall(t, s, "POST", "/api/billing/orders/"+id+"/pay", token, nil, 403)
+	s.cfg.AllowSimulatedPayment = true
+	worksCall(t, s, "POST", "/api/billing/orders/"+id+"/pay", token, nil, 200)
 }
 
 func TestRemediationAuthStoragePrivilegesHTTP(t *testing.T) {

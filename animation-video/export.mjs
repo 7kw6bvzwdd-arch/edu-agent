@@ -19,7 +19,7 @@ let html=(await fs.readFile(source,'utf8')).replace(/\r\n/g,'\n');
 const data=JSON.parse(html.match(/<script type="application\/json" id="anim-data">([\s\S]*?)<\/script>/)[1]);
 const duration=data.timeline.total_ms/1000,fps=24,width=1280,height=720;
 assert.ok(duration>=30&&duration<=180,'export supports 30–180 seconds');
-assert.ok(['func.params@1','geo.transform@1','lesson.explain@1'].includes(data.script.archetype));
+assert.ok(['func.params@1','geo.transform@1','lesson.explain@1','html.direct@1'].includes(data.script.archetype));
 const hash=s=>createHash('sha256').update(s).digest('base64');
 // Adapt only a test copy of the trusted renderer; preserve its CSP hashes.
 const bridge='\nwindow.__anim.player.playing=false;window.__anim.step(false);window.__hf={duration:'+duration+',seek:function(seconds){window.__anim.player.playing=false;window.__anim.seek(seconds*1000)}};\n';
@@ -49,7 +49,7 @@ try{
  await session.page.setRequestInterception(true);const external=[];session.page.on('request',req=>{if(req.url().startsWith('data:')||req.url().startsWith('http://127.0.0.1:'+server.address().port+'/'))req.continue();else{external.push(req.url());req.abort()}});
  const errors=[];session.page.on('pageerror',e=>{errors.push(e.message);console.log('PAGE ERROR '+e.message)});session.page.on('console',m=>{if(m.type()==='error')console.log('PAGE CONSOLE '+m.text())});await initializeSession(session);
 
- const state=()=>session.page.evaluate(()=>({svg:document.getElementById('stage').outerHTML,subtitle:document.getElementById('subtitle').textContent}));
+ const state=()=>session.page.evaluate(()=>({svg:document.getElementById('stage').outerHTML,subtitle:document.getElementById('subtitle').textContent,authored:window.__anim.authoredState?.().find(x=>x.id===JSON.parse(document.getElementById('anim-data').textContent).script.scenes[window.__anim.stateAt(window.__anim.player.t).scene].id)}));
  const saved=new Map();
  for(const t of [0,duration*.2,duration*.5,duration*.8,duration-0.05,duration*.5,duration*.2,0]){
   const frame=await captureFrameToBuffer(session,Math.floor(t*fps),t),value=JSON.stringify(await state());

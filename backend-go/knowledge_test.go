@@ -101,7 +101,7 @@ func TestKnowledgeHTTPIsolationAndRetry(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" || os.Getenv("TEST_RENDER_URL") == "" {
 		t.Skip("requires test PostgreSQL and renderer")
 	}
-	s, e := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", SeedPassword: "test-pass-123", RenderURL: os.Getenv("TEST_RENDER_URL"), Storage: t.TempDir()})
+	s, e := NewServer(context.Background(), Config{DatabaseURL: isolatedTestDatabase(t), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", SeedPassword: "test-pass-123", RenderURL: os.Getenv("TEST_RENDER_URL"), Storage: t.TempDir()})
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -15,7 +15,7 @@ func TestMemberPackageAndConcurrentReservations(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("requires isolated PostgreSQL")
 	}
-	s, e := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Mode: "sample", Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Storage: t.TempDir()})
+	s, e := NewServer(context.Background(), Config{DatabaseURL: isolatedTestDatabase(t), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Mode: "sample", Secret: "test-secret-at-least-thirty-two-bytes", SeedPassword: "test-pass-123", Storage: t.TempDir()})
 	if e != nil {
 		t.Fatal(e)
 	}

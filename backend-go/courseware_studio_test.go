@@ -114,7 +114,7 @@ func TestCoursewareThreeSlideGateHTTP(t *testing.T) {
 	done := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 	originalFull := done["result"].(map[string]any)["slides"].([]any)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sl := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"}).Slides[0]
+		sl := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})).Slides[0]
 		sl.Notes += "\n已交付后的单页修订。"
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(sl))}}}})
 	}))
@@ -171,7 +171,7 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 				if !strings.Contains(prompt, "说明不够具体") {
 					t.Error("downvote reason was not passed to revision")
 				}
-				d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
+				d := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"}))
 				sl := d.Slides[0]
 				sl.Bullets = []string{"从木块浮在水面引入浮力", "区分浮力方向与浮沉状态"}
 				sl.Notes += "\n先观察木块，再区分运动状态与受力。"
@@ -182,7 +182,7 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 			}
 			return
 		}
-		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
+		d := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"}))
 		m := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`).FindString(prompt)
 		var start, end int
 		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
@@ -196,6 +196,7 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 	}))
 	defer provider.Close()
 	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+	configureDirectHTTPFixture(t, s, TaskInput{Topic: "浮力", Pages: 8}, provider.URL)
 	in := map[string]any{"type": "courseware", "topic": "浮力", "pages": 8, "theme": "classroom", "use_kb": true, "preview_first": true, "idempotency_key": newID()}
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 	route := "/api/tasks/" + id
@@ -220,6 +221,9 @@ func TestCoursewareConversationAndFeedbackHTTP(t *testing.T) {
 	}
 	updated := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 	newSlides := updated["result"].(map[string]any)["slides"].([]any)
+	if newSlides[0].(map[string]any)["html"] == nil {
+		t.Fatal("page conversation dropped authored source")
+	}
 	if !reflect.DeepEqual(original[1:], newSlides[1:]) || newSlides[0].(map[string]any)["id"] != slideID {
 		t.Fatal("single page chat changed other pages or identity")
 	}
@@ -265,10 +269,10 @@ func TestCoursewarePreviewModelDoesNotGenerateFullDeck(t *testing.T) {
 		var request struct{ Messages []struct{ Content string } }
 		json.NewDecoder(r.Body).Decode(&request)
 		prompt := request.Messages[len(request.Messages)-1].Content
-		if !strings.Contains(prompt, "只生成前三页") {
+		if !strings.Contains(prompt, "本批只返回第") || !strings.Contains(prompt, "slides恰好1项") {
 			t.Error("initial prompt requested whole deck")
 		}
-		d := sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"})
+		d := directHTTPFixtureDeck(sampleDeck(TaskInput{Type: "courseware", Topic: "浮力", Pages: 8, Theme: "classroom"}))
 		m := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`).FindString(prompt)
 		var start, end int
 		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
@@ -282,6 +286,7 @@ func TestCoursewarePreviewModelDoesNotGenerateFullDeck(t *testing.T) {
 	}))
 	defer provider.Close()
 	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+	configureDirectHTTPFixture(t, s, TaskInput{Topic: "浮力", Pages: 8}, provider.URL)
 	body := map[string]any{"type": "courseware", "topic": "浮力", "pages": 8, "theme": "classroom", "use_kb": true, "preview_first": true, "idempotency_key": newID()}
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, body, 202))["id"].(string)
 	if err := s.workOne(context.Background()); err != nil {
@@ -322,7 +327,7 @@ func TestCoursewareConversationCancellationHTTP(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-release
-		sl := sampleDeck(input).Slides[0]
+		sl := directHTTPFixtureDeck(sampleDeck(input)).Slides[0]
 		sl.Notes += "\n迟到的修改"
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(map[string]any{"reply": "更新完成", "slide": sl}))}}}})
 	}))

@@ -36,6 +36,9 @@ func deckContentHash(d Deck) string {
 }
 
 func (s *Server) teachingDeckDeliveryError(d Deck, sample bool) error {
+	if issues := append(missingPictureTaskIssues(d), singleCellTaskIssues(d)...); len(issues) > 0 {
+		return fail(409, blockingPageIssues(issues))
+	}
 	if d.Plan == nil || len(d.Plan.LearningGoals) == 0 {
 		return nil
 	} // Historical unmapped plans.
@@ -70,6 +73,11 @@ func (s *Server) checkTeachingDeck(ctx context.Context, a Actor, id string, in T
 		return
 	}
 	hash := deckContentHash(*d)
+	// Saved media facts take precedence over an optimistic supplier verdict.
+	if issues := append(missingPictureTaskIssues(*d), singleCellTaskIssues(*d)...); len(issues) > 0 {
+		d.DeckCheck = &DeckQualityCheck{Hash: hash, Status: "blocked", Summary: blockingPageIssues(issues), Issues: []DeckQualityIssue{}}
+		return
+	}
 	prior := d.DeckCheck
 	c := &DeckQualityCheck{Hash: hash, Status: "unavailable", Summary: "全课核验尚未完成", Issues: []DeckQualityIssue{}}
 	if prior != nil && prior.Hash == hash {

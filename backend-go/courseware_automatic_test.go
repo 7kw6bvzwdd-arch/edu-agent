@@ -87,12 +87,13 @@ func TestCoursewareAutomaticCompleteRepairHTTP(t *testing.T) {
 			w.WriteHeader(503)
 			return
 		}
-		d := sampleDeck(in)
+		d := directHTTPFixtureDeck(sampleDeck(in))
 		d.Slides = d.Slides[page-1 : page]
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(d))}}}})
 	}))
 	defer previewModel.Close()
 	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", previewModel.URL, "test", "test"
+	configureDirectHTTPFixture(t, s, in, previewModel.URL)
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, body, 202))["id"].(string)
 	tx, err := s.tx(context.Background(), 1)
 	if err != nil {
@@ -140,7 +141,7 @@ func TestCoursewareAutomaticCompleteRepairHTTP(t *testing.T) {
 			w.WriteHeader(503)
 			return
 		}
-		d := sampleDeck(in)
+		d := directHTTPFixtureDeck(sampleDeck(in))
 		sl := d.Slides[page-1]
 		original[page] = sl
 		if page == 5 && calls[page] == 1 {
@@ -169,6 +170,7 @@ func TestCoursewareAutomaticCompleteRepairHTTP(t *testing.T) {
 		}
 		expected := original[p+1]
 		expected.ID = sl.ID
+		expected.Order = p + 1
 		if string(asJSON(sl)) != string(asJSON(expected)) {
 			t.Errorf("unexpected change on page %d: got %s expected %s", p+1, asJSON(sl), asJSON(expected))
 		}

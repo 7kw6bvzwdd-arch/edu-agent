@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ func TestHTMLAnimationWorkflowHTTP(t *testing.T)     { testHTMLAnimationWorkflow
 func TestHTMLGeometryWorkflowHTTP(t *testing.T)      { testHTMLAnimationWorkflow(t, "geometry") }
 func TestHTMLGeneralLessonWorkflowHTTP(t *testing.T) { testHTMLAnimationWorkflow(t, "lesson") }
 func TestHTMLScienceWorkflowHTTP(t *testing.T)       { testHTMLAnimationWorkflow(t, "science") }
+func TestHTMLCarbonWorkflowHTTP(t *testing.T)        { testHTMLAnimationWorkflow(t, "carbon") }
 func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 	if kind == "lesson" {
 		t.Setenv("ANIMATION_EXPORT_SCRIPT", filepath.Join("..", "animation-video", "export.mjs"))
@@ -29,12 +31,12 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 	s.cfg.Mode = "live"
 	// This fixture explicitly exercises the optional demo-payment deployment.
 	s.cfg.AllowSimulatedPayment = true
-	var script AnimScript
-	if kind == "geometry" {
-		script = loadGeometryFixture(t)
-	} else {
-		script = loadLinearKFixture(t)
-	}
+	script := directModelFixture(t)
+	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"version": "authored-animation-v1"})
+	}))
+	defer renderer.Close()
+	s.cfg.RenderURL = renderer.URL
 	llmCalls, ttsCalls := 0, 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tts" {
@@ -43,56 +45,31 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 			return
 		}
 		llmCalls++
+		var req struct{ Messages []struct{ Content string } }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		if len(req.Messages) < 2 || !strings.Contains(req.Messages[0].Content, directAuthoringSkill) || !strings.Contains(req.Messages[0].Content, "技术契约") {
+			t.Error("animation task request lost the backend creative skill or technical contract")
+		}
+		if kind == "carbon" && llmCalls == 1 {
+			raw, _ := os.ReadFile("../fixtures/animation-v2-lesson.json")
+			json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(raw)}}}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(script))}}}})
 	}))
 	defer provider.Close()
 	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = provider.URL, "test-key", "deepseek-flash"
 	s.cfg.TTS = ttsConfig{Provider: "volcengine", Protocol: "create", URL: provider.URL + "/tts", Key: "test-key", Model: "seed-audio-1.0", Unit: "sentence", Format: "mp3", SampleRate: 48000}
 	if kind == "lesson" {
-		script.Archetype = "lesson.explain@1"
 		script.Title = "历史中的时间顺序"
-		for i := range script.Scenes {
-			scene := &script.Scenes[i]
-			scene.Title = "梳理事件"
-			scene.Intent = "理解先后顺序"
-			for j := range scene.Narration {
-				text := fmt.Sprintf("同学们，我们从第%d幕的第%d个问题开始，先观察事件，再梳理时间顺序。", i+1, j+1)
-				scene.Narration[j].Display = text
-				scene.Narration[j].Speech = text
-			}
-			scene.Objects = []AnimObject{{ID: "idea", Type: "card", Slot: "main", Text: "观察与比较", Items: []string{"先明确事件", "再梳理先后"}}}
-			scene.Actions = []AnimAction{{ID: "reveal", Op: "show", Object: "idea", At: AnimTrigger{Sentence: scene.Narration[0].ID}}}
-		}
 	}
-	if kind == "science" {
-		if os.Getenv("SCIENCE_RENDER_URL") == "" {
-			t.Skip("requires real scientific renderer")
-		}
-		s.cfg.RenderURL = os.Getenv("SCIENCE_RENDER_URL")
-		raw, err := os.ReadFile("../fixtures/animation-v2-science.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var science AnimScript
-		if err = json.Unmarshal(raw, &science); err != nil {
-			t.Fatal(err)
-		}
-		script.Archetype = "lesson.explain@1"
-		script.Title = "科学图示集成验收"
-		for i := range script.Scenes {
-			scene := &script.Scenes[i]
-			source := science.Scenes[i%len(science.Scenes)]
-			scene.Title = source.Title
-			scene.Intent = source.Intent
-			scene.Objects = source.Objects
-			for j := range scene.Narration {
-				text := fmt.Sprintf("观察第%d幕第%d句图示中的条件与变化，再解释本幕的教学关系。", i+1, j+1)
-				scene.Narration[j].Display = text
-				scene.Narration[j].Speech = text
-			}
-			scene.Actions = []AnimAction{{ID: "change", Op: "tween", Object: scene.Objects[0].ID, Param: "progress", To: f64(1), At: AnimTrigger{Sentence: scene.Narration[0].ID}, DurationMS: 2500}}
-		}
+	if kind == "carbon" {
+		script.Title = "碳单质结构比较"
 	}
+	script.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察图形的变化。"
+	script.Scenes[0].Narration[0].Speech = script.Scenes[0].Narration[0].Display
 	token := worksLogin(t, s, "teacher")
 	// Each workflow has its own public simulated purchase; combined runs must
 	// not consume a preceding workflow's seed balance.
@@ -114,6 +91,11 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 		in.Subject = "物理"
 		in.Topic = "科学图示集成验收"
 		in.Requirements = "透镜、分子、细胞与通用图形受控演示"
+	}
+	if kind == "carbon" {
+		in.Subject = "化学"
+		in.Topic = "碳单质的多样性：结构决定性质"
+		in.Requirements = "动态比较金刚石、石墨与C60结构"
 	}
 	worksCall(t, s, "POST", "/api/tasks", "", in, 401)
 	before := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
@@ -139,14 +121,41 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 		t.Fatal(err)
 	}
 	state := worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
-	if state["status"] != "anim_plan" || llmCalls != 1 || ttsCalls != 0 {
+	wantCalls := 1
+	if kind == "carbon" {
+		wantCalls = 2
+	}
+	if state["status"] != "anim_plan" || llmCalls != wantCalls || ttsCalls != 0 {
 		t.Fatalf("plan stage %v calls %d/%d", state["status"], llmCalls, ttsCalls)
+	}
+	if kind == "carbon" {
+		request := map[string]any{"revision": state["revision"], "scene_id": script.Scenes[0].ID}
+		worksCall(t, s, "POST", path+"/preview-visual", "", request, 401)
+		for _, foreign := range []string{other, admin} {
+			worksCall(t, s, "POST", path+"/preview-visual", foreign, request, 404)
+		}
+		request["revision"] = 0
+		worksCall(t, s, "POST", path+"/preview-visual", token, request, 409)
+		request["revision"] = state["revision"]
+		visual := worksObject(t, worksCall(t, s, "POST", path+"/preview-visual", token, request, 200))
+		if !strings.Contains(visual["html"].(string), "html.direct@1") {
+			t.Fatal("plan preview has no real animated graphic")
+		}
 	}
 	worksCall(t, s, "POST", path+"/accept", token, map[string]any{"revision": state["revision"]}, 409)
 	badPlan := map[string]any{}
 	_ = json.Unmarshal(asJSON(script), &badPlan)
 	badPlan["html"] = "<script>bad</script>"
 	worksCall(t, s, "POST", path+"/revise-plan", token, map[string]any{"revision": state["revision"], "request_key": newID(), "script": badPlan}, 400)
+	if kind == "carbon" {
+		bad := script
+		bad.Scenes = append([]AnimScene(nil), script.Scenes...)
+		for i := range bad.Scenes {
+			bad.Scenes[i].Objects = []AnimObject{{ID: "idea", Type: "card", Slot: "main", Text: "碳结构", Items: []string{"只写文字"}}}
+			bad.Scenes[i].Actions = []AnimAction{{ID: "show", Op: "show", Object: "idea", At: AnimTrigger{Sentence: bad.Scenes[i].Narration[0].ID}}}
+		}
+		worksCall(t, s, "POST", path+"/revise-plan", token, map[string]any{"revision": state["revision"], "request_key": newID(), "script": bad}, 400)
+	}
 	worksCall(t, s, "POST", path+"/revise-plan", token, map[string]any{"revision": state["revision"], "request_key": newID(), "script": script}, 202)
 	state = worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
 	body := map[string]any{"revision": state["revision"]}
@@ -162,6 +171,25 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 	preview := worksCall(t, s, "GET", path+"/file", token, nil, 200).Body.String()
 	if !strings.Contains(preview, "data:audio/mpeg") || strings.Contains(preview, "test-key") {
 		t.Fatal("preview missing or leaked key")
+	}
+	if kind == "carbon" {
+		old := map[string]any{"revision": state["revision"], "hash": state["representative_hash"]}
+		for i := range script.Scenes {
+			if script.Scenes[i].ID == script.Representative {
+				script.Scenes[i].HTML += "<div>观察局部碳结构</div>"
+			}
+		}
+		worksCall(t, s, "POST", path+"/revise-plan", token, map[string]any{"revision": state["revision"], "request_key": newID(), "script": script}, 202)
+		worksCall(t, s, "POST", path+"/confirm-representative", token, old, 409)
+		state = worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
+		worksCall(t, s, "POST", path+"/confirm-plan", token, map[string]any{"revision": state["revision"]}, 202)
+		if err := s.workOne(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		state = worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
+		if state["status"] != "anim_representative" || state["representative_hash"] == old["hash"] || ttsCalls != 3 {
+			t.Fatal("changed visual kept old approval or regenerated speech")
+		}
 	}
 	body = map[string]any{"revision": state["revision"], "hash": state["representative_hash"]}
 	worksCall(t, s, "POST", path+"/confirm-representative", token, body, 202)
@@ -242,11 +270,8 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 		t.Fatal("wrong settlement", billing)
 	}
 	delivered := worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", token, nil, 200).Body.String()
-	if kind == "science" && !strings.Contains(delivered, "data:image/png;base64,") {
-		t.Fatal("scientific frames missing from delivered HTML")
-	}
-	if kind == "geometry" && !strings.Contains(delivered, "geo.transform@1") {
-		t.Fatal("geometry task produced a different archetype")
+	if !strings.Contains(delivered, "html.direct@1") || !strings.Contains(delivered, "sandbox") {
+		t.Fatal("authored source missing from delivery")
 	}
 	if !strings.Contains(worksCall(t, s, "GET", "/api/tasks?view=works&type=animation", token, nil, 200).Body.String(), id) {
 		t.Fatal("delivered animation missing from my works")
@@ -324,7 +349,14 @@ func testHTMLAnimationWorkflow(t *testing.T, kind string) {
 func TestHTMLAnimationRecoveryHTTP(t *testing.T) {
 	s := worksServer(t)
 	s.cfg.Mode = "live"
-	script := loadLinearKFixture(t)
+	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"version": "authored-animation-v1"})
+	}))
+	defer renderer.Close()
+	s.cfg.RenderURL = renderer.URL
+	script := directModelFixture(t)
+	script.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察一次函数的图像。"
+	script.Scenes[0].Narration[0].Speech = script.Scenes[0].Narration[0].Display
 	var calls atomic.Int32
 	var broken atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -410,6 +442,10 @@ func TestHTMLAnimationRecoveryHTTP(t *testing.T) {
 		t.Fatal("restored workflow repeated audio", calls.Load())
 	}
 	worksCall(t, s, "POST", path+"/accept", token, map[string]any{"revision": v["revision"], "hash": v["build_hash"]}, 200)
+	v = worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
+	if v["status"] != "succeeded" || v["has_delivery"] != true || v["charge_state"] != "settled" {
+		t.Fatal("live delivery state did not settle")
+	}
 	account := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
 	if account["balance"] != original-40 || account["reserved"] != float64(0) {
 		t.Fatal("recovery accounting wrong", account)
@@ -488,7 +524,9 @@ func TestAnimationSpeechBoundaries(t *testing.T) {
 func TestHTMLAnimationCancelledWorkerHTTP(t *testing.T) {
 	s := worksServer(t)
 	s.cfg.Mode = "live"
-	script := loadLinearKFixture(t)
+	script := directModelFixture(t)
+	script.Scenes[0].Narration[0].Display = "同学们，今天我们一起观察一次函数的图像。"
+	script.Scenes[0].Narration[0].Speech = script.Scenes[0].Narration[0].Display
 	started, release := make(chan struct{}), make(chan struct{})
 	var count atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -538,9 +576,10 @@ func TestHTMLAnimationCancelledWorkerHTTP(t *testing.T) {
 
 // Explicit opt-in: real provider calls, isolated database and synthetic teacher approvals.
 // This proves integration only; it does not certify classroom quality or human acceptance.
-func TestHTMLAnimationLiveProbe(t *testing.T) { testHTMLAnimationLiveProbe(t, false) }
-func TestHTMLGeometryLiveProbe(t *testing.T)  { testHTMLAnimationLiveProbe(t, true) }
-func testHTMLAnimationLiveProbe(t *testing.T, geometry bool) {
+func TestHTMLAnimationLiveProbe(t *testing.T) { testHTMLAnimationLiveProbe(t, "function") }
+func TestHTMLGeometryLiveProbe(t *testing.T)  { testHTMLAnimationLiveProbe(t, "geometry") }
+func TestHTMLCarbonLiveProbe(t *testing.T)    { testHTMLAnimationLiveProbe(t, "carbon") }
+func testHTMLAnimationLiveProbe(t *testing.T, kind string, briefs ...TaskInput) {
 	if os.Getenv("RUN_ANIMATION_LIVE_PROBE") != "1" {
 		t.Skip("explicit real-provider opt-in required")
 	}
@@ -550,6 +589,9 @@ func testHTMLAnimationLiveProbe(t *testing.T, geometry bool) {
 	s.cfg.AnimationLLMKey = os.Getenv("ANIMATION_LLM_API_KEY")
 	s.cfg.AnimationLLMModel = os.Getenv("ANIMATION_LLM_MODEL")
 	s.cfg.TTS = ttsConfigFromEnv()
+	if render := os.Getenv("SCIENCE_RENDER_URL"); render != "" {
+		s.cfg.RenderURL = render
+	}
 	if !s.htmlAnimationConfigured() {
 		t.Fatal("live configuration missing")
 	}
@@ -557,11 +599,72 @@ func testHTMLAnimationLiveProbe(t *testing.T, geometry bool) {
 	start := time.Now()
 	in := TaskInput{Type: "animation", AnimationEngine: "html", Topic: "一次函数中k的符号与绝对值", Requirements: "四幕，60至90秒，保持b等于二不变，正区间和负区间分别演示。代表幕展示正斜率从一变三，有观察停顿和等待点击思考。每幕两至三句旁白。", IdempotencyKey: newID()}
 	artifact := "live-linear-k.html"
-	if geometry {
+	if kind == "geometry" {
 		in.Topic = "矩形平移与直角三角形旋转"
 		in.Requirements = "四幕，60至90秒。三乘二矩形向右平移三个单位；三乘二直角三角形绕原点逆时针旋转九十度；观察边长和面积不变。代表幕选择矩形平移。保留观察和等待点击思考。所有幕坐标范围横轴负八至八、纵轴负六至六，每幕两到三句旁白。"
 		artifact = "live-geometry.html"
 	}
+	if kind == "carbon" {
+		s.cfg.RenderURL = os.Getenv("SCIENCE_RENDER_URL")
+		in.Subject = "化学"
+		in.Topic = "碳单质的多样性：结构决定性质"
+		in.Requirements = "四幕、每幕两句旁白、总长60至90秒。依次用专用碳结构模型动态展示金刚石局部四面体网络、石墨层间滑动和C60碳笼，最后联系性质提问。代表幕选石墨；只画三层局部示意，实际石墨有许多层。不能用文字卡代替结构，保留观察停顿。"
+		artifact = "live-carbon.html"
+	}
+	dir := os.Getenv("ANIMATION_TEST_OUTPUT")
+	if dir == "" {
+		t.Fatal("set ANIMATION_TEST_OUTPUT for real artifacts")
+	}
+	if len(briefs) > 0 {
+		in = briefs[0]
+		in.Type, in.AnimationEngine, in.IdempotencyKey = "animation", "html", newID()
+		dir = filepath.Join(dir, kind)
+		artifact = "live-" + kind + ".html"
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Capture only author JSON, never headers, credentials or provider envelopes.
+	endpoint, err := chatEndpoint(s.cfg.AnimationLLMURL)
+	if err != nil {
+		t.Fatal("invalid probe endpoint")
+	}
+	modelClient := newAnimModelClient()
+	defer modelClient.CloseIdleConnections()
+	modelCall := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req, e := http.NewRequestWithContext(r.Context(), "POST", endpoint, r.Body)
+		if e != nil {
+			http.Error(w, "probe transport failed", 502)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", r.Header.Get("Authorization"))
+		res, e := modelClient.Do(req)
+		if e != nil {
+			http.Error(w, "probe transport failed", 502)
+			return
+		}
+		defer res.Body.Close()
+		raw, e := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+		if e != nil {
+			http.Error(w, "probe response failed", 502)
+			return
+		}
+		var reply animModelReply
+		if json.Unmarshal(raw, &reply) == nil && len(reply.Choices) == 1 {
+			modelCall++
+			if e = os.WriteFile(filepath.Join(dir, fmt.Sprintf("author-attempt-%d.json", modelCall)), []byte(reply.Choices[0].Message.Content), 0600); e != nil {
+				t.Error("cannot save author evidence")
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(res.StatusCode)
+		w.Write(raw)
+	}))
+	defer proxy.Close()
+	s.cfg.AnimationLLMURL = proxy.URL
+	before := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 	path := "/api/tasks/" + id + "/animation"
 	phase := func(want string) map[string]any {
@@ -572,24 +675,59 @@ func testHTMLAnimationLiveProbe(t *testing.T, geometry bool) {
 			t.Fatal("live worker failed")
 		}
 		v := worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
+		v["requested_input"] = in
+		v["verification"] = "real provider integration; synthetic teacher approvals, manual audio/content review pending"
+		if err := os.WriteFile(filepath.Join(dir, "phase-report.json"), asJSON(v), 0600); err != nil {
+			t.Fatal(err)
+		}
 		if v["status"] != want {
+			after := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
+			v["failure_billing_unchanged"] = before["balance"] == after["balance"] && before["reserved"] == after["reserved"]
+			if err := os.WriteFile(filepath.Join(dir, "phase-report.json"), asJSON(v), 0600); err != nil {
+				t.Fatal(err)
+			}
 			t.Fatalf("live phase: got %v want %s; calls=%v problems=%v", v["status"], want, v["calls"], v["problems"])
 		}
 		t.Logf("phase=%s elapsed=%s calls=%v", want, time.Since(start).Round(time.Second), v["calls"])
 		return v
 	}
 	v := phase("anim_plan")
+	if len(briefs) > 0 {
+		var script AnimScript
+		if err := json.Unmarshal(asJSON(v["script"]), &script); err != nil {
+			t.Fatal(err)
+		}
+		for _, scene := range script.Scenes {
+			for _, object := range scene.Objects {
+				if object.Type == "scientific" {
+					preview := worksObject(t, worksCall(t, s, "POST", path+"/preview-visual", token, map[string]any{"revision": v["revision"], "scene_id": scene.ID}, 200))
+					if !strings.HasPrefix(fmt.Sprint(preview["image"]), "data:image/png;base64,") {
+						t.Fatal("actual storyboard preview missing")
+					}
+				}
+			}
+		}
+	}
 	worksCall(t, s, "POST", path+"/confirm-plan", token, map[string]any{"revision": v["revision"]}, 202)
 	v = phase("anim_representative")
 	worksCall(t, s, "POST", path+"/confirm-representative", token, map[string]any{"revision": v["revision"], "hash": v["representative_hash"]}, 202)
 	v = phase("anim_acceptance")
 	worksCall(t, s, "POST", path+"/accept", token, map[string]any{"revision": v["revision"], "hash": v["build_hash"]}, 200)
-	dir := os.Getenv("ANIMATION_TEST_OUTPUT")
-	if dir == "" {
-		t.Fatal("set ANIMATION_TEST_OUTPUT for real artifacts")
+	v = worksObject(t, worksCall(t, s, "GET", path, token, nil, 200))
+	if v["status"] != "succeeded" || v["has_delivery"] != true || v["charge_state"] != "settled" {
+		t.Fatal("live delivery was not settled")
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
+	if len(briefs) > 0 {
+		other := worksLogin(t, s, "other")
+		worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", other, nil, 404)
+		worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", "", nil, 401)
+		if !strings.Contains(worksCall(t, s, "GET", "/api/tasks", token, nil, 200).Body.String(), id) {
+			t.Fatal("delivered work missing from saved works")
+		}
+		after := worksObject(t, worksCall(t, s, "GET", "/api/billing", token, nil, 200))
+		if before["balance"].(float64)-after["balance"].(float64) != 40 || before["reserved"] != after["reserved"] {
+			t.Fatal("live delivery did not settle exactly once")
+		}
 	}
 	b := worksCall(t, s, "GET", "/api/tasks/"+id+"/download/html", token, nil, 200).Body.Bytes()
 	if err := os.WriteFile(filepath.Join(dir, artifact), b, 0600); err != nil {
@@ -599,6 +737,7 @@ func testHTMLAnimationLiveProbe(t *testing.T, geometry bool) {
 	v["elapsed_seconds"] = time.Since(start).Seconds()
 	v["model"] = s.cfg.AnimationLLMModel
 	v["tts_protocol"] = s.cfg.TTS.protocol()
+	v["requested_input"] = in
 	if err := os.WriteFile(filepath.Join(dir, "live-report.json"), asJSON(v), 0600); err != nil {
 		t.Fatal(err)
 	}

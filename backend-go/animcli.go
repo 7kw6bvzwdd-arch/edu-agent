@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-const animCLIUsage = "edu-server --anim-package <script.json> <out.html> [estimated|tone|tts] | --anim-generate <brief.txt> <out.html> [tts|estimated|tone] | --tts-probe [out-dir] [text]"
+const animCLIUsage = "edu-server --anim-package <script.json> <out.html> [estimated|tone|tts] | --anim-generate <brief.txt> <out.html> [tts|estimated|tone] | --anim-resume <out.html> | --tts-probe [out-dir] [text]"
 
 // runAnimCLI handles animation subcommands; it returns false for other arguments.
 func runAnimCLI(ctx context.Context, args []string) (bool, error) {
@@ -24,6 +25,11 @@ func runAnimCLI(ctx context.Context, args []string) (bool, error) {
 		return false, nil
 	}
 	switch args[0] {
+	case "--anim-resume":
+		if len(args) != 2 {
+			return true, fmt.Errorf("usage: edu-server --anim-resume <out.html>")
+		}
+		return true, animResumeCommand(ctx, args[1])
 	case "--anim-package":
 		if len(args) < 3 || len(args) > 4 {
 			return true, fmt.Errorf("usage: %s", animCLIUsage)
@@ -61,13 +67,16 @@ func animPackageCommand(ctx context.Context, scriptPath, out, voice string) erro
 		return e
 	}
 	sc, problems := decodeAnimScript(raw)
+	if len(problems) == 0 {
+		problems = animVisualProblems(sc, TaskInput{Topic: sc.Title})
+	}
 	if len(problems) > 0 {
 		return fmt.Errorf("作者数据未通过校验：\n- %s", strings.Join(problems, "\n- "))
 	}
 	return writeAnimPackage(ctx, sc, out, voice, true)
 }
 
-func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fixture bool) error {
+func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fixture bool, brief ...TaskInput) error {
 	if animNeedsPicture(sc) {
 		return fmt.Errorf("本地打包没有教师配图，请通过工作台上传并生成")
 	}
@@ -87,6 +96,12 @@ func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fix
 		in.Format = cfg.Format
 	}
 	client := &http.Client{Timeout: cfg.timeout()}
+	cacheDir := out + ".audio-cache"
+	if voice == animVoiceTTS {
+		if e := os.MkdirAll(cacheDir, 0700); e != nil {
+			return e
+		}
+	}
 	for _, s := range sc.Scenes {
 		for _, n := range s.Narration {
 			switch voice {
@@ -96,11 +111,30 @@ func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fix
 				ms[n.ID] = estimateSpeechMS(n.Speech)
 				in.Audio[n.ID] = toneWAV(ms[n.ID], 330+float64(len(ms)%5)*40)
 			case animVoiceTTS:
+				voiceConfig := cfg
+				voiceConfig.Key = ""
+				voiceConfig.Retries = 0
+				key := animDigest([]any{voiceConfig, n.Speech})
+				cachePath := filepath.Join(cacheDir, key+"."+cfg.Format)
+				if raw, e := os.ReadFile(cachePath); e == nil {
+					d, e := audioDurationMS(cfg.Format, raw)
+					if e != nil {
+						return fmt.Errorf("本地音频缓存损坏，未静默重做")
+					}
+					ms[n.ID], in.Audio[n.ID] = d, raw
+					fmt.Printf("  %s/%s %d ms, cached\n", s.ID, n.ID, d)
+					continue
+				} else if !os.IsNotExist(e) {
+					return e
+				}
 				r, attempts, e := synthesizeWithRetry(ctx, client, cfg, n.Speech)
 				if e != nil {
 					return fmt.Errorf("幕%s句子%s语音合成失败（尝试%d次）：%w", s.ID, n.ID, attempts, e)
 				}
 				ms[n.ID], in.Audio[n.ID] = r.DurationMS, r.Audio
+				if e := os.WriteFile(cachePath, r.Audio, 0600); e != nil {
+					return e
+				}
 				fmt.Printf("  %s/%s %d ms, %d chunks, attempts %d\n", s.ID, n.ID, r.DurationMS, r.Chunks, attempts)
 			default:
 				return fmt.Errorf("voice须为estimated、tone或tts")
@@ -111,7 +145,15 @@ func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fix
 	if len(problems) > 0 {
 		return fmt.Errorf("时间轴未通过校验：\n- %s", strings.Join(problems, "\n- "))
 	}
+	if len(brief) > 0 && voice == animVoiceTTS {
+		if p := animDurationProblem(brief[0], tl.TotalMS); p != "" {
+			return fmt.Errorf("%s", p)
+		}
+	}
 	in.Timeline = tl
+	if err := renderer.verifyAuthoredAnimation(ctx, in); err != nil {
+		return err
+	}
 	if e := os.MkdirAll(filepath.Dir(out), 0o755); e != nil {
 		return e
 	}
@@ -139,6 +181,30 @@ func writeAnimPackage(ctx context.Context, sc AnimScript, out, voice string, fix
 		fmt.Println("warning:", w)
 	}
 	return nil
+}
+
+// Rebuild only the exact saved model output. No model call, no fixture relabeling.
+func animResumeCommand(ctx context.Context, out string) error {
+	raw, e := os.ReadFile(out + ".script.json")
+	if e != nil {
+		return e
+	}
+	sc, p := decodeAnimScript(raw)
+	if len(p) > 0 {
+		return fmt.Errorf("保存分镜无效：%s", strings.Join(p, "；"))
+	}
+	recordRaw, e := os.ReadFile(out + ".generation.json")
+	if e != nil {
+		return e
+	}
+	var record animGenerationRecord
+	if json.Unmarshal(recordRaw, &record) != nil || record.Model == "" || record.Voice != animVoiceTTS || record.ScriptHash != animDigest(sc) {
+		return fmt.Errorf("缺少匹配的真实生成来源，请重新生成；不自动将样例或改写稿标为AI结果")
+	}
+	if p = animAuthorProblems(sc, record.Input); len(p) > 0 {
+		return fmt.Errorf("保存分镜未通过：%s", strings.Join(p, "；"))
+	}
+	return writeAnimPackage(ctx, sc, out, animVoiceTTS, false, record.Input)
 }
 
 // toneWAV is a quiet sine test tone for verifying audio-driven timing; it is never narration.

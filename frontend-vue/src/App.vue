@@ -2,6 +2,7 @@
 import { provide, ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { templates, layouts, slideLayout } from './templates.js';
 import CoursewareEvidence from './CoursewareEvidence.vue';
+import KnowledgeImages from './KnowledgeImages.vue';
 import TeachingClaimSources from './TeachingClaimSources.vue';
 import EmphasisText from './EmphasisText.vue';
 import AccountSettings from './AccountSettings.vue';
@@ -938,7 +939,7 @@ async function search() {
 async function reparseDoc(d) {
   if (
     !window.confirm(
-      '重新解析这份资料？完成后替换资料库中的文字与切片，已有作品的来源快照保持原样。'
+      '重新解析这份资料？完成后替换资料库中的文字、切片与配图，已有作品的来源快照保持原样。'
     )
   )
     return;
@@ -1927,6 +1928,7 @@ onUnmounted(() => {
                         :task-id="task.id"
                         :revision="task.revision"
                         :use-web="task.input?.use_web === true"
+                        :use-k-b="task.input?.use_kb === true || !!task.input?.material_id"
                       />
                       <div class="slide-edit-options">
                         <label
@@ -2190,8 +2192,14 @@ onUnmounted(() => {
                         failed: '解析失败'
                       }[d.status] || d.status
                     }}
-                    · {{ d.chunks }} 个切片 · {{ date(d.created_at) }}</small
+                    · {{ d.chunks }} 个切片 · {{ d.image_count || 0 }} 张配图 ·
+                    {{ date(d.created_at) }}</small
                   >
+                  <KnowledgeImages
+                    v-if="d.status === 'ready' && health.knowledge_image_version"
+                    :document-id="d.id"
+                  />
+                  <p v-for="warning in d.image_warnings || []" class="fine">{{ warning }}</p>
                 </div>
                 <button
                   v-if="

@@ -1,9 +1,14 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -101,12 +106,42 @@ func TestCoursewarePreviewOverflowRetryHTTP(t *testing.T) {
 					candidate.Slides[0].Bullets = []string{"结合取值表观察一次函数的变化规律。"}
 				}
 			}
-			// Real renderer reproduces both the explicit title breaks and the caption
-			// consuming the table's space. A model that repeats the same text cannot fix it.
+			expectedTable := candidate.Slides[0].Table
+			expectedFormula := candidate.Slides[0].Formula
+			candidate = directHTTPFixtureDeck(candidate)
+			if expectedTable != nil {
+				var table strings.Builder
+				table.WriteString(`<table style="position:absolute;left:60px;top:410px;border-collapse:collapse;font-size:24px">`)
+				for ri, row := range append([][]string{expectedTable.Headers}, expectedTable.Rows...) {
+					table.WriteString(`<tr>`)
+					for ci, cell := range row {
+						fmt.Fprintf(&table, `<td style="padding:5px 30px;border:1px solid #999" data-editable="cell-%d-%d">%s</td>`, ri, ci, html.EscapeString(cell))
+					}
+					table.WriteString(`</tr>`)
+				}
+				table.WriteString(`</table>`)
+				candidate.Slides[0].HTML += table.String()
+			}
+			if expectedTable != nil {
+				for _, row := range append([][]string{expectedTable.Headers}, expectedTable.Rows...) {
+					for _, cell := range row {
+						if !strings.Contains(candidate.Slides[0].HTML, `">`+html.EscapeString(cell)+`</td>`) {
+							t.Fatalf("direct fixture discarded teaching table cell %q", cell)
+						}
+					}
+				}
+			}
+			if !strings.Contains(candidate.Slides[0].HTML, expectedFormula) {
+				t.Fatal("direct fixture discarded teaching formula")
+			}
+			candidate.Slides[0].HTML += `<p data-editable="overflow" style="position:absolute;left:50px;top:700px;font-size:30px">实际越界文字</p>`
+			// Direct HTML must fail on actual out-of-bounds text; repair may move
+			// the marker but must retain the original teaching text and table cells.
 			if _, err := s.renderPPTX(context.Background(), candidate); err == nil {
 				t.Fatal("fixture did not reproduce text overflow")
 			}
 			original := candidate.Slides[0]
+			candidate.Slides[0].HTML = strings.Replace(candidate.Slides[0].HTML, "top:700px", "top:560px", 1)
 			d.Slides = d.Slides[:2]
 			d.Generation = &CoursewareCheckpoint{Version: coursewarePageRepairVersion, Phase: "preview", RepairPage: 3}
 			const resume = "已恢复逐页检查点，继续只处理问题页和未完成页；未变更页面的审核保留。"
@@ -135,11 +170,12 @@ func TestCoursewarePreviewOverflowRetryHTTP(t *testing.T) {
 			}))
 			defer provider.Close()
 			s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+			configureDirectHTTPFixture(t, s, in, provider.URL)
 			tx, err := s.tx(context.Background(), 1)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = tx.Exec(context.Background(), "UPDATE tasks SET mode='live' WHERE id=$1", child); err != nil {
+			if _, err = tx.Exec(context.Background(), "UPDATE tasks SET mode='live',input=jsonb_set(jsonb_set(input,'{detail}',to_jsonb($2::text)),'{pages}',to_jsonb($3::int)) WHERE id=$1", child, "", 12); err != nil {
 				t.Fatal(err)
 			}
 			if err = tx.Commit(context.Background()); err != nil {
@@ -172,6 +208,37 @@ func TestCoursewarePreviewOverflowRetryHTTP(t *testing.T) {
 			artifact := worksCall(t, s, "GET", route+"/preview-pptx", token, nil, 200).Body.Bytes()
 			if len(artifact) < 1000 || string(artifact[:2]) != "PK" {
 				t.Fatal("real PPTX missing")
+			}
+			if expectedTable != nil {
+				z, err := zip.NewReader(bytes.NewReader(artifact), int64(len(artifact)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var slideXML string
+				for _, f := range z.File {
+					if f.Name == "ppt/slides/slide3.xml" {
+						r, err := f.Open()
+						if err != nil {
+							t.Fatal(err)
+						}
+						raw, err := io.ReadAll(r)
+						r.Close()
+						if err != nil {
+							t.Fatal(err)
+						}
+						slideXML = string(raw)
+					}
+				}
+				for _, row := range append([][]string{expectedTable.Headers}, expectedTable.Rows...) {
+					for _, cell := range row {
+						if !strings.Contains(slideXML, "<a:t>"+html.EscapeString(cell)+"</a:t>") {
+							t.Fatalf("actual PPTX lost editable table cell %q", cell)
+						}
+					}
+				}
+				if !strings.Contains(slideXML, html.EscapeString(expectedFormula)) {
+					t.Fatal("actual PPTX lost formula")
+				}
 			}
 			worksCall(t, s, "POST", route+"/cancel", token, nil, 200)
 		})

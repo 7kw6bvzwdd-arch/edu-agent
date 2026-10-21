@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS documents (
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS upload_path text NOT NULL DEFAULT '';
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS lease_until timestamptz;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS curriculum jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS image_warnings jsonb NOT NULL DEFAULT '[]';
 CREATE TABLE IF NOT EXISTS media_assets (
  id text PRIMARY KEY, tenant_id bigint NOT NULL, member_id bigint NOT NULL,
  metadata jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),

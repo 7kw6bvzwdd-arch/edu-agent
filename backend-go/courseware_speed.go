@@ -130,7 +130,7 @@ func teachingRenderEvidence(d Deck) string {
 			continue
 		}
 		g := sl.Graph
-		out.WriteString("\n可信绘图规则：本页函数图由程序根据graph参数计算，x/y每1单位采用同一物理长度；轴上有数值刻度。范围仅限定可见窗口，不限定函数定义域。数学图无量纲时不要求虚构物理单位；物理量单位仍须核对正文和图标题。图例给出函数式及标记点坐标，mark_x只决定重点标记，不影响整条函数曲线。\n")
+		out.WriteString("\n可信绘图规则：本页函数图由程序根据graph参数计算，x/y每1单位采用同一物理长度；轴上有数值刻度。范围仅限定可见窗口，不限定函数定义域。数学图无量纲时不要求虚构物理单位；物理量单位仍须核对正文和图标题。图例给出函数式及标记点坐标，mark_x只决定重点标记，不影响整条函数曲线。图例由graph.series生成，与单独的formula公式色带是不同对象；图例可用分隔符附带标记点坐标，不能把整段图例当formula字段读值。系数1显写或省略、零项省略属于等价写法，只作格式建议，不是数学内容差异；实际系数、正负号、次数或坐标错误仍须阻塞。\n")
 		for _, series := range g.Series {
 			fmt.Fprintf(&out, "曲线参数kind=%s k=%g b=%g a=%g c=%g；", series.Kind, series.K, series.B, series.A, series.C)
 			for _, x := range series.MarkX {

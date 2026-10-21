@@ -9,7 +9,7 @@ import ScientificDiagram from './ScientificDiagram.vue'
 import FunctionPlot from './FunctionPlot.vue'
 import TeachingChart from './TeachingChart.vue'
 import {showGraphCoordinates} from './classroom.js'
-const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean,taskId:String,revision:Number,useWeb:Boolean})
+const props=defineProps({slide:{type:Object,required:true},editable:Boolean,preview:Boolean,taskId:String,revision:Number,useWeb:Boolean,useKB:Boolean})
 const imageError=ref(''),uploading=ref(false)
 let uploadVersion=0
 onUnmounted(()=>uploadVersion++)
@@ -79,14 +79,24 @@ function changeNodes(add){
   </div>
   <p v-if="slide.focus" class="evidence-focus"><EmphasisText :text="slide.focus" :terms="slide.emphasis||[]"/></p>
  </div>
+ <details v-else-if="slide.html" class="courseware-evidence-editor">
+  <summary>页面配图</summary>
+  <p class="fine">图形与位置由 AI 直接绘制，请在对话中描述修改。替换照片前，请让助手在本页预留配图区域，保存后查看实际 PPT。</p>
+  <CoursewareImageSearch :slide="slide" :task-id="taskId" :revision="revision" :editable="editable" :use-web="useWeb" :use-k-b="useKB"/>
+  <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg,image/gif" :disabled="uploading" @change="uploadPicture"></label>
+  <p v-if="imageError" role="alert" class="image-error">{{imageError}}</p>
+  <template v-if="slide.picture"><MediaImage class="image-thumbnail" :picture="slide.picture" :alt="slide.picture.caption||'上传的配图'"/><label>图片说明（必填）<input v-model="slide.picture.caption" :readonly="!editable" maxlength="60"></label><label>图片出处（必填）<input v-model="slide.picture.source" :readonly="!editable" maxlength="300"></label><button v-if="editable" type="button" @click="removePicture">移除图片</button></template>
+ </details>
  <details v-else class="courseware-evidence-editor">
   <summary>专业图示、配图、课堂图解与表格</summary><ScientificDiagram :slide="slide" :editable="editable"/>
   <section v-if="slide.graph" class="evidence-edit-section">
-   <label>函数绘图方式<select :value="slide.graph.renderer||'native'" @change="slide.graph.renderer=$event.target.value" :disabled="!editable" aria-label="函数绘图方式"><option value="native">PPT可编辑线条</option><option value="matplotlib">高清函数图 · 网页参数可修改</option></select></label>
+   <label>函数绘图方式<select :value="slide.graph.renderer||'native'" @change="slide.graph.renderer=$event.target.value;if($event.target.value==='matplotlib')slide.graph.reveal_on_click=false" :disabled="!editable" aria-label="函数绘图方式"><option value="native">PPT可编辑线条</option><option value="matplotlib">高清函数图 · 网页参数可修改</option></select></label>
    <p v-if="slide.graph.renderer==='matplotlib'" class="fine">修改函数参数并保存后重新绘制。PPT中呈现为图片。</p>
    <label>坐标图标题<input v-model="slide.graph.title" :readonly="!editable" maxlength="60"></label>
    <div class="evidence-grid" style="--columns:2"><label v-for="(label,key) in {x_min:'x 最小值',x_max:'x 最大值',y_min:'y 最小值',y_max:'y 最大值'}" :key="key">{{label}}<input type="number" step="any" v-model.number="slide.graph[key]" :readonly="!editable"></label></div>
-   <label><input type="checkbox" :checked="!!slide.graph.animation" :disabled="!editable" @change="slide.graph.animation=$event.target.checked?{series:0,param:slide.graph.series[0].kind==='quadratic'?'a':'k',to:2,duration_ms:2000}:null">导出参数变化GIF</label>
+   <label><input type="checkbox" :checked="!!slide.graph.reveal_on_click" :disabled="!editable" @change="slide.graph.reveal_on_click=$event.target.checked;if($event.target.checked){slide.graph.animation=null;slide.graph.renderer='native'}">PPT 放映时点击依次出现曲线（可编辑）</label>
+   <p v-if="slide.graph.reveal_on_click" class="fine">坐标轴始终显示，每次点击出现一条曲线及其标记、图例；网页预览显示全部曲线，放映中查看点击效果。</p>
+   <label><input type="checkbox" :checked="!!slide.graph.animation" :disabled="!editable" @change="slide.graph.animation=$event.target.checked?{series:0,param:slide.graph.series[0].kind==='quadratic'?'a':'k',to:2,duration_ms:2000}:null;if($event.target.checked)slide.graph.reveal_on_click=false">导出参数变化GIF</label>
    <div v-if="slide.graph.animation" class="evidence-grid" style="--columns:2">
     <label>变化曲线<select v-model.number="slide.graph.animation.series" :disabled="!editable" @change="slide.graph.animation.param=slide.graph.series[slide.graph.animation.series].kind==='quadratic'?'a':'k'"><option v-for="(_,i) in slide.graph.series" :value="i">{{i+1}}</option></select></label>
     <label>变化参数<select v-model="slide.graph.animation.param" :disabled="!editable"><option v-for="p in (slide.graph.series[slide.graph.animation.series]?.kind==='quadratic'?['a','b','c']:slide.graph.series[slide.graph.animation.series]?.kind==='inverse'?['k']:['k','b'])" :value="p">{{p}}</option></select></label>
@@ -104,7 +114,7 @@ function changeNodes(add){
   <label>重点词（每行一个，最多6个，每词20字）<textarea :value="(slide.emphasis||[]).join('\n')" @input="slide.emphasis=$event.target.value.split('\n').map(x=>x.trim()).filter(Boolean)" :readonly="!editable" rows="2" placeholder="填写正文或表格中已有的关键词、数值"></textarea></label>
   <div class="evidence-actions" v-if="editable"><button type="button" v-if="!slide.table" :disabled="!!slide.scientific||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.figure" @click="addTable(slide)">＋ 教学表格</button><button type="button" v-if="!slide.figure" :disabled="!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.picture&&!!slide.table" @click="addFigure(slide)">＋ 流程/时间线/路线</button><button type="button" v-if="!slide.scientific&&!slide.graph&&!slide.figure&&!slide.picture&&!slide.chart&&!slide.diagram" @click="slide.graph={title:'函数图像',x_min:-3,x_max:3,y_min:-3,y_max:3,series:[{kind:'linear',k:1,b:0,a:1,c:0,mark_x:[]}]}">＋ 函数坐标图</button></div>
   <section class="evidence-edit-section">
-   <CoursewareImageSearch :slide="slide" :task-id="taskId" :revision="revision" :editable="editable" :use-web="useWeb"/>
+   <CoursewareImageSearch :slide="slide" :task-id="taskId" :revision="revision" :editable="editable" :use-web="useWeb" :use-k-b="useKB"/>
    <label v-if="editable">{{uploading?'正在处理图片…':'上传或替换配图'}}<input type="file" accept="image/png,image/jpeg,image/gif" :disabled="uploading||!!slide.scientific||!!slide.graph||!!slide.chart||!!slide.diagram||!!slide.table&&!!slide.figure" @change="uploadPicture"></label>
    <p v-if="imageError" role="alert" class="image-error">{{imageError}}</p>
    <template v-if="slide.picture"><MediaImage class="image-thumbnail" :picture="slide.picture" :alt="slide.picture.caption||'上传的配图'"/><label>图片说明（必填）<input v-model="slide.picture.caption" :readonly="!editable" maxlength="60" placeholder="说明图片与知识点的关系"></label><label>图片出处（必填）<input v-model="slide.picture.source" :readonly="!editable" maxlength="300" placeholder="如：本人拍摄；或作者、来源网址及许可"></label><button v-if="editable" type="button" @click="removePicture">移除图片</button></template>

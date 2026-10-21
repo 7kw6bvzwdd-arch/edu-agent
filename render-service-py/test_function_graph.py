@@ -105,3 +105,18 @@ def test_function_intersection_labels_use_readable_fractions():
     text='\n'.join(s.text for s in ppt.slides[0].shapes if s.has_text_frame)
     assert '(1/3, 5/3)' in text
     assert '0.333333' not in text
+
+
+@pytest.mark.parametrize('a,b,c,expected', [
+    (1, -2, -3, 'y = x² - 2x - 3'),
+    (-1, 0, 2, 'y = -x² + 2'),
+    (2, 1, 0, 'y = 2x² + x'),
+])
+def test_quadratic_legend_uses_classroom_notation(a,b,c,expected):
+    g=graph();g.update(x_min=-2,x_max=2,y_min=-10,y_max=10,
+        series=[{'kind':'quadratic','a':a,'b':b,'c':c,'mark_x':[0]}])
+    response=TestClient(app).post('/render/pptx',json=payload(g))
+    assert response.status_code==200,response.text
+    ppt=Presentation(io.BytesIO(response.content))
+    texts=[s.text for s in ppt.slides[0].shapes if s.has_text_frame]
+    assert any(t.startswith(expected+' · ') for t in texts),texts

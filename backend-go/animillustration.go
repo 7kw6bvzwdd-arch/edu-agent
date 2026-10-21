@@ -31,6 +31,9 @@ func (s *Server) validateAnimationPicture(ctx context.Context, a Actor, p *Teach
 }
 func animNeedsPicture(sc AnimScript) bool {
 	for _, s := range sc.Scenes {
+		if strings.Contains(s.HTML, "data-teaching-picture") {
+			return true
+		}
 		for _, o := range s.Objects {
 			if o.Type == "illustration" && o.Kind == "uploaded" {
 				return true

@@ -8,10 +8,21 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"html"
+	"regexp"
 	"strings"
 )
 
-const animRendererVersion = "science-visuals-v1"
+const animRendererVersion = "direct-html-v2"
+const animDirectBaseCSS = "html,body{margin:0;width:1280px;height:720px;overflow:hidden}*,*::before,*::after{box-sizing:border-box;animation:none!important;transition:none!important}"
+
+//go:embed animplayer/direct.js
+var animDirectJS string
+
+//go:embed animplayer/direct-boot.js
+var animDirectBoot string
+
+//go:embed animplayer/drawing.js
+var animDrawingJS string
 
 //go:embed animplayer/functions.js
 var teachingFunctionsJS string
@@ -69,7 +80,7 @@ func cspHash(s string) string {
 
 // The HTML parser normalizes CRLF to LF inside inline elements, so hashes must be
 // computed over LF text or a CRLF checkout would silently block the player.
-var animPlayerJSLF, animPlayerCSSLF = strings.ReplaceAll(strings.ReplaceAll(teachingFunctionsJS, "export default TeachingFunctions;", "")+"\n"+animPlayerJS, "\r\n", "\n"), strings.ReplaceAll(animPlayerCSS, "\r\n", "\n")
+var animPlayerJSLF, animPlayerCSSLF = strings.ReplaceAll(strings.ReplaceAll(teachingFunctionsJS, "export default TeachingFunctions;", "")+"\n"+animDrawingJS+"\n"+animDirectJS+"\n"+animPlayerJS, "\r\n", "\n"), strings.ReplaceAll(animPlayerCSS, "\r\n", "\n")
 
 func buildAnimPackage(in animPackageInput) []byte {
 	mime := map[string]string{"mp3": "audio/mpeg", "wav": "audio/wav"}[in.Format]
@@ -79,8 +90,21 @@ func buildAnimPackage(in animPackageInput) []byte {
 	}
 	labels := animLabels(in)
 	// json.Marshal escapes <, > and &, so the data cannot close its script element.
-	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion, "picture": in.Picture, "science": in.Science}))
-	csp := "default-src 'none'; script-src " + cspHash(animPlayerJSLF) + "; style-src " + cspHash(animPlayerCSSLF) + "; img-src data:; media-src data:; font-src data:; base-uri 'none'; form-action 'none'"
+	boot := strings.ReplaceAll(animDirectBoot, "\r\n", "\n")
+	data := string(asJSON(map[string]any{"script": in.Script, "timeline": in.Timeline, "audio": audio, "voice": in.Voice, "labels": labels, "renderer": animRendererVersion, "picture": in.Picture, "science": in.Science, "direct_boot": boot, "direct_base_css": animDirectBaseCSS}))
+	csp := "default-src 'none'; script-src " + cspHash(animPlayerJSLF) + "; style-src " + cspHash(animPlayerCSSLF) + "; img-src data:; media-src data:; font-src data:; base-uri 'none'; form-action 'none';"
+	if in.Script.Archetype == "html.direct@1" {
+		scripts, styles := cspHash(animPlayerJSLF)+" "+cspHash(boot), cspHash(animPlayerCSSLF)+" "+cspHash(animDirectBaseCSS)
+		for _, scene := range in.Script.Scenes {
+			for _, m := range regexp.MustCompile("(?is)<script[^>]*>(.*?)</script\\s*>").FindAllStringSubmatch(strings.ReplaceAll(scene.HTML, "\r\n", "\n"), -1) {
+				scripts += " " + cspHash(m[1])
+			}
+			for _, m := range regexp.MustCompile("(?is)<style[^>]*>(.*?)</style\\s*>").FindAllStringSubmatch(strings.ReplaceAll(scene.HTML, "\r\n", "\n"), -1) {
+				styles += " " + cspHash(m[1])
+			}
+		}
+		csp = "default-src 'none'; script-src " + scripts + "; style-src " + styles + "; style-src-attr 'unsafe-inline'; frame-src data:; img-src data:; media-src data:; font-src data:; base-uri 'none'; form-action 'none';"
+	}
 	var tags strings.Builder
 	for _, l := range labels {
 		class := "tag"

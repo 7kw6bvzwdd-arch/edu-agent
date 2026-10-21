@@ -1,0 +1,346 @@
+{
+  "archetype": "lesson.explain@1",
+  "representative": "scene4",
+  "scenes": [
+    {
+      "actions": [
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s1n1"
+          },
+          "id": "show1",
+          "object": "cell1",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s1n3"
+          },
+          "duration_ms": 1000,
+          "id": "hl1",
+          "object": "cell1",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s1n3",
+          "id": "h1obs",
+          "ms": 2000,
+          "type": "observe"
+        },
+        {
+          "after": "s1n4",
+          "id": "h1ask",
+          "ms": 3000,
+          "type": "ask"
+        }
+      ],
+      "id": "scene1",
+      "intent": "引出植物细胞结构问题，观察细胞壁和细胞膜",
+      "narration": [
+        {
+          "display": "同学们，今天我们一起看看植物细胞的结构。",
+          "id": "s1n1",
+          "speech": "同学们，今天我们一起看看植物细胞的结构。"
+        },
+        {
+          "display": "细胞有哪些部分？它们分别有什么功能？",
+          "id": "s1n2",
+          "speech": "细胞有哪些部分？它们分别有什么功能？"
+        },
+        {
+          "display": "先观察细胞壁和细胞膜：细胞壁在细胞最外层，起保护和支持作用。",
+          "id": "s1n3",
+          "speech": "先观察细胞壁和细胞膜：细胞壁在细胞最外层，起保护和支持作用。"
+        },
+        {
+          "display": "细胞膜紧贴细胞壁内侧，能控制物质进出。",
+          "id": "s1n4",
+          "speech": "细胞膜紧贴细胞壁内侧，能控制物质进出。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "cell1",
+          "params": {
+            "progress": 0
+          },
+          "scientific": {
+            "animation": {
+              "duration_ms": 2000,
+              "param": "highlight",
+              "to": 1
+            },
+            "cell_type": "plant",
+            "highlight_parts": [
+              "cell_wall"
+            ],
+            "kind": "cell",
+            "title": "典型植物细胞",
+            "visible_parts": [
+              "cell_wall",
+              "cell_membrane",
+              "cytoplasm",
+              "nucleus",
+              "chloroplast",
+              "vacuole"
+            ]
+          },
+          "slot": "main",
+          "type": "scientific"
+        }
+      ],
+      "title": "观察细胞边界"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "scene": "start"
+          },
+          "id": "show2",
+          "object": "cell2",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s2n1"
+          },
+          "duration_ms": 1000,
+          "id": "hl2",
+          "object": "cell2",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s2n2",
+          "id": "h2obs",
+          "ms": 2000,
+          "type": "observe"
+        },
+        {
+          "after": "s2n3",
+          "id": "h2ask",
+          "ms": 3000,
+          "type": "await"
+        }
+      ],
+      "id": "scene2",
+      "intent": "观察细胞核和叶绿体，理解其功能",
+      "narration": [
+        {
+          "display": "接下来观察细胞核。细胞核是细胞生命活动的控制中心。",
+          "id": "s2n1",
+          "speech": "接下来观察细胞核。细胞核是细胞生命活动的控制中心。"
+        },
+        {
+          "display": "叶绿体是植物细胞中进行光合作用的场所，能利用光能合成有机物。",
+          "id": "s2n2",
+          "speech": "叶绿体是植物细胞中进行光合作用的场所，能利用光能合成有机物。"
+        },
+        {
+          "display": "注意：不是所有植物细胞都有叶绿体，比如根尖细胞就没有。",
+          "id": "s2n3",
+          "speech": "注意：不是所有植物细胞都有叶绿体，比如根尖细胞就没有。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "cell2",
+          "params": {
+            "progress": 0
+          },
+          "scientific": {
+            "animation": {
+              "duration_ms": 2000,
+              "param": "highlight",
+              "to": 1
+            },
+            "cell_type": "plant",
+            "highlight_parts": [
+              "nucleus"
+            ],
+            "kind": "cell",
+            "title": "典型植物细胞",
+            "visible_parts": [
+              "cell_wall",
+              "cell_membrane",
+              "cytoplasm",
+              "nucleus",
+              "chloroplast",
+              "vacuole"
+            ]
+          },
+          "slot": "main",
+          "type": "scientific"
+        }
+      ],
+      "title": "细胞核与叶绿体"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "scene": "start"
+          },
+          "id": "show3a",
+          "object": "comp1",
+          "op": "show"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s3n2",
+          "id": "h3obs",
+          "ms": 2000,
+          "type": "observe"
+        },
+        {
+          "after": "s3n3",
+          "id": "h3ask",
+          "ms": 3000,
+          "type": "ask"
+        }
+      ],
+      "id": "scene3",
+      "intent": "对比植物细胞与动物细胞，强调植物细胞特有结构",
+      "narration": [
+        {
+          "display": "植物细胞与动物细胞相比，有哪些不同？",
+          "id": "s3n1",
+          "speech": "植物细胞与动物细胞相比，有哪些不同？"
+        },
+        {
+          "display": "植物细胞有细胞壁，动物细胞没有；植物细胞有叶绿体，但并非所有植物细胞都有。",
+          "id": "s3n2",
+          "speech": "植物细胞有细胞壁，动物细胞没有；植物细胞有叶绿体，但并非所有植物细胞都有。"
+        },
+        {
+          "display": "这些结构使植物细胞能够支持植物体并进行光合作用。",
+          "id": "s3n3",
+          "speech": "这些结构使植物细胞能够支持植物体并进行光合作用。"
+        }
+      ],
+      "objects": [
+        {
+          "id": "comp1",
+          "items": [
+            "植物细胞有细胞壁",
+            "植物细胞有叶绿体（部分）",
+            "动物细胞无细胞壁和叶绿体"
+          ],
+          "slot": "main",
+          "text": "植物细胞与动物细胞",
+          "type": "comparison"
+        }
+      ],
+      "title": "植物细胞特有结构"
+    },
+    {
+      "actions": [
+        {
+          "at": {
+            "scene": "start"
+          },
+          "id": "show4",
+          "object": "cell4",
+          "op": "show"
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s4n1"
+          },
+          "duration_ms": 2000,
+          "id": "tween4",
+          "object": "cell4",
+          "op": "tween",
+          "param": "progress",
+          "to": 1
+        },
+        {
+          "at": {
+            "anchor": "begin",
+            "sentence": "s4n2"
+          },
+          "duration_ms": 1500,
+          "id": "hl4",
+          "object": "cell4",
+          "op": "emphasize"
+        }
+      ],
+      "holds": [
+        {
+          "after": "s4n2",
+          "id": "h4obs",
+          "ms": 2000,
+          "type": "observe"
+        },
+        {
+          "after": "s4n3",
+          "id": "h4ask",
+          "ms": 3000,
+          "type": "await"
+        }
+      ],
+      "id": "scene4",
+      "intent": "高亮叶绿体，总结结构与功能，提出思考题",
+      "narration": [
+        {
+          "display": "现在高亮叶绿体，它是光合作用的场所。",
+          "id": "s4n1",
+          "speech": "现在高亮叶绿体，它是光合作用的场所。"
+        },
+        {
+          "display": "叶绿体利用光能，把二氧化碳和水合成有机物，并释放氧气。",
+          "id": "s4n2",
+          "speech": "叶绿体利用光能，把二氧化碳和水合成有机物，并释放氧气。"
+        },
+        {
+          "display": "思考：为什么说叶绿体是植物细胞的“能量转换器”？",
+          "id": "s4n3",
+          "speech": "思考：为什么说叶绿体是植物细胞的能量转换器？"
+        }
+      ],
+      "objects": [
+        {
+          "id": "cell4",
+          "params": {
+            "progress": 0
+          },
+          "scientific": {
+            "animation": {
+              "duration_ms": 2000,
+              "param": "highlight",
+              "to": 1
+            },
+            "cell_type": "plant",
+            "highlight_parts": [
+              "chloroplast"
+            ],
+            "kind": "cell",
+            "title": "典型植物细胞",
+            "visible_parts": [
+              "cell_wall",
+              "cell_membrane",
+              "cytoplasm",
+              "nucleus",
+              "chloroplast",
+              "vacuole"
+            ]
+          },
+          "slot": "main",
+          "type": "scientific"
+        }
+      ],
+      "title": "叶绿体与光合作用"
+    }
+  ],
+  "title": "植物细胞结构与功能",
+  "version": "anim-v2"
+}

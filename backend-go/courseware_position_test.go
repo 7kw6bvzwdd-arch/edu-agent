@@ -47,7 +47,7 @@ func TestRepresentativePageRequestUsesTeachingPosition(t *testing.T) {
 		if !strings.Contains(prompt, "本批只返回第5至第5页") || strings.Contains(prompt, "本批只返回第3至第3页") {
 			t.Error("preview index conflicts with requested teaching position")
 		}
-		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(candidate))}}}})
+		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(directHTTPFixtureDeck(candidate)))}}}})
 	}))
 	defer provider.Close()
 	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"

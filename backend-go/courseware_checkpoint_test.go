@@ -16,6 +16,33 @@ func TestCoursewareCheckpointRetryHTTP(t *testing.T) {
 	s := worksServer(t)
 	token := worksLogin(t, s, "teacher")
 	in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 12, Theme: "classroom", UseKB: true, PreviewFirst: true, IdempotencyKey: newID()}
+	failing := true
+	var requested []int
+	ranges := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Messages []struct{ Content string } }
+		json.NewDecoder(r.Body).Decode(&req)
+		prompt := req.Messages[len(req.Messages)-1].Content
+		m := ranges.FindString(prompt)
+		var start, end int
+		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
+		if start < 1 || end > 12 || end < start {
+			t.Errorf("invalid range %d-%d", start, end)
+			w.WriteHeader(400)
+			return
+		}
+		requested = append(requested, start)
+		if failing && start >= 7 {
+			w.WriteHeader(401)
+			return
+		}
+		d := directHTTPFixtureDeck(sampleDeck(in))
+		d.Slides = d.Slides[start-1 : end]
+		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(d))}}}})
+	}))
+	defer provider.Close()
+	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+	configureDirectHTTPFixture(t, s, in, provider.URL)
 	id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 	route := "/api/tasks/" + id
 	if err := s.workOne(context.Background()); err != nil {
@@ -27,44 +54,7 @@ func TestCoursewareCheckpointRetryHTTP(t *testing.T) {
 		worksCall(t, s, "POST", route+"/slides/"+m["id"].(string)+"/review", token, map[string]any{"revision": preview["revision"], "hash": m["hash"], "approved": true}, 200)
 	}
 	worksCall(t, s, "POST", route+"/expand", token, map[string]any{"revision": preview["revision"]}, 202)
-	failing := true
-	var requested []int
-	ranges := regexp.MustCompile(`本批只返回第(\d+)至第(\d+)页`)
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Messages []struct{ Content string } }
-		json.NewDecoder(r.Body).Decode(&req)
-		prompt := req.Messages[len(req.Messages)-1].Content
-		m := ranges.FindString(prompt)
-		var start, end int
-		fmt.Sscanf(m, "本批只返回第%d至第%d页", &start, &end)
-		if start < 4 || end > 12 || end < start {
-			t.Errorf("invalid range %d-%d", start, end)
-			w.WriteHeader(400)
-			return
-		}
-		requested = append(requested, start)
-		if failing && start >= 7 {
-			w.WriteHeader(401)
-			return
-		}
-		d := sampleDeck(in)
-		d.Slides = d.Slides[start-1 : end]
-		respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": string(asJSON(d))}}}})
-	}))
-	defer provider.Close()
-	s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
-	tx, err := s.tx(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = tx.Exec(context.Background(), "UPDATE tasks SET mode='live' WHERE id=$1", id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = tx.Commit(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.workOne(context.Background()); err != nil {
+	if err := s.workOne(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	failed := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
@@ -83,7 +73,7 @@ func TestCoursewareCheckpointRetryHTTP(t *testing.T) {
 	if again := worksObject(t, worksCall(t, s, "POST", route+"/retry", token, nil, 202))["id"]; again != child {
 		t.Fatal("duplicate continuation")
 	}
-	if err = s.workOne(context.Background()); err != nil {
+	if err := s.workOne(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	completed := worksObject(t, worksCall(t, s, "GET", childRoute, token, nil, 200))
@@ -116,7 +106,7 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 			in := TaskInput{Type: "courseware", Topic: "浮力", Pages: 12, Theme: "classroom", UseKB: true, PreviewFirst: true, IdempotencyKey: newID()}
 			id := worksObject(t, worksCall(t, s, "POST", "/api/tasks", token, in, 202))["id"].(string)
 			route := "/api/tasks/" + id
-			d := sampleDeck(in)
+			d := directHTTPFixtureDeck(sampleDeck(in))
 			assignSlideIDs(&d)
 			page := 7
 			if mode == "first-page" {
@@ -131,7 +121,7 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 			good := d.Slides[page-1]
 			good.Bullets = append([]string{}, good.Bullets...)
 			if mode == "renderer" {
-				d.Slides[page-1].Formula = `\notARealLatexCommand{`
+				d.Slides[page-1].HTML += `<p>未声明可编辑的文字</p>`
 			} else if page > 1 {
 				d.Slides[page-1].Title = d.Slides[page-2].Title
 			} else {
@@ -153,7 +143,7 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = tx.Exec(context.Background(), "UPDATE tasks SET status='expand_pending',stage='expand_pending',result=$1,mode='live' WHERE id=$2", asJSON(d), id)
+			_, err = tx.Exec(context.Background(), "UPDATE tasks SET status='expand_pending',stage='expand_pending',result=$1,mode='live',input=jsonb_set(jsonb_set(input,'{detail}',to_jsonb($3::text)),'{pages}',to_jsonb($4::int)) WHERE id=$2", asJSON(d), id, "", in.Pages)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -210,18 +200,31 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 					next.Generation = nil
 					next.Slides = []Slide{good}
 					if mode == "render-outage" {
-						next.Slides = []Slide{sampleDeck(in).Slides[requestedPage-1]}
+						next.Slides = []Slide{directHTTPFixtureDeck(sampleDeck(in)).Slides[requestedPage-1]}
 					}
-					raw = string(asJSON(next))
+					raw = string(asJSON(directHTTPFixtureDeck(next)))
 				}
 				respond(w, 200, map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]string{"content": raw}}}})
 			}))
 			defer provider.Close()
 			s.cfg.Mode, s.cfg.LLMURL, s.cfg.LLMKey, s.cfg.LLMModel = "live", provider.URL, "test", "test"
+			configureDirectHTTPFixture(t, s, in, provider.URL)
 			if err = s.workOne(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			if truncate {
+				// Advance queue delays only; automatic retries retain their persisted counters.
+				for round := 0; round < 8; round++ {
+					state := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+					if state["status"] == "failed" {
+						break
+					}
+					makeAutomaticRetryReady(t, s, id)
+					if err = s.workOne(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				}
+
 				failed := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 				if failed["status"] != "failed" || failed["charge_state"] != "released" || calls != 6 {
 					t.Fatal("unbounded length repair", calls, failed["status"])
@@ -235,7 +238,7 @@ func TestCoursewareLocalRepairHTTP(t *testing.T) {
 			if outage {
 				failed := worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
 				if failed["status"] != "expand_pending" || failed["charge_state"] != "reserved" || len(failed["result"].(map[string]any)["slides"].([]any)) != 7 || calls != 1 {
-					t.Fatal("renderer outage discarded generated page", failed["status"], calls)
+					t.Fatal("renderer outage discarded generated page", failed["status"], failed["error"], calls)
 				}
 				s.cfg.RenderURL = realRender
 				makeAutomaticRetryReady(t, s, id)

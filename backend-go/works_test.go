@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,7 +21,9 @@ func worksServer(t *testing.T) *Server {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("requires isolated PostgreSQL")
 	}
-	s, err := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", SeedPassword: "test-pass-123", Storage: t.TempDir(), RenderURL: os.Getenv("TEST_RENDER_URL")})
+	// Keep the explicit simulated-payment policy stable when a fixture switches
+	// sample/live providers, so billing snapshots still compare the full account.
+	s, err := NewServer(context.Background(), Config{DatabaseURL: isolatedTestDatabase(t), RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", AllowSimulatedPayment: true, SeedPassword: "test-pass-123", Storage: t.TempDir(), RenderURL: os.Getenv("TEST_RENDER_URL")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +34,10 @@ func worksServer(t *testing.T) *Server {
 func worksCall(t *testing.T, s *Server, method, path, token string, body any, want int) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, path, bytes.NewReader(asJSON(body)))
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(t.Name()))
+	sum := h.Sum32()
+	r.RemoteAddr = net.JoinHostPort(net.IPv4(198, 18, byte(sum>>8), byte(sum)).String(), "1234")
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, r)
@@ -273,6 +281,9 @@ func TestWorksViewsCollapseRetriesHTTP(t *testing.T) {
 
 func TestWorksDeletionStopsStreamsAndSourceReuse(t *testing.T) {
 	s := worksServer(t)
+	s.cfg.Mode = "live"
+	s.cfg.AnimationLLMURL, s.cfg.AnimationLLMKey, s.cfg.AnimationLLMModel = "http://127.0.0.1:1", "fixture", "fixture"
+	s.cfg.TTS = ttsConfig{Provider: "volcengine", Protocol: "create", URL: "http://127.0.0.1:1/tts", Key: "fixture", Model: "seed-audio-1.0", Unit: "sentence", Format: "mp3", SampleRate: 48000}
 	token := worksLogin(t, s, "admin")
 	other := worksLogin(t, s, "other")
 	id := worksFixture(t, s, token, "courseware", "succeeded", "浮力", TaskInput{})

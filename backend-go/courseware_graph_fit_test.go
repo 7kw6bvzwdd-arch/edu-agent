@@ -42,7 +42,7 @@ func TestFunctionComparisonReservesSpaceBeforeModelRepair(t *testing.T) {
 	if err != nil || len(b) < 1000 {
 		t.Fatal("comparison graph still blocked", err)
 	}
-	if !strings.Contains(d.Slides[0].Notes, focus) || len(d.Slides[0].Graph.Series) != 2 || d.Slides[0].Formula != `y=kx+b\ (k\neq 0)` {
+	if !strings.Contains(d.Slides[0].Notes+d.Slides[0].Focus+strings.Join(d.Slides[0].Bullets, " "), focus) || len(d.Slides[0].Graph.Series) != 2 || d.Slides[0].Formula != `y=kx+b\ (k\neq 0)` {
 		t.Fatal("fit removed evidence")
 	}
 }

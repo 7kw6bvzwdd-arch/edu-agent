@@ -12,6 +12,23 @@ TABLE = {'title': '列车时刻表（教学示例）', 'headers': ['站点', '�
          'rows': [['甲站', '—', '08:00'], ['乙站', '08:30', '08:32'], ['丙站', '09:00', '—']]}
 
 
+def test_legacy_triangle_does_not_invent_an_unsupplied_equation():
+    data = {'title': '制度比较', 'theme': 'ocean', 'slides': [
+        {'title': '从君主专制到共和政体', 'bullets': ['比较两种制度'], 'diagram': 'triangle'}]}
+    response = TestClient(app).post('/render/pptx', json=data)
+    assert response.status_code == 200, response.text
+    ppt = Presentation(io.BytesIO(response.content))
+    text = '\n'.join(s.text for s in ppt.slides[0].shapes if s.has_text_frame)
+    assert 'a² + b² = c²' not in text, text
+    data['editable_formulas'] = True
+    data['slides'][0]['formula'] = 'a^2+b^2=c^2'
+    response = TestClient(app).post('/render/pptx', json=data)
+    assert response.status_code == 200, response.text
+    ppt = Presentation(io.BytesIO(response.content))
+    assert '<m:oMath' in ppt.slides[0]._element.xml
+    assert 'a2+b2=c2' in ''.join(ppt.slides[0]._element.itertext())
+
+
 def test_force_label_does_not_repeat_matching_magnitude():
     data={'title':'浮力','theme':'ocean','slides':[{'title':'漂浮小球受力','layout':'concept',
         'bullets':['漂浮小球只受重力和浮力'], 'scientific':{'kind':'forces','title':'二力平衡',

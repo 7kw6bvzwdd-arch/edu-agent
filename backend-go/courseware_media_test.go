@@ -57,8 +57,10 @@ func TestTeachingPictureRewritePreservesImageHTTP(t *testing.T) {
 		if bytes.Contains(raw, []byte(d.Slides[0].Picture.DataURL)) {
 			t.Error("rewrite model received image binary")
 		}
-		rewritten := d.Slides[0]
+		rewritten := directHTTPFixtureDeck(d).Slides[0]
+		rewritten.HTML = strings.Replace(rewritten.HTML, rewritten.Title, "观察浮力方向", 1)
 		rewritten.Title = "观察浮力方向"
+		rewritten.HTML += `<img data-teaching-picture alt="教师自绘示意" style="position:absolute;left:500px;top:330px;width:400px;height:200px;object-fit:contain">`
 		rewritten.Picture = &TeachingPicture{DataURL: "https://example.com/fabricated.png", Caption: "模型伪造", Source: "伪造"}
 		respond(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(asJSON(rewritten))}}}})
 	}))
@@ -71,7 +73,7 @@ func TestTeachingPictureRewritePreservesImageHTTP(t *testing.T) {
 	}
 	result := worksObject(t, worksCall(t, s, "GET", "/api/tasks/"+child, owner, nil, 200))
 	if result["status"] != "succeeded" || calls != 1 {
-		t.Fatalf("rewrite failed: status=%v error=%v calls=%d", result["status"], result["error"], calls)
+		t.Fatalf("rewrite failed: status=%v error=%v calls=%d events=%v", result["status"], result["error"], calls, result["events"])
 	}
 	var saved Deck
 	parent := worksObject(t, worksCall(t, s, "GET", route, owner, nil, 200))

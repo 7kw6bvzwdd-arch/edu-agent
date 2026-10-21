@@ -54,6 +54,9 @@ func (s *Server) postBytesWithClient(ctx context.Context, client *http.Client, u
 		return nil, providerTransportError(ctx, e)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		if strings.HasPrefix(url, s.cfg.RenderURL+"/render/authored-animation-check") {
+			return nil, authoredAnimationHTTPError(res.StatusCode, b)
+		}
 		if url == s.cfg.RenderURL+"/render/pptx" || strings.HasPrefix(url, s.cfg.RenderURL+"/render/canvas-preview-pptx?") {
 			if res.StatusCode == 422 {
 				return nil, renderValidationError(b)
@@ -102,22 +105,32 @@ func renderValidationError(body []byte) error {
 	message := "PPT内容不符合排版要求，请检查页面字段、公式和图表"
 	if json.Unmarshal(body, &reply) == nil {
 		if known := map[string]string{
-			"canvas_rotation_protected": "学科图示和公式保持原方向，请调整位置或大小",
-			"canvas_text_too_small":     "缩放后文字过小，请放大对象后保存；原版本仍保留",
-			"canvas_outside_slide":      "对象移动超出了页面边界，请移回页面后保存；原版本仍保留",
-			"canvas_object_missing":     "页面结构已变化，请关闭对象移动并重新打开后调整",
-			"text_overflow":             "文字过密，请缩短要点、将详细推导移到讲解备注，或拆分页面",
-			"formula_invalid":           "公式包含不支持的语法，请检查LaTeX命令",
-			"formula_overflow":          "公式过长或过高，请拆分公式",
-			"chart_invalid":             "图表标签与数据不匹配或标签过长，请检查图表",
-			"content_invalid":           "内容字段格式或长度不符合要求，请检查后再导出",
+			"authored_text_unmarked":     "页面包含未标记的可见文字，请为每段可见文字添加唯一data-editable标记",
+			"canvas_rotation_protected":  "学科图示和公式保持原方向，请调整位置或大小",
+			"canvas_text_too_small":      "缩放后文字过小，请放大对象后保存；原版本仍保留",
+			"canvas_outside_slide":       "对象移动超出了页面边界，请移回页面后保存；原版本仍保留",
+			"canvas_object_missing":      "页面结构已变化，请关闭对象移动并重新打开后调整",
+			"text_overflow":              "文字过密，请缩短要点、将详细推导移到讲解备注，或拆分页面",
+			"formula_invalid":            "公式包含不支持的语法，请检查LaTeX命令",
+			"formula_overflow":           "公式过长或过高，请拆分公式",
+			"chart_invalid":              "图表标签与数据不匹配或标签过长，请检查图表",
+			"authored_page_invalid":      "页面源码未通过实际浏览器校验，请检查文字标记、越界、脚本与离线资源",
+			"authored_text_overlap":      "页面中不同文字标记互相重叠，请分开标签和标题，调整位置后重新导出",
+			"authored_text_outside":      "页面文字超出1280×720画布，请移回画布并预留边距",
+			"authored_text_overflow":     "文字容器发生溢出，请扩大容器或精简文字后重新导出",
+			"authored_text_transform":    "可编辑文字不能使用transform，请直接调整文字元素的位置",
+			"authored_text_ids":          "每个data-editable标记必须唯一且不能嵌套",
+			"authored_text_empty":        "空的data-editable标记无效，请删除或补充可见文字",
+			"authored_text_unmeasurable": "文字无法测量，请使用普通HTML文字并设置可见字体大小",
+			"authored_layout_owned":      "直接生成页请在页面中修改位置，不能混用旧模板偏移",
+			"content_invalid":            "内容字段格式或长度不符合要求，请检查后再导出",
 		}[reply.Detail.Code]; known != "" {
 			message = known
 		}
 		if reply.Detail.Page >= 1 && reply.Detail.Page <= 100 {
 			message = fmt.Sprintf("第%d页：%s", reply.Detail.Page, message)
 		}
-		if field := map[string]string{"formula": "公式", "bullets": "正文要点", "title": "标题", "chart": "图表", "notes": "讲解备注", "section": "章节标题", "diagram": "示意图", "table": "教学表格", "figure": "教学图解", "focus": "核心问题或结论", "picture": "配图", "emphasis": "重点标色"}[reply.Detail.Field]; field != "" {
+		if field := map[string]string{"html": "页面源码", "formula": "公式", "bullets": "正文要点", "title": "标题", "chart": "图表", "notes": "讲解备注", "section": "章节标题", "diagram": "示意图", "table": "教学表格", "figure": "教学图解", "focus": "核心问题或结论", "picture": "配图", "emphasis": "重点标色"}[reply.Detail.Field]; field != "" {
 			message += "（" + field + "）"
 		}
 	}
@@ -152,9 +165,16 @@ func (s *Server) chatWithProvider(ctx context.Context, a Actor, task, url, key, 
 	maxTokens := 6000
 	if operation == "slide.rewrite" || operation == "courseware.review" {
 		maxTokens = 3000
+		if operation == "slide.rewrite" {
+			maxTokens = 12000
+		}
 	}
 	if len(outputLimit) > 0 {
-		maxTokens = min(12000, max(1000, outputLimit[0]))
+		limit := 12000
+		if operation == "courseware.generate" || operation == "courseware.plan_repair" {
+			limit = 30000
+		}
+		maxTokens = min(limit, max(1000, outputLimit[0]))
 	}
 	// Copy the client so long-form chat has its own deadline without changing other services.
 	client := *s.http
@@ -299,7 +319,7 @@ func (s *Server) generate(ctx context.Context, a Actor, id string, in TaskInput,
 				return d, repairErr
 			}
 			var repaired Deck
-			if err := decodeCourseware(raw, &repaired); err != nil {
+			if err := decodeAuthoredCourseware(raw, &repaired); err != nil {
 				s.planRepairEvent(ctx, a, id, "修复输出格式检查："+err.Error())
 				return d, fail(422, "课件修复输出无效："+err.Error())
 			}

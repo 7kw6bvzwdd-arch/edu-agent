@@ -43,7 +43,7 @@ func TestPausedContentReviewResumesSavedPageHTTP(t *testing.T) {
 				w.WriteHeader(400)
 				return
 			}
-			d := sampleDeck(in)
+			d := directHTTPFixtureDeck(sampleDeck(in))
 			d.Slides = d.Slides[page-1 : page]
 			raw = string(asJSON(d))
 		} else {
@@ -107,6 +107,13 @@ func TestPausedContentReviewResumesSavedPageHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	v = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+	for round := 0; round < 8 && v["status"] == "pending"; round++ {
+		makeAutomaticRetryReady(t, s, id)
+		if err = s.workOne(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		v = worksObject(t, worksCall(t, s, "GET", route, token, nil, 200))
+	}
 	var done Deck
 	json.Unmarshal(asJSON(v["result"]), &done)
 	if v["status"] != "awaiting_preview" || generated != 3 || hash != slideContentHash(done, done.Slides[0]) {
@@ -125,7 +132,7 @@ func TestPausedContentReviewResumesSavedPageHTTP(t *testing.T) {
 		t.Fatal("teacher must see content reviewer disabled")
 	}
 	report := s.assessTeaching(context.Background(), a, id, "courseware", done, nil)
-	if report["status"] != "partial" || report["content_review"] != "disabled" {
+	if report["status"] != "unavailable" || !strings.Contains(fmt.Sprint(report["reason"]), "全课") {
 		t.Fatal("disabled review presented as fully reviewed", report)
 	}
 	s.cfg.ReviewURL, s.cfg.ReviewKey, s.cfg.ReviewModel = "", "", ""

@@ -10,7 +10,7 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  let expectedSource='';
  server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'http://localhost'),p=url.pathname;let payload='';for await(const c of req)payload+=c;const data=payload&&p!=="/api/media"?JSON.parse(payload):{};let result;
   if(p.startsWith('/api/')){res.setHeader('Content-Type','application/json');if(p!=='/api/health'&&req.headers.authorization!=='Bearer fixture'){res.writeHead(401);return res.end(JSON.stringify({message:'unauthorized'}))}
-   if(req.method!=='GET'&&p!=='/api/media')writes.push({path:p,data});
+   if(req.method!=='GET'&&p!=='/api/media'&&!p.endsWith('/preview-visual'))writes.push({path:p,data});
    if(p==='/api/tasks'&&req.method==='POST'&&failCreate){res.writeHead(503);return res.end(JSON.stringify({message:'动画服务暂不可用，请重试。'}))}
    if(p==='/api/media'&&req.method==='POST'){assert.ok(payload.includes('filename='));result={asset_id:'a'.repeat(32),width:160,height:100}}
    else if(p==='/api/media/'+ 'a'.repeat(32)){res.setHeader('Content-Type','image/png');return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2uoAAAAASUVORK5CYII=','base64'))}
@@ -30,6 +30,13 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
    else if(p.endsWith('/download/mp4')){res.setHeader('Content-Type','video/mp4');return res.end(Buffer.from('explicit-ui-video-fixture'))}
    else if(p.endsWith('/animation/file')||p.endsWith('/download/html')){res.setHeader('Content-Type','text/html');return res.end(html)}
    else if(p.endsWith('/events')){res.setHeader('Content-Type','text/event-stream');return res.end(': fixture'+String.fromCharCode(10,10))}
+   else if(p.endsWith('/animation/preview-visual')){
+    assert.equal(data.revision,state.revision);
+    const scene=state.script.scenes.find(s=>s.id===data.scene_id);assert.ok(scene);
+    const visual=scene.objects.find(o=>o.type==='scientific');assert.ok(visual);
+    const response=await fetch((process.env.SCIENCE_RENDER_URL||'http://127.0.0.1:18124')+'/render/scientific',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({diagram:visual.scientific})});
+    assert.equal(response.status,200);result=await response.json();
+   }
    else if(p.includes('/animation/')){const action=p.split('/').at(-1);assert.equal(data.revision,['export','cancel-export'].includes(action)?state.accepted_revision:state.revision);
     if(action==='set-picture'){assert.equal(data.picture.asset_id,'a'.repeat(32));task.input.animation_picture=data.picture;state.revision++}
     else if(action==='revise-plan'){assert.ok(data.request_key);state.revision++;state.script.title='修改后的一次函数方案';state.status='anim_plan'}
@@ -58,17 +65,20 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await call('Runtime.enable');await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await call('Page.addScriptToEvaluateOnNewDocument',{source:"sessionStorage.setItem('edu_token','fixture')"});await call('Page.navigate',{url:'http://127.0.0.1:8197'});await wait("document.body.innerText.includes('测试教师')");await click('所有工具');await click('教学动画');await wait("!!document.querySelector('.anim-brief')");await shot('create');
  check('creation uses the shared generator form',await ev("!!document.querySelector('.animation-generator .generator-fields')"));
  check('opening animation does not create a task',writes.length===0);
- check('three illustrated examples load without generation',await ev("document.querySelectorAll('.anim-example-grid img').length===3&&Array.from(document.querySelectorAll('.anim-example-grid img')).every(i=>i.complete&&i.naturalWidth>0)"));
+ check('illustrated examples load without generation',await ev("document.querySelectorAll('.anim-example-grid img').length>=3&&Array.from(document.querySelectorAll('.anim-example-grid img')).every(i=>i.complete&&i.naturalWidth>0)"));
  await ev("document.querySelector('.anim-example-preview').click()");await wait("!!document.querySelector('.anim-example-player iframe')");check('example opens offline player in sandbox',await ev("document.querySelector('.anim-example-player iframe').getAttribute('sandbox')==='allow-scripts'"));await click('收起示例');
  await ev("document.querySelector('.anim-example-grid article button:last-child').click()");check('example fills subject and teaching requirements',await ev("document.querySelector('[aria-label=动画学科]').value==='地理'&&document.querySelector('[aria-label=动画主题]').value.includes('水循环')"));
  await ev(`(async()=>{const canvas=document.createElement('canvas');canvas.width=160;canvas.height=100;const c=canvas.getContext('2d');c.fillStyle='#72bc8b';c.fillRect(0,0,160,100);const blob=await new Promise(r=>canvas.toBlob(r,'image/png')),dt=new DataTransfer();dt.items.add(new File([blob],'teacher.png',{type:'image/png'}));const input=document.querySelector('.anim-picture-upload input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
  await wait("!!document.querySelector('.anim-picture-upload img')");await fill('.anim-picture-upload input[placeholder]','教师自绘结构图');check('teacher image preview loads through authenticated asset fetch',await ev("document.querySelector('.anim-picture-upload img').src.startsWith('blob:')"));
 
  await fill('[aria-label="动画年级"]','九年级');
+ check('opening and duration defaults are visible',await ev("document.querySelector('[aria-label=动画开场方式]').value==='natural'&&document.querySelector('[aria-label=动画目标时长]').value==='60-90'"));
+ await fill('[aria-label=动画开场方式]','direct');await fill('[aria-label=动画目标时长]','90-120');
+
  for(const width of [1024,820,390]){await call('Emulation.setDeviceMetricsOverride',{width,height:width===390?844:1000,deviceScaleFactor:1,mobile:width===390});check('creation has no overflow at '+width,await ev('document.documentElement.scrollWidth<=innerWidth'));if(width===390)await shot('create-mobile')}
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  failCreate=true;await fill('[aria-label=动画主题]','一次函数改变k');await fill('[aria-label=动画教学要求]','保持 b 不变比较 k');await click('生成分镜方案');await wait("document.querySelector('.anim-brief .alert.error')?.textContent.includes('暂不可用')");check('failed creation retains teaching inputs',await ev("document.querySelector('[aria-label=动画主题]').value.includes('一次函数')&&document.querySelector('[aria-label=动画教学要求]').value.includes('保持 b')"));check('failed creation does not reserve credits',state===null);failCreate=false;
- await click('生成分镜方案');await wait("document.body.innerText.includes('请审核分镜方案')");check('selected grade reaches animation request',writes[0].data.grade==='九年级');check('planning does not reserve credits',state.charge_state==='unreserved');check('uploaded image and caption reach owned task',task.input.animation_picture?.caption==='教师自绘结构图'&&task.input.animation_picture.asset_id==='a'.repeat(32)&&!task.input.animation_picture.data_url);await click('我的作品');await wait("!!document.querySelector('[data-task-id=fixture-animation] .task-open')");await ev("document.querySelector('[data-task-id=fixture-animation] .task-open').click()");await wait("document.body.innerText.includes('请审核分镜方案')");check('saved storyboard reopens without new task or reservation',writes.filter(w=>w.path==='/api/tasks').length===2&&state.charge_state==='unreserved');await fill('.anim-actions textarea','把标题改为修改后的一次函数方案');await click('修改方案');await wait("document.body.innerText.includes('修改后的一次函数方案')");await shot('plan');check('plan revision sent with request key',writes.some(w=>w.path.endsWith('/revise-plan')&&w.data.request_key));
+ await click('生成分镜方案');await wait("document.body.innerText.includes('请审核分镜方案')");check('selected grade reaches animation request',writes[0].data.grade==='九年级');check('opening and duration settings reach the task',task.input.animation_opening==='direct'&&task.input.animation_min_seconds===90&&task.input.animation_max_seconds===120);check('planning does not reserve credits',state.charge_state==='unreserved');check('uploaded image and caption reach owned task',task.input.animation_picture?.caption==='教师自绘结构图'&&task.input.animation_picture.asset_id==='a'.repeat(32)&&!task.input.animation_picture.data_url);await click('我的作品');await wait("!!document.querySelector('[data-task-id=fixture-animation] .task-open')");await ev("document.querySelector('[data-task-id=fixture-animation] .task-open').click()");await wait("document.body.innerText.includes('请审核分镜方案')");check('saved storyboard reopens without new task or reservation',writes.filter(w=>w.path==='/api/tasks').length===2&&state.charge_state==='unreserved');await fill('.anim-actions textarea','把标题改为修改后的一次函数方案');await click('修改方案');await wait("document.body.innerText.includes('修改后的一次函数方案')");await shot('plan');check('plan revision sent with request key',writes.some(w=>w.path.endsWith('/revise-plan')&&w.data.request_key));
  await click('确认方案，预留40积分');await wait("document.body.innerText.includes('请观看并确认代表幕')&&!!document.querySelector('iframe')");check('representative acceptance requires explicit checkbox',await ev("Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('确认代表幕，生成其余幕')).disabled"));check('HTML preview has opaque sandbox',await ev("document.querySelector('iframe').getAttribute('sandbox')==='allow-scripts'&&document.querySelector('iframe').src.startsWith('blob:')"));await shot('representative');
  check('preview leads the workspace beside the inspector',await ev("(()=>{const p=document.querySelector('.anim-preview').getBoundingClientRect(),a=document.querySelector('.anim-actions').getBoundingClientRect();return p.width>a.width&&p.right<=a.left})()"));
  for(const width of [1024,820,390]){await call('Emulation.setDeviceMetricsOverride',{width,height:width===390?844:1000,deviceScaleFactor:1,mobile:width===390});check('review has no overflow at '+width,await ev('document.documentElement.scrollWidth<=innerWidth'));if(width===390)await shot('representative-mobile')}
@@ -91,6 +101,24 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
  await fill('[aria-label=动画主题]','矩形平移与直角三角形旋转');await fill('[aria-label=动画教学要求]','观察平移和旋转前后面积不变');await click('生成分镜方案');await wait("document.body.innerText.includes('平移与旋转中的面积不变')");
  check('geometry request retains selected topic',writes.at(-1).data.topic==='矩形平移与直角三角形旋转');
  await click('我的作品');await wait("!!document.querySelector('[data-task-id=fixture-animation] .task-open')");await ev("document.querySelector('[data-task-id=fixture-animation] .task-open').click()");await wait("document.body.innerText.includes('平移与旋转中的面积不变')");check('geometry storyboard reopens from my works',state.script.archetype==='geo.transform@1');
+ // Carbon covers the real diagram preview in the actual workbench, before reservation.
+ await click('我的作品');await wait("!!document.querySelector('.collection-create')");await click('新建动画');await wait("!!document.querySelector('.anim-brief')");
+ script=JSON.parse(await fs.readFile(path.join(root,'fixtures/animation-v2-carbon.json'),'utf8'));expectedSource='';
+ await fill('[aria-label=动画学科]','化学');await fill('[aria-label=动画主题]',script.title);await fill('[aria-label=动画教学要求]','比较金刚石、石墨和C60的动态结构');await click('生成分镜方案');
+ await wait("document.querySelectorAll('.anim-scene .science-visual img[data-science-kind=carbon]').length===4");
+ check('carbon storyboard draws four actual renderer previews',await ev("Array.from(document.querySelectorAll('.anim-scene .science-visual img')).every(i=>i.complete&&i.naturalWidth===1000&&i.src.startsWith('data:image/gif'))"));
+ check('preview does not reserve quota or create additional work',state.charge_state==='unreserved'&&!writes.some(w=>w.path.endsWith('/preview-visual')));
+ await shot('carbon-plan');
+ await click('我的作品');await wait("!!document.querySelector('[data-task-id=fixture-animation] .task-open')");await ev("document.querySelector('[data-task-id=fixture-animation] .task-open').click()");
+ await wait("document.querySelectorAll('.anim-scene .science-visual img[data-science-kind=carbon]').length===4");
+ check('saved carbon plan reopens with graphic previews',state.script.title.includes('碳单质'));
+ state.status=task.status='failed';state.duration_ms=57000;state.problems=['真实成片时长57秒，不符合目标60至90秒，请修改方案'];
+ await click('我的作品');await wait("!!document.querySelector('[data-task-id=fixture-animation] .task-open')");await ev("document.querySelector('[data-task-id=fixture-animation] .task-open').click()");
+ await wait("document.body.innerText.includes('制作待恢复')&&!!document.querySelector('.anim-revise-button')");
+ check('duration failure exposes plan repair and measured duration',await ev("document.querySelector('.anim-stage').textContent.includes('57.0')&&document.body.innerText.includes('不符合目标')&&!!document.querySelector('.anim-json-editor')"));
+ await fill('.anim-actions textarea','增加有意义的观察与思考时间');await click('修改方案');await wait("document.body.innerText.includes('请审核分镜方案')");
+ check('failed build returns to editable plan',writes.at(-1).path.endsWith('/revise-plan')&&state.charge_state==='unreserved');
+
  configured=false;await call('Page.reload');await wait("document.body.innerText.includes('测试教师')");await click('所有工具');await click('教学动画');await wait("!!document.querySelector('.anim-unavailable')");check('unconfigured service disables generation with explanation',await ev("document.querySelector('.anim-brief .generator-submit').disabled"));
  if(errors.length)console.error(errors);check('no browser or API exceptions',errors.length===0);await fs.writeFile(path.join(out,'report.json'),JSON.stringify({mode:'fixture APIs with real Vue build',checks,writes: writes.map(w=>w.path),errors},null,2));console.log(checks.length+' browser workflow checks passed');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{try{socket?.close()}catch{}browser?.kill();server?.close()});

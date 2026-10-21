@@ -1,0 +1,24 @@
+{
+  "biology/20261020-174351-8454": {
+    "report_sha256": "7aa29b31bccc6aa49ebc657bdd9867c966ab0de3b291c02f3c28151dd407cb75",
+    "quality_status": "failed",
+    "review_kind": "agent_evidence_inspection",
+    "teacher_accepted": false,
+    "findings": [
+      {
+        "page": 6,
+        "severity": "error",
+        "evidence": "可见任务写左图植物细胞、右图动物细胞，实际仅一个plant scientific，无第二幅图。模型全课checked未识别为阻塞。",
+        "repair": "规划前移单页科学图容量检查，生成时按实际图改写任务；单图双图任务的确定性门禁接入逐页与交付检查。",
+        "same_version_live_retest": "pending"
+      },
+      {
+        "page": 4,
+        "severity": "needs_review",
+        "evidence": "线粒体比较行植物为破折号、动物为有，与第8页两者都有的表格及本课目标不一致；细胞壁、叶绿体、液泡合行还混淆典型与普遍条件。",
+        "repair": "按实际典型模型与生物条件分别表述，并重新核对任务、表格、答案和跨页一致性。",
+        "same_version_live_retest": "pending"
+      }
+    ]
+  }
+}

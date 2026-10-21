@@ -20,7 +20,7 @@ BOOK_GLYPHS = str.maketrans({'犪':'a', '犫':'b', '犮':'c', '犽':'k',
 BOOK_FONTS={'E-BX9-PK748162','E-BX9-PK748163','E-BX9-PK7481a2',
             'E-BX9-PK7481a4','E-BX9-PK7481a5'}
 FULLWIDTH = str.maketrans({**{chr(n):chr(n-0xfee0) for n in range(0xff01,0xff5f)}, '\u3000':' '})
-ATOM = re.compile(r'[A-Za-z0-9.+−\-()^_]+\Z')
+ATOM = re.compile(r'[A-Za-z0-9.+−×\-()^_]+\Z')
 
 
 def _chars(page, warnings):

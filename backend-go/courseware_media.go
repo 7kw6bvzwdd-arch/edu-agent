@@ -91,14 +91,15 @@ type FunctionSeries struct {
 	MarkX []float64 `json:"mark_x,omitempty"`
 }
 type FunctionGraph struct {
-	Renderer  string             `json:"renderer,omitempty"`
-	Title     string             `json:"title"`
-	XMin      float64            `json:"x_min"`
-	XMax      float64            `json:"x_max"`
-	YMin      float64            `json:"y_min"`
-	YMax      float64            `json:"y_max"`
-	Series    []FunctionSeries   `json:"series"`
-	Animation *FunctionAnimation `json:"animation,omitempty"`
+	RevealOnClick bool               `json:"reveal_on_click,omitempty"`
+	Renderer      string             `json:"renderer,omitempty"`
+	Title         string             `json:"title"`
+	XMin          float64            `json:"x_min"`
+	XMax          float64            `json:"x_max"`
+	YMin          float64            `json:"y_min"`
+	YMax          float64            `json:"y_max"`
+	Series        []FunctionSeries   `json:"series"`
+	Animation     *FunctionAnimation `json:"animation,omitempty"`
 }
 type FunctionAnimation struct {
 	Series     int     `json:"series"`
@@ -140,6 +141,9 @@ func validateTeachingMedia(sl Slide) error {
 		return len([]rune(s)) <= limit && (!required || strings.TrimSpace(s) != "")
 	}
 	if g := sl.Graph; g != nil {
+		if g.RevealOnClick && (g.Animation != nil || g.Renderer == "matplotlib") {
+			return fail(400, "原生点击动画须使用原生曲线，不能同时导出参数GIF")
+		}
 		if m := g.Animation; m != nil {
 			if m.Series < 0 || m.Series >= len(g.Series) || m.DurationMS < 1000 || m.DurationMS > 8000 || math.IsNaN(m.To) || math.IsInf(m.To, 0) || math.Abs(m.To) > 1000 {
 				return fail(400, "函数动图需有效曲线、1至8秒时长和有限目标系数")
@@ -336,6 +340,7 @@ const coursewareMediaContract = matplotlibPlotContract + `
 课堂图解字段（可省略，不要null）：
 emphasis：0–6个重点词的字符串数组，每词最多20字，必须来自本页正文/表格/核心问题，只标关键概念或数值，不把整句标色。
 picture仅由教师上传或后端检索审核通过后提供PNG/JPEG/GIF；模型只描述image_need，不得生成图片data_url、素材ID或伪造图片地址。配图不能代替实际图解或来源证据。
+配图优先复用企业知识库的PDF/PPTX原图，记录原文件及页码，相关性筛选通过后自动插入；UseWeb=false只禁止公开网页搜索，不禁止已启用知识库的资料配图。图片不能替代来源文字证据，不推断未知作者或许可。
 focus：最多60字的具体核心问题或结论，单独突出显示，不重复标题。导入与练习页只写问题/提示，不提前公布答案；答案与依据放notes，概念讲解与例题页可以展示结论。
 table：{title:短标题,headers:[列名],rows:[[单元格文字]]}；2–4列、1–5行数据，全部字符串，表头最多24字，单元格最多60字。用于真实的条件对照、实验记录或分类，不用表格装饰普通段落。每行列数一致，未知数值用“待测”，不能编造实测。
 figure：{kind:flow、timeline或route,title:短标题,items:[{label:短标签,detail:简短说明}]}；timeline支持2–6个节点，其他类型2–4个节点，标签最多24字，说明最多60字。flow表达真实的实验步骤/解题推理，timeline表达先后顺序（不按时间比例，不能充当坐标图），5–6节点时标签写事件与年份，说明尽量12字内，完整讲解放notes，不能为了节点上限省略教学目标要求的事件。route表达2–4个实际相关地点的连接关系（示意，不表示实际方向或距离；标签建议8字内，说明12字内），适合旅程、物流等情境，不能用于证明位移或冒充真实地图。只用与课题直接有关的节点，不写“观察→思考→总结”凑图。

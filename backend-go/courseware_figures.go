@@ -17,7 +17,9 @@ func arrangeCoursewareFigures(d Deck) Deck {
 		}
 		f := *original.Figure
 		limit := 4
-		if f.Kind == "timeline" {
+		// A legacy table shares the panel height; six timeline rows no longer fit.
+		// Planned pages retain their own explicit capacity contract.
+		if f.Kind == "timeline" && original.Table == nil {
 			limit = 6
 		}
 		if (f.Kind != "flow" && f.Kind != "timeline" && f.Kind != "route" && f.Kind != "interval") || len(f.Items) < 2 || len(f.Items) > 40 {

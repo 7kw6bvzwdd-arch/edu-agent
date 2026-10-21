@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('backend-go/animplayer/player.js','utf8');
+const base=JSON.parse(fs.readFileSync('fixtures/animation-v2-lesson.json','utf8'));
+const scene=base.scenes[0];scene.objects=[{id:'ideas',type:'card',slot:'main',text:'结构不同',items:['金刚石','石墨'],item_sentences:[scene.narration[0].id,scene.narration[1].id]}];scene.actions=[];
+const spans={id:scene.id,start:0,end:6000,sentences:scene.narration.map((n,i)=>({id:n.id,start:i*3000,end:i*3000+2500})),actions:[]};
+const stage={namespaceURI:'svg'},nodes=[];
+const doc={getElementById:id=>id==='stage'?stage:{textContent:JSON.stringify({script:{...base,scenes:[scene]},timeline:{scenes:[spans],total_ms:6000}})},createElementNS:(ns,tag)=>({tag,attrs:{},children:[],setAttribute(k,v){this.attrs[k]=v},appendChild(e){this.children.push(e);nodes.push(e)}})};stage.appendChild=e=>nodes.push(e);stage.setAttribute=()=>{};
+const context={document:doc,window:{}};
+vm.runInNewContext(source.slice(0,source.indexOf('const P ='))+'window.test={render,stateAt};})();',context);
+context.window.test.render(1000);
+assert.equal(nodes.filter(n=>n.attrs['data-item']!==undefined).length,2,'teaching text must be independently addressable');
+const items=()=>nodes.filter(n=>n.attrs['data-item']!==undefined);
+assert.equal(items()[0].attrs.opacity,1);
+assert.equal(items()[1].attrs.opacity,0,'later text must stay hidden before its sentence');
+const early=JSON.stringify(nodes);nodes.length=0;context.window.test.render(4000);
+assert.equal(nodes.filter(n=>n.tag==='rect'&&n.attrs['data-item-box']!==undefined).length,0,'keywords must not be framed as repeated table cells');
+assert.equal(items()[1].attrs.opacity,1,'later text appears with narration');
+assert.equal(items()[1].attrs['data-active'],true);
+nodes.length=0;context.window.test.render(1000);assert.equal(JSON.stringify(nodes),early,'seek restores item states');
+console.log('text component regression passed: independent items, sentence cues and deterministic seeking');
+scene.objects=[{id:'compare',type:'comparison',slot:'main',text:'结构决定性质',items:['金刚石：空间网络，坚固','石墨：层内紧密，层间可滑动','C60：闭合笼状，可转动观察']}];
+vm.runInNewContext(source.slice(0,source.indexOf('const P ='))+'window.test={render,stateAt};})();',context);
+nodes.length=0;context.window.test.render(4000);
+const multiline=items().filter(item=>item.children.filter(n=>n.tag==='text').length>1);
+assert.ok(multiline.length>=2,'exercise wrapped comparison text');
+for(const item of multiline){
+  const lines=item.children.filter(n=>n.tag==='text');
+  for(let i=1;i<lines.length;i++)assert.ok(lines[i].attrs.y-lines[i-1].attrs.y>=lines[i].attrs['font-size']*1.5,'wrapped Chinese comparison lines need room for actual font metrics');
+}
+console.log('comparison line spacing regression passed');

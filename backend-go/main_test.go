@@ -15,7 +15,7 @@ func TestHTTPMemberQuotaAndIsolation(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("Set TEST_DATABASE_URL to an isolated PostgreSQL database")
 	}
-	s, err := NewServer(context.Background(), Config{DatabaseURL: os.Getenv("TEST_DATABASE_URL"), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), SeedPassword: "test-pass-123", Storage: t.TempDir()})
+	s, err := NewServer(context.Background(), Config{DatabaseURL: isolatedTestDatabase(t), Secret: "test-secret-at-least-thirty-two-bytes", Mode: "sample", RuntimeURL: os.Getenv("TEST_RUNTIME_DATABASE_URL"), SeedPassword: "test-pass-123", Storage: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

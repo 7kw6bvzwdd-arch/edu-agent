@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+work
+storage
+.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+frontend-vue/dist
+**/*.log
